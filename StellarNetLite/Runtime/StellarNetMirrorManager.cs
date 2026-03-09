@@ -20,6 +20,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
     {
         public ServerApp ServerApp { get; private set; }
         public ClientApp ClientApp { get; private set; }
+
         public Func<object, byte[]> SerializeFunc { get; private set; }
         public Func<byte[], Type, object> DeserializeFunc { get; private set; }
 
@@ -33,6 +34,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             SerializeFunc = serializer.Serialize;
             DeserializeFunc = serializer.Deserialize;
             _netConfig = new NetConfig();
+
+            // 核心新增：在网络管理器启动时，初始化协议元数据映射器，为后续的强类型发包提供支撑
+            NetMessageMapper.Initialize();
 
             if (!_factoriesRegistered)
             {
@@ -54,6 +58,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             ServerRoomFactory.Register(1, () => new ServerRoomSettingsComponent(SerializeFunc));
             ServerRoomFactory.Register(100, () => new ServerDemoGameComponent(SerializeFunc));
+
             ServerRoomFactory.ComponentBinder = (comp, dispatcher) =>
                 AutoBinder.BindServerComponent(comp, dispatcher, DeserializeFunc);
         }
@@ -62,6 +67,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             ClientRoomFactory.Register(1, () => new ClientRoomSettingsComponent());
             ClientRoomFactory.Register(100, () => new ClientDemoGameComponent());
+
             ClientRoomFactory.ComponentBinder = (comp, dispatcher) =>
                 AutoBinder.BindClientComponent(comp, dispatcher, DeserializeFunc);
         }
@@ -69,12 +75,13 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public override void OnStartServer()
         {
             base.OnStartServer();
-            ServerApp = new ServerApp(MirrorServerSend);
+
+            // 核心修复：将 SerializeFunc 注入 ServerApp，支撑统一的强类型发包器
+            ServerApp = new ServerApp(MirrorServerSend, SerializeFunc);
 
             var userModule = new ServerUserModule(ServerApp, MirrorServerSend, SerializeFunc);
             var roomModule = new ServerRoomModule(ServerApp, MirrorServerSend, SerializeFunc);
             var lobbyModule = new ServerLobbyModule(ServerApp, MirrorServerSend, SerializeFunc);
-            // 核心新增：注册服务端录像模块
             var replayModule = new ServerReplayModule(ServerApp, MirrorServerSend, SerializeFunc);
 
             AutoBinder.BindServerModule(userModule, ServerApp.GlobalDispatcher, DeserializeFunc);
@@ -90,7 +97,8 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             if (ServerApp != null)
             {
-                var method = typeof(ServerApp).GetMethod("GetSessionByConnectionId", BindingFlags.NonPublic | BindingFlags.Instance);
+                var method = typeof(ServerApp).GetMethod("GetSessionByConnectionId",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
                 if (method != null)
                 {
                     var session = method.Invoke(ServerApp, new object[] { conn.connectionId }) as Session;
@@ -120,12 +128,13 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public override void OnStartClient()
         {
             base.OnStartClient();
-            ClientApp = new ClientApp(MirrorClientSend);
+
+            // 核心修复：将 SerializeFunc 注入 ClientApp，支撑统一的强类型发包器
+            ClientApp = new ClientApp(MirrorClientSend, SerializeFunc);
 
             var userModule = new ClientUserModule(ClientApp, MirrorClientSend, SerializeFunc);
             var roomModule = new ClientRoomModule(ClientApp, MirrorClientSend, SerializeFunc);
             var lobbyModule = new ClientLobbyModule(ClientApp, MirrorClientSend, SerializeFunc);
-            // 核心新增：注册客户端录像模块
             var replayModule = new ClientReplayModule(ClientApp, MirrorClientSend, SerializeFunc);
 
             AutoBinder.BindClientModule(userModule, ClientApp.GlobalDispatcher, DeserializeFunc);

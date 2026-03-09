@@ -26,47 +26,42 @@ namespace StellarNet.Lite.GameDemo.Client
         private string _winnerSessionId = string.Empty;
         private float _autoLeaveTimer = -1f;
 
+        // 核心新增：记录当前绑定的房间，用于动态订阅/取消订阅 EventBus，防止事件串线
+        private ClientRoom _boundRoom;
+
         private void Start()
         {
             _manager = FindObjectOfType<StellarNetMirrorManager>();
             _mainCamera = Camera.main;
         }
 
-        private void OnEnable()
-        {
-            LiteEventBus<DemoSnapshotEvent>.OnEvent += HandleSnapshot;
-            LiteEventBus<DemoPlayerJoinedEvent>.OnEvent += HandlePlayerJoined;
-            LiteEventBus<DemoPlayerLeftEvent>.OnEvent += HandlePlayerLeft;
-            LiteEventBus<DemoMoveEvent>.OnEvent += HandleMoveSync;
-            LiteEventBus<DemoHpEvent>.OnEvent += HandleHpSync;
-            LiteEventBus<DemoGameOverEvent>.OnEvent += HandleGameOver;
-        }
-
-        private void OnDisable()
-        {
-            LiteEventBus<DemoSnapshotEvent>.OnEvent -= HandleSnapshot;
-            LiteEventBus<DemoPlayerJoinedEvent>.OnEvent -= HandlePlayerJoined;
-            LiteEventBus<DemoPlayerLeftEvent>.OnEvent -= HandlePlayerLeft;
-            LiteEventBus<DemoMoveEvent>.OnEvent -= HandleMoveSync;
-            LiteEventBus<DemoHpEvent>.OnEvent -= HandleHpSync;
-            LiteEventBus<DemoGameOverEvent>.OnEvent -= HandleGameOver;
-        }
-
         private void Update()
         {
             if (_manager == null || _manager.ClientApp == null) return;
 
-            var state = _manager.ClientApp.State;
+            var app = _manager.ClientApp;
+            var state = app.State;
 
-            // 核心修复：将 ReplayRoom (回放状态) 加入白名单，防止回放时胶囊体被误杀
-            if (state != ClientAppState.OnlineRoom && state != ClientAppState.ReplayRoom)
+            // 核心架构：动态绑定/解绑当前房间的 EventBus
+            if ((state == ClientAppState.OnlineRoom || state == ClientAppState.ReplayRoom) && app.CurrentRoom != null)
             {
-                if (_views.Count > 0 || !string.IsNullOrEmpty(_winnerSessionId))
+                if (_boundRoom != app.CurrentRoom)
                 {
+                    UnbindEvents();
+                    _boundRoom = app.CurrentRoom;
+                    BindEvents();
+                }
+            }
+            else
+            {
+                if (_boundRoom != null)
+                {
+                    UnbindEvents();
+                    _boundRoom = null;
                     DestroyAllCapsules();
+                    _autoLeaveTimer = -1f;
                 }
 
-                _autoLeaveTimer = -1f;
                 return;
             }
 
@@ -77,12 +72,12 @@ namespace StellarNet.Lite.GameDemo.Client
                 {
                     _autoLeaveTimer = -1f;
                     Debug.Log("[DemoGameView] 倒计时结束，自动发送离开房间请求");
-                    var msg = new C2S_LeaveRoom();
-                    _manager.ClientApp.SendGlobal(new Packet(204, NetScope.Global, "", _manager.SerializeFunc(msg)));
+
+                    // 核心修复：使用强类型发送器，彻底消灭 Packet 拼装与魔数 204
+                    app.SendMessage(new C2S_LeaveRoom());
                 }
             }
 
-            // 核心修复：仅在真实的在线房间中才允许玩家输入，回放模式下纯观战
             if (state == ClientAppState.OnlineRoom)
             {
                 ProcessInput();
@@ -91,19 +86,39 @@ namespace StellarNet.Lite.GameDemo.Client
             InterpolateMovement();
         }
 
+        private void BindEvents()
+        {
+            if (_boundRoom == null) return;
+            _boundRoom.EventBus.Subscribe<DemoSnapshotEvent>(HandleSnapshot);
+            _boundRoom.EventBus.Subscribe<DemoPlayerJoinedEvent>(HandlePlayerJoined);
+            _boundRoom.EventBus.Subscribe<DemoPlayerLeftEvent>(HandlePlayerLeft);
+            _boundRoom.EventBus.Subscribe<DemoMoveEvent>(HandleMoveSync);
+            _boundRoom.EventBus.Subscribe<DemoHpEvent>(HandleHpSync);
+            _boundRoom.EventBus.Subscribe<DemoGameOverEvent>(HandleGameOver);
+        }
+
+        private void UnbindEvents()
+        {
+            if (_boundRoom == null) return;
+            _boundRoom.EventBus.Unsubscribe<DemoSnapshotEvent>(HandleSnapshot);
+            _boundRoom.EventBus.Unsubscribe<DemoPlayerJoinedEvent>(HandlePlayerJoined);
+            _boundRoom.EventBus.Unsubscribe<DemoPlayerLeftEvent>(HandlePlayerLeft);
+            _boundRoom.EventBus.Unsubscribe<DemoMoveEvent>(HandleMoveSync);
+            _boundRoom.EventBus.Unsubscribe<DemoHpEvent>(HandleHpSync);
+            _boundRoom.EventBus.Unsubscribe<DemoGameOverEvent>(HandleGameOver);
+        }
+
         private void OnGUI()
         {
             if (!string.IsNullOrEmpty(_winnerSessionId))
             {
                 GUI.color = Color.yellow;
                 GUI.skin.label.fontSize = 30;
-
-                // 根据状态区分提示文本
                 string tips = _manager.ClientApp.State == ClientAppState.ReplayRoom
                     ? "回放结束"
                     : "即将自动离开房间...";
-
-                GUI.Label(new Rect(Screen.width / 2 - 200, Screen.height / 2 - 50, 400, 100), $"游戏结束!\n胜利者: {_winnerSessionId}\n{tips}");
+                GUI.Label(new Rect(Screen.width / 2 - 200, Screen.height / 2 - 50, 400, 100),
+                    $"游戏结束!\n胜利者: {_winnerSessionId}\n{tips}");
                 GUI.skin.label.fontSize = 0;
                 GUI.color = Color.white;
             }
@@ -142,18 +157,16 @@ namespace StellarNet.Lite.GameDemo.Client
 
         private void SendMoveRequest(Vector3 targetPos)
         {
+            // 核心修复：使用强类型发送器，彻底消灭 Packet 拼装与魔数 1001
             var msg = new C2S_DemoMoveReq { TargetX = targetPos.x, TargetY = targetPos.y, TargetZ = targetPos.z };
-            byte[] payload = _manager.SerializeFunc(msg);
-            var packet = new Packet(1001, NetScope.Room, _manager.ClientApp.CurrentRoom.RoomId, payload);
-            _manager.ClientApp.SendRoom(packet);
+            _manager.ClientApp.SendMessage(msg);
         }
 
         private void SendAttackRequest(string targetSessionId)
         {
+            // 核心修复：使用强类型发送器，彻底消灭 Packet 拼装与魔数 1002
             var msg = new C2S_DemoAttackReq { TargetSessionId = targetSessionId };
-            byte[] payload = _manager.SerializeFunc(msg);
-            var packet = new Packet(1002, NetScope.Room, _manager.ClientApp.CurrentRoom.RoomId, payload);
-            _manager.ClientApp.SendRoom(packet);
+            _manager.ClientApp.SendMessage(msg);
         }
 
         private void InterpolateMovement()
@@ -164,7 +177,8 @@ namespace StellarNet.Lite.GameDemo.Client
                 var view = kvp.Value;
                 if (view.RootGo != null && view.CurrentHp > 0)
                 {
-                    view.RootGo.transform.position = Vector3.Lerp(view.RootGo.transform.position, view.TargetPosition, deltaTime * 10f);
+                    view.RootGo.transform.position = Vector3.Lerp(view.RootGo.transform.position, view.TargetPosition,
+                        deltaTime * 10f);
                 }
             }
         }
@@ -181,6 +195,7 @@ namespace StellarNet.Lite.GameDemo.Client
                 GameObject textGo = new GameObject("HpText");
                 textGo.transform.SetParent(go.transform);
                 textGo.transform.localPosition = new Vector3(0, 1.5f, 0);
+
                 var tm = textGo.AddComponent<TextMesh>();
                 tm.anchor = TextAnchor.MiddleCenter;
                 tm.characterSize = 0.1f;

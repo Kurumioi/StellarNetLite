@@ -17,11 +17,8 @@ namespace StellarNet.Lite.Server.Core
     public sealed class Room
     {
         public string RoomId { get; }
-
-        // 核心新增：预留房间名称字段，供大厅列表展示
         public string RoomName { get; set; }
         public RoomDispatcher Dispatcher { get; }
-
         public bool IsRecording { get; private set; }
         public int CurrentTick { get; private set; }
         public DateTime CreateTime { get; }
@@ -35,15 +32,14 @@ namespace StellarNet.Lite.Server.Core
         private readonly List<RoomComponent> _components = new List<RoomComponent>();
         private readonly List<ReplayFrame> _recorder = new List<ReplayFrame>();
         private readonly Action<int, Packet> _sendToConnection;
-        private const int MaxReplayFrames = 108000;
 
-        // 核心新增：结算后的僵尸房间销毁倒计时
+        private const int MaxReplayFrames = 108000;
         private int _finishedTickCount = 0;
 
         public Room(string roomId, Action<int, Packet> sendToConnection)
         {
             RoomId = roomId;
-            RoomName = "未命名房间"; // 默认名称
+            RoomName = "未命名房间";
             Dispatcher = new RoomDispatcher(roomId);
             _sendToConnection = sendToConnection;
             CreateTime = DateTime.UtcNow;
@@ -63,14 +59,24 @@ namespace StellarNet.Lite.Server.Core
             if (component == null) return;
             component.Room = this;
             _components.Add(component);
-            component.OnInit();
+            // 架构修正：移除此处的 component.OnInit()，推迟到装配完成后由 InitializeComponents 统一调用
+        }
+
+        /// <summary>
+        /// 统一激活所有组件，解决初始化时序竞态问题
+        /// </summary>
+        public void InitializeComponents()
+        {
+            for (int i = 0; i < _components.Count; i++)
+            {
+                _components[i].OnInit();
+            }
         }
 
         public void AddMember(Session session)
         {
             if (session == null || _members.ContainsKey(session.SessionId)) return;
 
-            // 核心防御：拒绝加入已结束的房间
             if (State == RoomState.Finished)
             {
                 Debug.LogWarning($"[Room] 拦截加入: 房间 {RoomId} 已结束，拒绝玩家 {session.SessionId} 加入");
@@ -115,7 +121,6 @@ namespace StellarNet.Lite.Server.Core
         public void NotifyMemberOffline(Session session)
         {
             if (session == null || !_members.ContainsKey(session.SessionId)) return;
-
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnMemberOffline(session);
@@ -126,7 +131,6 @@ namespace StellarNet.Lite.Server.Core
         {
             if (session == null || !_members.ContainsKey(session.SessionId)) return;
 
-            // 核心防御：如果玩家断网重连时，房间已经处于结算结束状态，直接将其踢出房间，强制回大厅
             if (State == RoomState.Finished)
             {
                 Debug.LogWarning($"[Room] 拦截重连: 房间 {RoomId} 已结束，强制将重连玩家 {session.SessionId} 移出房间");
@@ -143,7 +147,6 @@ namespace StellarNet.Lite.Server.Core
         public void TriggerReconnectSnapshot(Session session)
         {
             if (session == null || !_members.ContainsKey(session.SessionId)) return;
-
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnSendSnapshot(session);
@@ -167,12 +170,11 @@ namespace StellarNet.Lite.Server.Core
         {
             if (State != RoomState.Playing) return;
             State = RoomState.Finished;
-            _finishedTickCount = 0; // 启动销毁倒计时
+            _finishedTickCount = 0;
 
             if (IsRecording)
             {
                 LastReplay = StopRecordAndSave();
-                // 核心修复：将内存中的录像持久化到物理磁盘，并传入默认网络配置以触发滚动清理机制
                 ServerReplayStorage.SaveReplay(LastReplay, new NetConfig());
             }
 
@@ -184,28 +186,7 @@ namespace StellarNet.Lite.Server.Core
 
         public void Broadcast(Packet packet)
         {
-            if (IsRecording)
-            {
-                if (_recorder.Count < MaxReplayFrames)
-                {
-                    byte[] payloadCopy;
-                    if (packet.Payload == null || packet.Payload.Length == 0)
-                    {
-                        payloadCopy = new byte[0];
-                    }
-                    else
-                    {
-                        payloadCopy = new byte[packet.Payload.Length];
-                        Buffer.BlockCopy(packet.Payload, 0, payloadCopy, 0, packet.Payload.Length);
-                    }
-
-                    _recorder.Add(new ReplayFrame(CurrentTick, packet.MsgId, payloadCopy, RoomId));
-                }
-                else
-                {
-                    IsRecording = false;
-                }
-            }
+            RecordPacket(packet);
 
             foreach (var kvp in _members)
             {
@@ -217,10 +198,46 @@ namespace StellarNet.Lite.Server.Core
             }
         }
 
-        public void SendTo(Session session, Packet packet)
+        /// <summary>
+        /// 定向发送网络包。
+        /// 架构修正：增加 recordToReplay 参数。允许业务层决定定向下发的状态（如重连快照）是否需要编入录像时间轴。
+        /// </summary>
+        public void SendTo(Session session, Packet packet, bool recordToReplay = false)
         {
             if (session == null || !session.IsOnline) return;
+
+            if (recordToReplay)
+            {
+                RecordPacket(packet);
+            }
+
             _sendToConnection?.Invoke(session.ConnectionId, packet);
+        }
+
+        private void RecordPacket(Packet packet)
+        {
+            if (!IsRecording) return;
+
+            if (_recorder.Count < MaxReplayFrames)
+            {
+                byte[] payloadCopy;
+                if (packet.Payload == null || packet.Payload.Length == 0)
+                {
+                    payloadCopy = new byte[0];
+                }
+                else
+                {
+                    payloadCopy = new byte[packet.Payload.Length];
+                    Buffer.BlockCopy(packet.Payload, 0, payloadCopy, 0, packet.Payload.Length);
+                }
+
+                _recorder.Add(new ReplayFrame(CurrentTick, packet.MsgId, payloadCopy, RoomId));
+            }
+            else
+            {
+                IsRecording = false;
+                Debug.LogWarning($"[Room] 录像阻断: 房间 {RoomId} 录像帧数已达上限 {MaxReplayFrames}，自动停止录制");
+            }
         }
 
         public void StartRecord()
@@ -247,7 +264,6 @@ namespace StellarNet.Lite.Server.Core
         {
             CurrentTick++;
 
-            // 核心防御：僵尸房间强制清理机制。结算后 10 秒（假设 30 Tick/s，约 300 Tick），强制踢出所有残留玩家，触发空房间销毁
             if (State == RoomState.Finished)
             {
                 _finishedTickCount++;

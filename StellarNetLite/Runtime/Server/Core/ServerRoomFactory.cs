@@ -7,7 +7,9 @@ namespace StellarNet.Lite.Server.Core
     public static class ServerRoomFactory
     {
         public static Action<RoomComponent, RoomDispatcher> ComponentBinder;
-        private static readonly Dictionary<int, Func<RoomComponent>> _registry = new Dictionary<int, Func<RoomComponent>>();
+
+        private static readonly Dictionary<int, Func<RoomComponent>> _registry =
+            new Dictionary<int, Func<RoomComponent>>();
 
         public static void Register(int componentId, Func<RoomComponent> componentBuilder)
         {
@@ -26,7 +28,11 @@ namespace StellarNet.Lite.Server.Core
             _registry[componentId] = componentBuilder;
         }
 
-        // 核心改造：将返回值改为 bool，实施强阻断策略。任何组件缺失都将导致整个房间装配失败
+        /// <summary>
+        /// 原子化装配服务端房间组件。
+        /// 架构意图：采用两阶段提交策略，彻底杜绝半残的权威房间实例产生。
+        /// 修复了 OnInit 生命周期早于网络 Handler 绑定的时序倒置问题。
+        /// </summary>
         public static bool BuildComponents(Room room, int[] componentIds)
         {
             if (room == null)
@@ -41,21 +47,30 @@ namespace StellarNet.Lite.Server.Core
                 return true;
             }
 
+            // 阶段一：全量校验与实例化 (All or Nothing)
+            var pendingComponents = new List<RoomComponent>(componentIds.Length);
             foreach (int id in componentIds)
             {
                 if (_registry.TryGetValue(id, out var builder))
                 {
-                    var comp = builder.Invoke();
-                    room.AddComponent(comp);
-                    ComponentBinder?.Invoke(comp, room.Dispatcher);
+                    pendingComponents.Add(builder.Invoke());
                 }
                 else
                 {
-                    // 核心防御：发现未知组件，立即阻断后续装配，防止产生残缺的权威房间实例
                     Debug.LogError($"[ServerRoomFactory] 装配致命阻断: 未知的 ComponentId {id}，拒绝创建残缺房间");
                     return false;
                 }
             }
+
+            // 阶段二：全量挂载与绑定
+            foreach (var comp in pendingComponents)
+            {
+                room.AddComponent(comp);
+                ComponentBinder?.Invoke(comp, room.Dispatcher);
+            }
+
+            // 阶段三：统一激活生命周期
+            room.InitializeComponents();
 
             return true;
         }

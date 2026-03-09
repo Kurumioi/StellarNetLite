@@ -10,17 +10,24 @@ namespace StellarNet.Lite.Server.Core
     {
         public GlobalDispatcher GlobalDispatcher { get; } = new GlobalDispatcher();
 
+        // 核心架构：提供合法的只读观测边界，彻底封死外部反射私有字段的后门
+        public IReadOnlyDictionary<string, Room> Rooms => _rooms;
+        public IReadOnlyDictionary<string, Session> Sessions => _sessions;
+
         private readonly Dictionary<string, Session> _sessions = new Dictionary<string, Session>();
         private readonly Dictionary<int, Session> _connectionToSession = new Dictionary<int, Session>();
         private readonly Dictionary<string, Room> _rooms = new Dictionary<string, Room>();
+
         private readonly Action<int, Packet> _networkSender;
+        private readonly Func<object, byte[]> _serializeFunc;
 
         private readonly List<string> _gcRoomCache = new List<string>();
         private readonly List<string> _gcSessionCache = new List<string>();
 
-        public ServerApp(Action<int, Packet> networkSender)
+        public ServerApp(Action<int, Packet> networkSender, Func<object, byte[]> serializeFunc)
         {
             _networkSender = networkSender;
+            _serializeFunc = serializeFunc;
         }
 
         public void Tick(NetConfig config)
@@ -105,10 +112,10 @@ namespace StellarNet.Lite.Server.Core
             }
 
             // 架构说明：在路由分发前进行全局防重放拦截。
-            // 客户端发出的 Seq 必定大于 0。若消费失败，说明是重复点击导致的重放包，直接丢弃，保护状态机纯净。
             if (packet.Seq > 0 && !session.TryConsumeSeq(packet.Seq))
             {
-                Debug.LogWarning($"[ServerApp] 防重放拦截: 丢弃重复包 MsgId {packet.MsgId}, Seq {packet.Seq}, 当前记录 Seq {session.LastReceivedSeq}");
+                Debug.LogWarning(
+                    $"[ServerApp] 防重放拦截: 丢弃重复包 MsgId {packet.MsgId}, Seq {packet.Seq}, 当前记录 Seq {session.LastReceivedSeq}");
                 return;
             }
 
@@ -120,7 +127,8 @@ namespace StellarNet.Lite.Server.Core
             {
                 if (string.IsNullOrEmpty(packet.RoomId) || packet.RoomId != session.CurrentRoomId)
                 {
-                    Debug.LogError($"[ServerApp] 路由阻断: 房间上下文不匹配。Packet.RoomId: {packet.RoomId}, Session.RoomId: {session.CurrentRoomId}");
+                    Debug.LogError(
+                        $"[ServerApp] 路由阻断: 房间上下文不匹配。Packet.RoomId: {packet.RoomId}, Session.RoomId: {session.CurrentRoomId}");
                     return;
                 }
 
@@ -132,6 +140,26 @@ namespace StellarNet.Lite.Server.Core
 
                 room.Dispatcher.Dispatch(session, packet);
             }
+        }
+
+        /// <summary>
+        /// 服务端强类型统一发送器 (定向发送)。
+        /// </summary>
+        public void SendMessageToSession<T>(Session session, T msg) where T : class
+        {
+            if (session == null || !session.IsOnline || msg == null) return;
+
+            if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta))
+            {
+                Debug.LogError($"[ServerApp] 发送失败: 未找到类型 {typeof(T).Name} 的网络元数据");
+                return;
+            }
+
+            byte[] payload = _serializeFunc(msg);
+            string roomId = meta.Scope == NetScope.Room ? session.CurrentRoomId : string.Empty;
+            var packet = new Packet(0, meta.Id, meta.Scope, roomId, payload);
+
+            _networkSender?.Invoke(session.ConnectionId, packet);
         }
 
         public Room CreateRoom(string roomId)
@@ -190,7 +218,8 @@ namespace StellarNet.Lite.Server.Core
 
             if (_connectionToSession.TryGetValue(connectionId, out var oldSession) && oldSession != session)
             {
-                Debug.LogWarning($"[ServerApp] 物理连接顶号: ConnectionId {connectionId} 原属 Session {oldSession.SessionId}，现被 {session.SessionId} 抢占");
+                Debug.LogWarning(
+                    $"[ServerApp] 物理连接顶号: ConnectionId {connectionId} 原属 Session {oldSession.SessionId}，现被 {session.SessionId} 抢占");
                 oldSession.MarkOffline();
             }
 
@@ -214,6 +243,7 @@ namespace StellarNet.Lite.Server.Core
         public void UnbindConnection(Session session)
         {
             if (session == null) return;
+
             if (session.ConnectionId >= 0)
             {
                 _connectionToSession.Remove(session.ConnectionId);

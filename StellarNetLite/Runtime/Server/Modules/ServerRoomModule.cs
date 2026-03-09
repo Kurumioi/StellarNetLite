@@ -24,13 +24,12 @@ namespace StellarNet.Lite.Server.Modules
         public void OnC2S_CreateRoom(Session session, C2S_CreateRoom msg)
         {
             // 架构说明：得益于底层 ServerApp 的 Seq 拦截，此处收到的请求必定是合法的、非重放的新请求。
-            // 彻底移除了原先臃肿的 _idempotentCache 字典与 Token 校验逻辑。
             if (session == null || msg == null) return;
 
             if (!string.IsNullOrEmpty(session.CurrentRoomId))
             {
                 var failMsg = new S2C_CreateRoomResult { Success = false, Reason = "已在房间中" };
-                SendGlobal(session, 201, failMsg);
+                _app.SendMessageToSession(session, failMsg);
                 return;
             }
 
@@ -39,7 +38,7 @@ namespace StellarNet.Lite.Server.Modules
             if (room == null)
             {
                 var failMsg = new S2C_CreateRoomResult { Success = false, Reason = "服务器内部错误" };
-                SendGlobal(session, 201, failMsg);
+                _app.SendMessageToSession(session, failMsg);
                 return;
             }
 
@@ -53,7 +52,7 @@ namespace StellarNet.Lite.Server.Modules
                 _app.DestroyRoom(roomId);
                 Debug.LogError($"[ServerRoomModule] 房间 {roomId} 组件装配失败，已强制销毁该残缺实例");
                 var failMsg = new S2C_CreateRoomResult { Success = false, Reason = "房间组件装配失败，存在非法组件" };
-                SendGlobal(session, 201, failMsg);
+                _app.SendMessageToSession(session, failMsg);
                 return;
             }
 
@@ -68,7 +67,7 @@ namespace StellarNet.Lite.Server.Modules
             };
 
             session.AuthorizeRoom(roomId);
-            SendGlobal(session, 201, successMsg);
+            _app.SendMessageToSession(session, successMsg);
         }
 
         [NetHandler]
@@ -79,7 +78,7 @@ namespace StellarNet.Lite.Server.Modules
             if (!string.IsNullOrEmpty(session.CurrentRoomId))
             {
                 var failMsg = new S2C_JoinRoomResult { Success = false, Reason = "已在房间中" };
-                SendGlobal(session, 203, failMsg);
+                _app.SendMessageToSession(session, failMsg);
                 return;
             }
 
@@ -87,7 +86,7 @@ namespace StellarNet.Lite.Server.Modules
             if (room == null)
             {
                 var failMsg = new S2C_JoinRoomResult { Success = false, Reason = "房间不存在" };
-                SendGlobal(session, 203, failMsg);
+                _app.SendMessageToSession(session, failMsg);
                 return;
             }
 
@@ -100,7 +99,7 @@ namespace StellarNet.Lite.Server.Modules
             };
 
             session.AuthorizeRoom(room.RoomId);
-            SendGlobal(session, 203, successMsg);
+            _app.SendMessageToSession(session, successMsg);
         }
 
         [NetHandler]
@@ -116,7 +115,8 @@ namespace StellarNet.Lite.Server.Modules
 
             if (string.IsNullOrEmpty(session.AuthorizedRoomId) || session.AuthorizedRoomId != msg.RoomId)
             {
-                Debug.LogError($"[ServerRoomModule] 握手阻断: 越权访问或授权已失效。目标房间: {msg.RoomId}, 授权房间: {session.AuthorizedRoomId}");
+                Debug.LogError(
+                    $"[ServerRoomModule] 握手阻断: 越权访问或授权已失效。目标房间: {msg.RoomId}, 授权房间: {session.AuthorizedRoomId}");
                 return;
             }
 
@@ -150,6 +150,7 @@ namespace StellarNet.Lite.Server.Modules
             if (room != null)
             {
                 room.RemoveMember(session);
+
                 if (room.MemberCount == 0)
                 {
                     _app.DestroyRoom(roomId);
@@ -158,7 +159,7 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             var successMsg = new S2C_LeaveRoomResult { Success = true };
-            SendGlobal(session, 205, successMsg);
+            _app.SendMessageToSession(session, successMsg);
         }
 
         private int[] DeduplicateComponentIds(int[] rawIds)
@@ -175,14 +176,6 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             return list.ToArray();
-        }
-
-        private void SendGlobal(Session session, int msgId, object msgObj)
-        {
-            byte[] payload = _serializeFunc(msgObj);
-            // 架构说明：服务端下发给客户端的包，Seq 保持默认 0 即可，客户端目前主要依靠服务端的权威状态进行覆盖，不需要防重放。
-            var packet = new Packet(0, msgId, NetScope.Global, string.Empty, payload);
-            _networkSender.Invoke(session.ConnectionId, packet);
         }
     }
 }

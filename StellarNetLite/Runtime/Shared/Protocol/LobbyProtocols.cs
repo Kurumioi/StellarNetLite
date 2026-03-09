@@ -35,7 +35,7 @@ namespace StellarNet.Lite.Shared.Protocol
     /// <summary>
     /// 客户端事件总线使用的纯值类型事件
     /// </summary>
-    public struct RoomListEvent : IRoomEvent
+    public struct RoomListEvent : IGlobalEvent
     {
         public RoomBriefInfo[] Rooms;
     }

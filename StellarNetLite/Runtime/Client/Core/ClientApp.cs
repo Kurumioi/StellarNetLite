@@ -19,13 +19,13 @@ namespace StellarNet.Lite.Client.Core
         public ClientAppState State { get; private set; } = ClientAppState.Idle;
 
         private readonly Action<Packet> _networkSender;
-
-        // 核心新增：客户端全局自增序列号，用于防重放
+        private readonly Func<object, byte[]> _serializeFunc;
         private uint _sendSeq = 0;
 
-        public ClientApp(Action<Packet> networkSender)
+        public ClientApp(Action<Packet> networkSender, Func<object, byte[]> serializeFunc)
         {
             _networkSender = networkSender;
+            _serializeFunc = serializeFunc;
         }
 
         public void OnReceivePacket(Packet packet)
@@ -50,7 +50,8 @@ namespace StellarNet.Lite.Client.Core
 
                 if (packet.RoomId != CurrentRoom.RoomId)
                 {
-                    Debug.LogError($"[ClientApp] 路由阻断: 房间上下文不匹配。Packet.RoomId: {packet.RoomId}, CurrentRoom.RoomId: {CurrentRoom.RoomId}");
+                    Debug.LogError(
+                        $"[ClientApp] 路由阻断: 房间上下文不匹配。Packet.RoomId: {packet.RoomId}, CurrentRoom.RoomId: {CurrentRoom.RoomId}");
                     return;
                 }
 
@@ -68,7 +69,9 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
-            CurrentRoom = new ClientRoom(roomId);
+            CurrentRoom = ClientRoom.Create(roomId);
+            if (CurrentRoom == null) return;
+
             Session.BindRoom(roomId);
             State = ClientAppState.OnlineRoom;
         }
@@ -83,7 +86,9 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
-            CurrentRoom = new ClientRoom(roomId);
+            CurrentRoom = ClientRoom.Create(roomId);
+            if (CurrentRoom == null) return;
+
             State = ClientAppState.ReplayRoom;
         }
 
@@ -99,33 +104,41 @@ namespace StellarNet.Lite.Client.Core
             State = ClientAppState.Idle;
         }
 
-        public void SendGlobal(Packet packet)
+        /// <summary>
+        /// 强类型统一发送器 (推荐使用)。
+        /// 架构意图：业务层仅需传入协议对象，底层自动解析元数据并注入 Seq/RoomId，彻底隔离底层路由字段。
+        /// </summary>
+        public void SendMessage<T>(T msg) where T : class
         {
-            _sendSeq++;
-            packet.Seq = _sendSeq;
-            packet.Scope = NetScope.Global;
-            packet.RoomId = string.Empty;
-            _networkSender?.Invoke(packet);
-        }
+            if (msg == null)
+            {
+                Debug.LogError("[ClientApp] 发送失败: 消息对象为空");
+                return;
+            }
 
-        public void SendRoom(Packet packet)
-        {
+            if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta))
+            {
+                Debug.LogError($"[ClientApp] 发送失败: 未找到类型 {typeof(T).Name} 的网络元数据，请检查是否添加了 [NetMsg] 特性");
+                return;
+            }
+
             if (State == ClientAppState.ReplayRoom)
             {
-                Debug.LogWarning("[ClientApp] 拦截: 回放模式下禁止发送网络包，已自动丢弃");
+                Debug.LogWarning($"[ClientApp] 拦截: 回放模式下禁止发送网络包，已自动丢弃协议 {meta.Id}");
                 return;
             }
 
-            if (State != ClientAppState.OnlineRoom || CurrentRoom == null)
+            if (meta.Scope == NetScope.Room && (State != ClientAppState.OnlineRoom || CurrentRoom == null))
             {
-                Debug.LogError("[ClientApp] 发送房间消息失败: 当前不在在线房间中");
+                Debug.LogError($"[ClientApp] 发送失败: 协议 {meta.Id} 作用域为 Room，但当前不在在线房间中");
                 return;
             }
 
             _sendSeq++;
-            packet.Seq = _sendSeq;
-            packet.Scope = NetScope.Room;
-            packet.RoomId = CurrentRoom.RoomId;
+            byte[] payload = _serializeFunc(msg);
+            string roomId = meta.Scope == NetScope.Room ? CurrentRoom.RoomId : string.Empty;
+
+            var packet = new Packet(_sendSeq, meta.Id, meta.Scope, roomId, payload);
             _networkSender?.Invoke(packet);
         }
     }

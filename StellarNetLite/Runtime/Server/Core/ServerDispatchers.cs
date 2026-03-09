@@ -7,7 +7,8 @@ namespace StellarNet.Lite.Server.Core
 {
     public sealed class GlobalDispatcher
     {
-        private readonly Dictionary<int, Action<Session, Packet>> _handlers = new Dictionary<int, Action<Session, Packet>>();
+        private readonly Dictionary<int, Action<Session, Packet>> _handlers =
+            new Dictionary<int, Action<Session, Packet>>();
 
         public void Register(int msgId, Action<Session, Packet> handler)
         {
@@ -49,7 +50,9 @@ namespace StellarNet.Lite.Server.Core
 
     public sealed class RoomDispatcher
     {
-        private readonly Dictionary<int, Action<Session, Packet>> _handlers = new Dictionary<int, Action<Session, Packet>>();
+        private readonly Dictionary<int, Action<Session, Packet>> _handlers =
+            new Dictionary<int, Action<Session, Packet>>();
+
         private readonly string _roomId;
 
         public RoomDispatcher(string roomId)

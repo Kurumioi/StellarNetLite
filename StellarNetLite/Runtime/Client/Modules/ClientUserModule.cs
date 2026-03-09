@@ -45,7 +45,7 @@ namespace StellarNet.Lite.Client.Modules
         {
             if (msg == null) return;
 
-            // 核心修复 4：状态机防御。如果玩家正在看回放，收到重连成功包必须丢弃，防止覆盖回放沙盒
+            // 核心防御：状态机防御。如果玩家正在看回放，收到重连成功包必须丢弃，防止覆盖回放沙盒
             if (_app.State == ClientAppState.ReplayRoom)
             {
                 Debug.LogWarning("[ClientUserModule] 拦截: 当前处于回放模式，忽略重连结果");
@@ -55,8 +55,8 @@ namespace StellarNet.Lite.Client.Modules
             if (msg.Success)
             {
                 _app.EnterOnlineRoom(msg.RoomId);
-
                 bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, msg.ComponentIds);
+
                 if (!buildSuccess)
                 {
                     Debug.LogError($"[ClientUserModule] 重连房间 {msg.RoomId} 本地装配失败，已强制销毁本地实例并终止重连握手");
@@ -66,7 +66,7 @@ namespace StellarNet.Lite.Client.Modules
 
                 Debug.Log($"[ClientUserModule] 重连房间 {msg.RoomId} 本地装配完毕，准备发送就绪握手");
                 var readyMsg = new C2S_ReconnectReady();
-                SendGlobal(105, readyMsg);
+                _app.SendMessage(readyMsg);
             }
             else
             {
@@ -79,7 +79,7 @@ namespace StellarNet.Lite.Client.Modules
         {
             if (msg == null) return;
 
-            // 核心修复 3：踢下线时，必须先清理本地房间状态，防止 UI 和业务逻辑残留
+            // 核心防御：踢下线时，必须先清理本地房间状态，防止 UI 和业务逻辑残留
             if (_app.State == ClientAppState.OnlineRoom)
             {
                 Debug.LogWarning("[ClientUserModule] 被踢下线，强制退出当前在线房间");
@@ -88,13 +88,6 @@ namespace StellarNet.Lite.Client.Modules
 
             _app.Session.Clear();
             Debug.LogError($"[ClientUserModule] 被踢下线: {msg.Reason}");
-        }
-
-        private void SendGlobal(int msgId, object msgObj)
-        {
-            byte[] payload = _serializeFunc(msgObj);
-            var packet = new Packet(msgId, NetScope.Global, string.Empty, payload);
-            _networkSender?.Invoke(packet);
         }
     }
 }

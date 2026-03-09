@@ -31,7 +31,7 @@
         public virtual void OnSendSnapshot(Session session)
         {
         }
-        
+
         public virtual void OnGameStart()
         {
         }

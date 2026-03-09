@@ -12,6 +12,7 @@ namespace StellarNet.Lite.Server.Modules
         private readonly ServerApp _app;
         private readonly Action<int, Packet> _networkSender;
         private readonly Func<object, byte[]> _serializeFunc;
+
         private readonly Dictionary<string, Session> _accountToSession = new Dictionary<string, Session>();
 
         public ServerUserModule(ServerApp app, Action<int, Packet> networkSender, Func<object, byte[]> serializeFunc)
@@ -35,15 +36,15 @@ namespace StellarNet.Lite.Server.Modules
                 if (oldSession.IsOnline)
                 {
                     var kickMsg = new S2C_KickOut { Reason = "账号在其他设备登录" };
-                    SendGlobal(oldSession, 102, kickMsg);
+                    _app.SendMessageToSession(oldSession, kickMsg);
                     _app.UnbindConnection(oldSession);
                 }
 
                 _app.RemoveSession(session.SessionId);
                 _app.BindConnection(oldSession, session.ConnectionId);
 
-                bool hasRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) && _app.GetRoom(oldSession.CurrentRoomId) != null;
-
+                bool hasRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) &&
+                               _app.GetRoom(oldSession.CurrentRoomId) != null;
                 var reconnectRes = new S2C_LoginResult
                 {
                     Success = true,
@@ -51,13 +52,13 @@ namespace StellarNet.Lite.Server.Modules
                     HasReconnectRoom = hasRoom,
                     Reason = string.Empty
                 };
-                SendGlobal(oldSession, 101, reconnectRes);
+
+                _app.SendMessageToSession(oldSession, reconnectRes);
                 return;
             }
 
             _app.RemoveSession(session.SessionId);
             var authSession = new Session(session.SessionId, msg.AccountId, session.ConnectionId);
-
             _accountToSession[msg.AccountId] = authSession;
             _app.RegisterSession(authSession);
 
@@ -68,7 +69,8 @@ namespace StellarNet.Lite.Server.Modules
                 HasReconnectRoom = false,
                 Reason = string.Empty
             };
-            SendGlobal(authSession, 101, res);
+
+            _app.SendMessageToSession(authSession, res);
         }
 
         [NetHandler]
@@ -87,9 +89,8 @@ namespace StellarNet.Lite.Server.Modules
                 }
 
                 session.UnbindRoom();
-
                 var rejectRes = new S2C_ReconnectResult { Success = false, Reason = "已放弃重连" };
-                SendGlobal(session, 104, rejectRes);
+                _app.SendMessageToSession(session, rejectRes);
                 return;
             }
 
@@ -97,11 +98,10 @@ namespace StellarNet.Lite.Server.Modules
             {
                 session.UnbindRoom();
                 var failRes = new S2C_ReconnectResult { Success = false, Reason = "房间已解散" };
-                SendGlobal(session, 104, failRes);
+                _app.SendMessageToSession(session, failRes);
                 return;
             }
 
-            // 核心修复：仅下发元数据，不再直接触发快照。等待客户端装配完毕后主动握手
             var successRes = new S2C_ReconnectResult
             {
                 Success = true,
@@ -109,7 +109,8 @@ namespace StellarNet.Lite.Server.Modules
                 ComponentIds = room.ComponentIds,
                 Reason = string.Empty
             };
-            SendGlobal(session, 104, successRes);
+
+            _app.SendMessageToSession(session, successRes);
         }
 
         [NetHandler]
@@ -131,16 +132,8 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            // 核心修复：收到客户端就绪信号后，精确触发快照下发，完成重连闭环
             room.TriggerReconnectSnapshot(session);
             Debug.Log($"[ServerUserModule] 客户端 {session.SessionId} 装配就绪，已下发房间 {roomId} 全量快照");
-        }
-
-        private void SendGlobal(Session session, int msgId, object msgObj)
-        {
-            byte[] payload = _serializeFunc(msgObj);
-            var packet = new Packet(msgId, NetScope.Global, string.Empty, payload);
-            _networkSender.Invoke(session.ConnectionId, packet);
         }
     }
 }

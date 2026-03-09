@@ -28,7 +28,7 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
-            // 核心修复 4：状态机防御
+            // 核心防御：状态机防御
             if (_app.State == ClientAppState.ReplayRoom)
             {
                 Debug.LogWarning("[ClientRoomModule] 拦截: 当前处于回放模式，忽略建房结果");
@@ -38,8 +38,8 @@ namespace StellarNet.Lite.Client.Modules
             if (msg.Success)
             {
                 _app.EnterOnlineRoom(msg.RoomId);
-
                 bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, msg.ComponentIds);
+
                 if (!buildSuccess)
                 {
                     Debug.LogError($"[ClientRoomModule] 房间 {msg.RoomId} 本地装配失败，已强制销毁本地实例并终止握手");
@@ -49,7 +49,7 @@ namespace StellarNet.Lite.Client.Modules
 
                 Debug.Log($"[ClientRoomModule] 建房成功, 本地装配完毕，准备发送就绪握手。房间: {msg.RoomId}");
                 var readyMsg = new C2S_RoomSetupReady { RoomId = msg.RoomId };
-                SendGlobal(206, readyMsg);
+                _app.SendMessage(readyMsg);
             }
             else
             {
@@ -66,7 +66,7 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
-            // 核心修复 4：状态机防御
+            // 核心防御：状态机防御
             if (_app.State == ClientAppState.ReplayRoom)
             {
                 Debug.LogWarning("[ClientRoomModule] 拦截: 当前处于回放模式，忽略加房结果");
@@ -76,8 +76,8 @@ namespace StellarNet.Lite.Client.Modules
             if (msg.Success)
             {
                 _app.EnterOnlineRoom(msg.RoomId);
-
                 bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, msg.ComponentIds);
+
                 if (!buildSuccess)
                 {
                     Debug.LogError($"[ClientRoomModule] 房间 {msg.RoomId} 本地装配失败，已强制销毁本地实例并终止握手");
@@ -87,7 +87,7 @@ namespace StellarNet.Lite.Client.Modules
 
                 Debug.Log($"[ClientRoomModule] 加房成功, 本地装配完毕，准备发送就绪握手。房间: {msg.RoomId}");
                 var readyMsg = new C2S_RoomSetupReady { RoomId = msg.RoomId };
-                SendGlobal(206, readyMsg);
+                _app.SendMessage(readyMsg);
             }
             else
             {
@@ -112,13 +112,6 @@ namespace StellarNet.Lite.Client.Modules
 
             _app.LeaveRoom();
             Debug.Log("[ClientRoomModule] 已离开房间");
-        }
-
-        private void SendGlobal(int msgId, object msgObj)
-        {
-            byte[] payload = _serializeFunc(msgObj);
-            var packet = new Packet(msgId, NetScope.Global, string.Empty, payload);
-            _networkSender?.Invoke(packet);
         }
     }
 }

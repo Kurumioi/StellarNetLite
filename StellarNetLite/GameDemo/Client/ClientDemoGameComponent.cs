@@ -9,6 +9,7 @@ namespace StellarNet.Lite.GameDemo.Client
     /// <summary>
     /// 客户端胶囊对战业务组件 (Service层)。
     /// 职责：接收服务端的权威状态同步，进行基础的防空校验后，转化为纯值类型事件派发给表现层。
+    /// 架构说明：全面接入 Room.EventBus，实现房间级别的事件物理隔离。
     /// </summary>
     public sealed class ClientDemoGameComponent : ClientRoomComponent
     {
@@ -25,19 +26,13 @@ namespace StellarNet.Lite.GameDemo.Client
         [NetHandler]
         public void OnS2C_DemoSnapshot(S2C_DemoSnapshot msg)
         {
-            if (msg == null)
+            if (msg == null || msg.Players == null)
             {
-                Debug.LogError("[ClientDemoGame] 处理快照失败：接收到的消息体为空");
+                Debug.LogError("[ClientDemoGame] 处理快照失败：接收到的消息体或玩家列表数据为空");
                 return;
             }
 
-            if (msg.Players == null)
-            {
-                Debug.LogError("[ClientDemoGame] 处理快照失败：玩家列表数据为空");
-                return;
-            }
-
-            LiteEventBus<DemoSnapshotEvent>.Fire(new DemoSnapshotEvent { Players = msg.Players });
+            Room.EventBus.Fire(new DemoSnapshotEvent { Players = msg.Players });
         }
 
         [NetHandler]
@@ -49,7 +44,7 @@ namespace StellarNet.Lite.GameDemo.Client
                 return;
             }
 
-            LiteEventBus<DemoPlayerJoinedEvent>.Fire(new DemoPlayerJoinedEvent { Player = msg.Player });
+            Room.EventBus.Fire(new DemoPlayerJoinedEvent { Player = msg.Player });
         }
 
         [NetHandler]
@@ -61,7 +56,7 @@ namespace StellarNet.Lite.GameDemo.Client
                 return;
             }
 
-            LiteEventBus<DemoPlayerLeftEvent>.Fire(new DemoPlayerLeftEvent { SessionId = msg.SessionId });
+            Room.EventBus.Fire(new DemoPlayerLeftEvent { SessionId = msg.SessionId });
         }
 
         [NetHandler]
@@ -73,7 +68,7 @@ namespace StellarNet.Lite.GameDemo.Client
                 return;
             }
 
-            LiteEventBus<DemoMoveEvent>.Fire(new DemoMoveEvent
+            Room.EventBus.Fire(new DemoMoveEvent
             {
                 SessionId = msg.SessionId,
                 TargetX = msg.TargetX,
@@ -91,14 +86,13 @@ namespace StellarNet.Lite.GameDemo.Client
                 return;
             }
 
-            LiteEventBus<DemoHpEvent>.Fire(new DemoHpEvent
+            Room.EventBus.Fire(new DemoHpEvent
             {
                 SessionId = msg.SessionId,
                 Hp = msg.Hp
             });
         }
 
-        // 核心修改：废弃 1008 协议，改为监听框架标准的 503 游戏结束协议
         [NetHandler]
         public void OnS2C_GameEnded(S2C_GameEnded msg)
         {
@@ -108,7 +102,7 @@ namespace StellarNet.Lite.GameDemo.Client
                 return;
             }
 
-            LiteEventBus<DemoGameOverEvent>.Fire(new DemoGameOverEvent { WinnerSessionId = msg.WinnerSessionId });
+            Room.EventBus.Fire(new DemoGameOverEvent { WinnerSessionId = msg.WinnerSessionId });
         }
     }
 }

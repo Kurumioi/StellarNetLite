@@ -7,7 +7,9 @@ namespace StellarNet.Lite.Client.Core
     public static class ClientRoomFactory
     {
         public static Action<ClientRoomComponent, ClientRoomDispatcher> ComponentBinder;
-        private static readonly Dictionary<int, Func<ClientRoomComponent>> _registry = new Dictionary<int, Func<ClientRoomComponent>>();
+
+        private static readonly Dictionary<int, Func<ClientRoomComponent>> _registry =
+            new Dictionary<int, Func<ClientRoomComponent>>();
 
         public static void Register(int componentId, Func<ClientRoomComponent> componentBuilder)
         {
@@ -26,7 +28,13 @@ namespace StellarNet.Lite.Client.Core
             _registry[componentId] = componentBuilder;
         }
 
-        // 核心改造：将返回值改为 bool，实施强阻断策略。任何组件缺失都将导致整个房间装配失败
+        /// <summary>
+        /// 原子化装配客户端房间组件。
+        /// 架构意图：采用两阶段提交（Two-Phase Commit）策略。
+        /// 阶段一：全量校验与实例化。若存在缺失的组件，立即阻断，不污染当前房间实例。
+        /// 阶段二：全量挂载与绑定。
+        /// 阶段三：统一激活。确保 OnInit 执行时，所有网络监听器已就绪。
+        /// </summary>
         public static bool BuildComponents(ClientRoom room, int[] componentIds)
         {
             if (room == null)
@@ -41,21 +49,30 @@ namespace StellarNet.Lite.Client.Core
                 return true;
             }
 
+            // 阶段一：全量校验与实例化 (All or Nothing)
+            var pendingComponents = new List<ClientRoomComponent>(componentIds.Length);
             foreach (int id in componentIds)
             {
                 if (_registry.TryGetValue(id, out var builder))
                 {
-                    var comp = builder.Invoke();
-                    room.AddComponent(comp);
-                    ComponentBinder?.Invoke(comp, room.Dispatcher);
+                    pendingComponents.Add(builder.Invoke());
                 }
                 else
                 {
-                    // 核心防御：发现未知组件，立即阻断后续装配，防止产生残缺的房间实例
                     Debug.LogError($"[ClientRoomFactory] 装配致命失败: 本地未注册 ComponentId {id}。客户端版本可能过旧，拒绝进入残缺房间");
                     return false;
                 }
             }
+
+            // 阶段二：全量挂载与绑定
+            foreach (var comp in pendingComponents)
+            {
+                room.AddComponent(comp);
+                ComponentBinder?.Invoke(comp, room.Dispatcher);
+            }
+
+            // 阶段三：统一激活生命周期
+            room.InitializeComponents();
 
             return true;
         }

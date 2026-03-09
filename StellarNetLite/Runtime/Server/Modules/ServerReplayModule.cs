@@ -31,7 +31,8 @@ namespace StellarNet.Lite.Server.Modules
         {
             if (session == null) return;
 
-            string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
+            string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName)
+                .Replace("\\", "/");
             string[] replayIds = new string[0];
 
             try
@@ -53,7 +54,7 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             var res = new S2C_ReplayList { ReplayIds = replayIds };
-            SendGlobal(session, 601, res);
+            _app.SendMessageToSession(session, res);
         }
 
         [NetHandler]
@@ -61,7 +62,8 @@ namespace StellarNet.Lite.Server.Modules
         {
             if (session == null || string.IsNullOrEmpty(msg.ReplayId)) return;
 
-            string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
+            string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName)
+                .Replace("\\", "/");
             string fullPath = Path.Combine(folderPath, $"{msg.ReplayId}.json").Replace("\\", "/");
 
             try
@@ -76,7 +78,7 @@ namespace StellarNet.Lite.Server.Modules
                         ReplayFileData = json,
                         Reason = string.Empty
                     };
-                    SendGlobal(session, 603, res);
+                    _app.SendMessageToSession(session, res);
                     Debug.Log($"[ServerReplayModule] 已向客户端 {session.SessionId} 下发录像 {msg.ReplayId}");
                 }
                 else
@@ -88,22 +90,16 @@ namespace StellarNet.Lite.Server.Modules
                         ReplayFileData = string.Empty,
                         Reason = "录像文件不存在或已被清理"
                     };
-                    SendGlobal(session, 603, res);
+                    _app.SendMessageToSession(session, res);
                 }
             }
             catch (Exception e)
             {
                 Debug.LogError($"[ServerReplayModule] 读取录像文件异常: {e.Message}");
-                var res = new S2C_DownloadReplayResult { Success = false, ReplayId = msg.ReplayId, Reason = "服务器读取文件失败" };
-                SendGlobal(session, 603, res);
+                var res = new S2C_DownloadReplayResult
+                    { Success = false, ReplayId = msg.ReplayId, Reason = "服务器读取文件失败" };
+                _app.SendMessageToSession(session, res);
             }
-        }
-
-        private void SendGlobal(Session session, int msgId, object msgObj)
-        {
-            byte[] payload = _serializeFunc(msgObj);
-            var packet = new Packet(msgId, NetScope.Global, string.Empty, payload);
-            _networkSender.Invoke(session.ConnectionId, packet);
         }
     }
 }

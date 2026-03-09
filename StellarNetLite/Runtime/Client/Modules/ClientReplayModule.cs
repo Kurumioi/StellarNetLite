@@ -28,7 +28,9 @@ namespace StellarNet.Lite.Client.Modules
         public void OnS2C_ReplayList(S2C_ReplayList msg)
         {
             if (msg == null) return;
-            LiteEventBus<ReplayListEvent>.Fire(new ReplayListEvent { ReplayIds = msg.ReplayIds ?? new string[0] });
+
+            // 核心修复：使用新的 GlobalEventBus 派发全局事件
+            GlobalEventBus<ReplayListEvent>.Fire(new ReplayListEvent { ReplayIds = msg.ReplayIds ?? new string[0] });
         }
 
         [NetHandler]
@@ -44,24 +46,28 @@ namespace StellarNet.Lite.Client.Modules
                     var replayFile = JsonConvert.DeserializeObject<ReplayFile>(msg.ReplayFileData);
                     if (replayFile != null)
                     {
-                        LiteEventBus<ReplayDownloadedEvent>.Fire(new ReplayDownloadedEvent { Success = true, File = replayFile });
+                        GlobalEventBus<ReplayDownloadedEvent>.Fire(new ReplayDownloadedEvent
+                            { Success = true, File = replayFile });
                         Debug.Log($"[ClientReplayModule] 录像下载并解析成功，帧数: {replayFile.Frames.Count}");
                     }
                     else
                     {
-                        LiteEventBus<ReplayDownloadedEvent>.Fire(new ReplayDownloadedEvent { Success = false, Reason = "录像数据反序列化为空" });
+                        GlobalEventBus<ReplayDownloadedEvent>.Fire(new ReplayDownloadedEvent
+                            { Success = false, Reason = "录像数据反序列化为空" });
                     }
                 }
                 catch (Exception e)
                 {
                     Debug.LogError($"[ClientReplayModule] 录像解析异常: {e.Message}");
-                    LiteEventBus<ReplayDownloadedEvent>.Fire(new ReplayDownloadedEvent { Success = false, Reason = "录像文件损坏或格式不匹配" });
+                    GlobalEventBus<ReplayDownloadedEvent>.Fire(new ReplayDownloadedEvent
+                        { Success = false, Reason = "录像文件损坏或格式不匹配" });
                 }
             }
             else
             {
                 Debug.LogError($"[ClientReplayModule] 录像下载失败: {msg.Reason}");
-                LiteEventBus<ReplayDownloadedEvent>.Fire(new ReplayDownloadedEvent { Success = false, Reason = msg.Reason });
+                GlobalEventBus<ReplayDownloadedEvent>.Fire(new ReplayDownloadedEvent
+                    { Success = false, Reason = msg.Reason });
             }
         }
     }

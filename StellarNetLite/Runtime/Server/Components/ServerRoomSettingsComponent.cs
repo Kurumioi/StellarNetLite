@@ -36,7 +36,7 @@ namespace StellarNet.Lite.Server.Components
             _readyStates[session.SessionId] = false;
 
             var msg = new S2C_MemberJoined { SessionId = session.SessionId };
-            Broadcast(301, msg);
+            Broadcast(msg);
 
             OnSendSnapshot(session);
         }
@@ -48,7 +48,7 @@ namespace StellarNet.Lite.Server.Components
             _readyStates.Remove(session.SessionId);
 
             var msg = new S2C_MemberLeft { SessionId = session.SessionId };
-            Broadcast(302, msg);
+            Broadcast(msg);
 
             if (_ownerSessionId == session.SessionId)
             {
@@ -117,7 +117,7 @@ namespace StellarNet.Lite.Server.Components
             }
 
             var msg = new S2C_RoomSnapshot { Members = members.ToArray() };
-            SendTo(session, 300, msg);
+            SendTo(session, msg);
         }
 
         private void BroadcastSnapshotToAll()
@@ -134,7 +134,7 @@ namespace StellarNet.Lite.Server.Components
             }
 
             var msg = new S2C_RoomSnapshot { Members = members.ToArray() };
-            Broadcast(300, msg);
+            Broadcast(msg);
         }
 
         [NetHandler]
@@ -147,7 +147,7 @@ namespace StellarNet.Lite.Server.Components
             _readyStates[session.SessionId] = msg.IsReady;
 
             var notify = new S2C_MemberReadyChanged { SessionId = session.SessionId, IsReady = msg.IsReady };
-            Broadcast(304, notify);
+            Broadcast(notify);
         }
 
         [NetHandler]
@@ -177,12 +177,10 @@ namespace StellarNet.Lite.Server.Components
             }
 
             Room.StartGame();
-
             var notify = new S2C_GameStarted { StartUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
-            Broadcast(501, notify);
+            Broadcast(notify);
         }
 
-        // 核心新增：处理房主发起的强制结束游戏请求 (502)
         [NetHandler]
         public void OnC2S_EndGame(Session session, C2S_EndGame msg)
         {
@@ -202,22 +200,35 @@ namespace StellarNet.Lite.Server.Components
 
             Room.EndGame();
 
-            // 广播游戏结束事件 (503)
             var notify = new S2C_GameEnded { WinnerSessionId = "房主强制中止" };
-            Broadcast(503, notify);
+            Broadcast(notify);
         }
 
-        private void Broadcast(int msgId, object msgObj)
+        // 核心修复：升级为强类型泛型广播，彻底消灭魔数
+        private void Broadcast<T>(T msgObj) where T : class
         {
+            if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta))
+            {
+                Debug.LogError($"[ServerRoomSettings] 广播失败: 未找到类型 {typeof(T).Name} 的网络元数据");
+                return;
+            }
+
             byte[] payload = _serializeFunc(msgObj);
-            var packet = new Packet(msgId, NetScope.Room, Room.RoomId, payload);
+            var packet = new Packet(meta.Id, meta.Scope, Room.RoomId, payload);
             Room.Broadcast(packet);
         }
 
-        private void SendTo(Session session, int msgId, object msgObj)
+        // 核心修复：升级为强类型泛型定向发送，彻底消灭魔数
+        private void SendTo<T>(Session session, T msgObj) where T : class
         {
+            if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta))
+            {
+                Debug.LogError($"[ServerRoomSettings] 发送失败: 未找到类型 {typeof(T).Name} 的网络元数据");
+                return;
+            }
+
             byte[] payload = _serializeFunc(msgObj);
-            var packet = new Packet(msgId, NetScope.Room, Room.RoomId, payload);
+            var packet = new Packet(meta.Id, meta.Scope, Room.RoomId, payload);
             Room.SendTo(session, packet);
         }
     }

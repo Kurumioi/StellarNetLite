@@ -27,8 +27,9 @@ namespace StellarNet.Lite.Client.Modules
         public void OnS2C_RoomListResponse(S2C_RoomListResponse msg)
         {
             if (msg == null) return;
-            // 将网络协议转化为表现层事件派发
-            LiteEventBus<RoomListEvent>.Fire(new RoomListEvent { Rooms = msg.Rooms ?? new RoomBriefInfo[0] });
+
+            // 核心修复：使用新的 GlobalEventBus 派发大厅事件
+            GlobalEventBus<RoomListEvent>.Fire(new RoomListEvent { Rooms = msg.Rooms ?? new RoomBriefInfo[0] });
         }
     }
 }

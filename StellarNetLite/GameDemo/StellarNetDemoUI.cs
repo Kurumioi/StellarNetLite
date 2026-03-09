@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Reflection;
 using UnityEngine;
 using Mirror;
 using StellarNet.Lite.Shared.Core;
@@ -15,18 +14,13 @@ namespace StellarNet.Lite.Demo
     public class StellarNetDemoUI : MonoBehaviour
     {
         private StellarNetMirrorManager _manager;
-
         private string _inputAccountId = "Player_1001";
         private string _inputRoomName = "我的对战房间";
         private Vector2 _clientScroll;
-
         private ClientReplayPlayer _replayPlayer;
-
         private RoomBriefInfo[] _roomList = new RoomBriefInfo[0];
-
         private string[] _replayList = new string[0];
         private string _downloadingReplayId = string.Empty;
-
         private Vector2 _serverScroll;
 
         private void Start()
@@ -41,16 +35,17 @@ namespace StellarNet.Lite.Demo
 
         private void OnEnable()
         {
-            LiteEventBus<RoomListEvent>.OnEvent += HandleRoomList;
-            LiteEventBus<ReplayListEvent>.OnEvent += HandleReplayList;
-            LiteEventBus<ReplayDownloadedEvent>.OnEvent += HandleReplayDownloaded;
+            // 核心修复：订阅全新的 GlobalEventBus
+            GlobalEventBus<RoomListEvent>.OnEvent += HandleRoomList;
+            GlobalEventBus<ReplayListEvent>.OnEvent += HandleReplayList;
+            GlobalEventBus<ReplayDownloadedEvent>.OnEvent += HandleReplayDownloaded;
         }
 
         private void OnDisable()
         {
-            LiteEventBus<RoomListEvent>.OnEvent -= HandleRoomList;
-            LiteEventBus<ReplayListEvent>.OnEvent -= HandleReplayList;
-            LiteEventBus<ReplayDownloadedEvent>.OnEvent -= HandleReplayDownloaded;
+            GlobalEventBus<RoomListEvent>.OnEvent -= HandleRoomList;
+            GlobalEventBus<ReplayListEvent>.OnEvent -= HandleReplayList;
+            GlobalEventBus<ReplayDownloadedEvent>.OnEvent -= HandleReplayDownloaded;
         }
 
         private void HandleRoomList(RoomListEvent evt)
@@ -66,7 +61,6 @@ namespace StellarNet.Lite.Demo
         private void HandleReplayDownloaded(ReplayDownloadedEvent evt)
         {
             _downloadingReplayId = string.Empty;
-
             if (evt.Success && evt.File != null)
             {
                 _replayPlayer = new ClientReplayPlayer(_manager.ClientApp);
@@ -115,24 +109,23 @@ namespace StellarNet.Lite.Demo
         private void DrawModeSelection()
         {
             GUILayout.BeginArea(new Rect(Screen.width / 2 - 150, Screen.height / 2 - 100, 300, 250), GUI.skin.box);
-            GUILayout.Label("<b><size=16>StellarNet 综合测试台</size></b>", new GUIStyle(GUI.skin.label) { richText = true, alignment = TextAnchor.MiddleCenter });
+            GUILayout.Label("<b><size=16>StellarNet 综合测试台</size></b>",
+                new GUIStyle(GUI.skin.label) { richText = true, alignment = TextAnchor.MiddleCenter });
             GUILayout.Space(20);
-
             if (GUILayout.Button("Host 模式 (Server + Client 同进程)", GUILayout.Height(40))) _manager.StartHost();
             GUILayout.Space(10);
             if (GUILayout.Button("Server Only (独立服务端)", GUILayout.Height(40))) _manager.StartServer();
             GUILayout.Space(10);
             if (GUILayout.Button("Client Only (独立客户端)", GUILayout.Height(40))) _manager.StartClient();
-
             GUILayout.EndArea();
         }
 
         private void DrawClientPanel()
         {
             var app = _manager.ClientApp;
-            var serialize = _manager.SerializeFunc;
 
-            GUILayout.Label("<b><size=16>客户端控制台 (Client View)</size></b>", new GUIStyle(GUI.skin.label) { richText = true, alignment = TextAnchor.MiddleCenter });
+            GUILayout.Label("<b><size=16>客户端控制台 (Client View)</size></b>",
+                new GUIStyle(GUI.skin.label) { richText = true, alignment = TextAnchor.MiddleCenter });
             GUILayout.Space(10);
 
             if (app.State == ClientAppState.ReplayRoom)
@@ -145,17 +138,16 @@ namespace StellarNet.Lite.Demo
             {
                 GUILayout.Label("当前状态: 未登录");
                 GUILayout.Space(10);
-
                 GUILayout.BeginHorizontal();
                 GUILayout.Label("账号 ID:", GUILayout.Width(60));
                 _inputAccountId = GUILayout.TextField(_inputAccountId);
                 GUILayout.EndHorizontal();
-
                 GUILayout.Space(10);
+
                 if (GUILayout.Button("发起登录 (Login)", GUILayout.Height(40)))
                 {
-                    var msg = new C2S_Login { AccountId = _inputAccountId };
-                    app.SendGlobal(new Packet(100, NetScope.Global, "", serialize(msg)));
+                    // 核心修复：全面切换为强类型发包
+                    app.SendMessage(new C2S_Login { AccountId = _inputAccountId });
                 }
             }
             else if (app.State == ClientAppState.Idle)
@@ -168,14 +160,12 @@ namespace StellarNet.Lite.Demo
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button("接受重连", GUILayout.Height(30)))
                 {
-                    var msg = new C2S_ConfirmReconnect { Accept = true };
-                    app.SendGlobal(new Packet(103, NetScope.Global, "", serialize(msg)));
+                    app.SendMessage(new C2S_ConfirmReconnect { Accept = true });
                 }
 
                 if (GUILayout.Button("拒绝重连", GUILayout.Height(30)))
                 {
-                    var msg = new C2S_ConfirmReconnect { Accept = false };
-                    app.SendGlobal(new Packet(103, NetScope.Global, "", serialize(msg)));
+                    app.SendMessage(new C2S_ConfirmReconnect { Accept = false });
                 }
 
                 GUILayout.EndHorizontal();
@@ -191,44 +181,44 @@ namespace StellarNet.Lite.Demo
 
                 if (GUILayout.Button("创建基础房间 (仅 Settings: ID 1)", GUILayout.Height(30)))
                 {
-                    // 架构说明：移除了 RequestToken 参数，由底层发包器自动注入的 Seq 保证幂等性
-                    var msg = new C2S_CreateRoom { RoomName = _inputRoomName, ComponentIds = new int[] { 1 } };
-                    app.SendGlobal(new Packet(200, NetScope.Global, "", serialize(msg)));
+                    app.SendMessage(new C2S_CreateRoom { RoomName = _inputRoomName, ComponentIds = new int[] { 1 } });
                 }
 
                 GUILayout.Space(5);
+
                 GUI.color = Color.green;
                 if (GUILayout.Button("创建对战房间 (Settings + GameDemo: ID 1, 100)", GUILayout.Height(40)))
                 {
-                    var msg = new C2S_CreateRoom { RoomName = _inputRoomName, ComponentIds = new int[] { 1, 100 } };
-                    app.SendGlobal(new Packet(200, NetScope.Global, "", serialize(msg)));
+                    app.SendMessage(new C2S_CreateRoom
+                        { RoomName = _inputRoomName, ComponentIds = new int[] { 1, 100 } });
                 }
 
                 GUI.color = Color.white;
-
                 GUILayout.Space(15);
+
                 GUILayout.Label("--- 房间大厅 ---");
                 if (GUILayout.Button("刷新房间列表", GUILayout.Height(30)))
                 {
-                    var msg = new C2S_GetRoomList();
-                    app.SendGlobal(new Packet(210, NetScope.Global, "", serialize(msg)));
+                    app.SendMessage(new C2S_GetRoomList());
                 }
 
                 GUILayout.Space(5);
+
                 if (_roomList != null && _roomList.Length > 0)
                 {
                     foreach (var room in _roomList)
                     {
                         GUILayout.BeginHorizontal("box");
                         string stateStr = room.State == 0 ? "<color=green>等待中</color>" : "<color=yellow>游戏中</color>";
-                        GUILayout.Label($"<b>{room.RoomName}</b>\nID: {room.RoomId} | 人数: {room.MemberCount} | 状态: {stateStr}", new GUIStyle(GUI.skin.label) { richText = true });
+                        GUILayout.Label(
+                            $"<b>{room.RoomName}</b>\nID: {room.RoomId} | 人数: {room.MemberCount} | 状态: {stateStr}",
+                            new GUIStyle(GUI.skin.label) { richText = true });
 
                         if (room.State == 0)
                         {
                             if (GUILayout.Button("加入", GUILayout.Width(60), GUILayout.Height(35)))
                             {
-                                var msg = new C2S_JoinRoom { RoomId = room.RoomId };
-                                app.SendGlobal(new Packet(202, NetScope.Global, "", serialize(msg)));
+                                app.SendMessage(new C2S_JoinRoom { RoomId = room.RoomId });
                             }
                         }
                         else
@@ -251,28 +241,26 @@ namespace StellarNet.Lite.Demo
                 GUI.color = Color.cyan;
                 if (GUILayout.Button("刷新云端录像列表", GUILayout.Height(30)))
                 {
-                    var msg = new C2S_GetReplayList();
-                    app.SendGlobal(new Packet(600, NetScope.Global, "", serialize(msg)));
+                    app.SendMessage(new C2S_GetReplayList());
                 }
 
                 GUI.color = Color.white;
-
                 GUILayout.Space(5);
+
                 if (_replayList != null && _replayList.Length > 0)
                 {
                     foreach (string replayId in _replayList)
                     {
                         GUILayout.BeginHorizontal("box");
                         GUILayout.Label($"录像 ID:\n{replayId}");
-
                         bool isDownloading = _downloadingReplayId == replayId;
                         GUI.enabled = !isDownloading && string.IsNullOrEmpty(_downloadingReplayId);
 
-                        if (GUILayout.Button(isDownloading ? "下载中..." : "下载并播放", GUILayout.Width(90), GUILayout.Height(35)))
+                        if (GUILayout.Button(isDownloading ? "下载中..." : "下载并播放", GUILayout.Width(90),
+                                GUILayout.Height(35)))
                         {
                             _downloadingReplayId = replayId;
-                            var msg = new C2S_DownloadReplay { ReplayId = replayId };
-                            app.SendGlobal(new Packet(602, NetScope.Global, "", serialize(msg)));
+                            app.SendMessage(new C2S_DownloadReplay { ReplayId = replayId });
                         }
 
                         GUI.enabled = true;
@@ -289,7 +277,8 @@ namespace StellarNet.Lite.Demo
                 GUILayout.Label($"当前状态: 房间内\nRoomId: {app.CurrentRoom.RoomId}");
                 GUILayout.Space(10);
 
-                ClientRoomSettingsComponent settingsComp = GetClientComponent<ClientRoomSettingsComponent>(app.CurrentRoom);
+                // 核心修复：使用合法的 GetComponent 接口替代反射
+                ClientRoomSettingsComponent settingsComp = app.CurrentRoom.GetComponent<ClientRoomSettingsComponent>();
                 if (settingsComp != null)
                 {
                     if (!settingsComp.IsGameStarted)
@@ -302,14 +291,14 @@ namespace StellarNet.Lite.Demo
                         {
                             var member = kvp.Value;
                             bool isMe = member.SessionId == app.Session.SessionId;
-
                             if (isMe && member.IsOwner) isMeOwner = true;
                             if (!isMe && !member.IsReady) allOthersReady = false;
 
                             string meStr = isMe ? " (我)" : "";
                             string ownerStr = member.IsOwner ? "<color=yellow>[房主]</color>" : "";
                             string readyStr = member.IsReady ? "<color=green>已准备</color>" : "<color=red>未准备</color>";
-                            GUILayout.Label($"- {member.SessionId.Substring(0, 8)}...{meStr} {ownerStr} 状态: {readyStr}", new GUIStyle(GUI.skin.label) { richText = true });
+                            GUILayout.Label($"- {member.SessionId.Substring(0, 8)}...{meStr} {ownerStr} 状态: {readyStr}",
+                                new GUIStyle(GUI.skin.label) { richText = true });
                         }
 
                         GUILayout.Space(10);
@@ -317,8 +306,7 @@ namespace StellarNet.Lite.Demo
                         {
                             if (settingsComp.Members.TryGetValue(app.Session.SessionId, out var myInfo))
                             {
-                                var msg = new C2S_SetReady { IsReady = !myInfo.IsReady };
-                                app.SendRoom(new Packet(303, NetScope.Room, app.CurrentRoom.RoomId, serialize(msg)));
+                                app.SendMessage(new C2S_SetReady { IsReady = !myInfo.IsReady });
                             }
                         }
 
@@ -327,10 +315,10 @@ namespace StellarNet.Lite.Demo
                             GUILayout.Space(10);
                             GUI.enabled = allOthersReady;
                             GUI.color = Color.green;
-                            if (GUILayout.Button(allOthersReady ? "开始游戏 (Start Game)" : "等待全员准备...", GUILayout.Height(40)))
+                            if (GUILayout.Button(allOthersReady ? "开始游戏 (Start Game)" : "等待全员准备...",
+                                    GUILayout.Height(40)))
                             {
-                                var msg = new C2S_StartGame();
-                                app.SendRoom(new Packet(500, NetScope.Room, app.CurrentRoom.RoomId, serialize(msg)));
+                                app.SendMessage(new C2S_StartGame());
                             }
 
                             GUI.color = Color.white;
@@ -339,16 +327,15 @@ namespace StellarNet.Lite.Demo
                     }
                     else
                     {
-                        GUILayout.Label("<color=green><b>游戏进行中...</b></color>", new GUIStyle(GUI.skin.label) { richText = true });
-
+                        GUILayout.Label("<color=green><b>游戏进行中...</b></color>",
+                            new GUIStyle(GUI.skin.label) { richText = true });
                         if (settingsComp.Members.TryGetValue(app.Session.SessionId, out var myInfo) && myInfo.IsOwner)
                         {
                             GUILayout.Space(10);
                             GUI.color = Color.red;
                             if (GUILayout.Button("强制结束游戏 (Force End Game)", GUILayout.Height(40)))
                             {
-                                var msg = new C2S_EndGame();
-                                app.SendRoom(new Packet(502, NetScope.Room, app.CurrentRoom.RoomId, serialize(msg)));
+                                app.SendMessage(new C2S_EndGame());
                             }
 
                             GUI.color = Color.white;
@@ -359,8 +346,7 @@ namespace StellarNet.Lite.Demo
                 GUILayout.Space(10);
                 if (GUILayout.Button("正常离开房间 (Leave Room)", GUILayout.Height(40)))
                 {
-                    var msg = new C2S_LeaveRoom();
-                    app.SendGlobal(new Packet(204, NetScope.Global, "", serialize(msg)));
+                    app.SendMessage(new C2S_LeaveRoom());
                 }
             }
 
@@ -376,7 +362,8 @@ namespace StellarNet.Lite.Demo
 
         private void DrawClientReplayPanel()
         {
-            GUILayout.Label("当前状态: <color=cyan>回放沙盒模式 (ReplayRoom)</color>", new GUIStyle(GUI.skin.label) { richText = true });
+            GUILayout.Label("当前状态: <color=cyan>回放沙盒模式 (ReplayRoom)</color>",
+                new GUIStyle(GUI.skin.label) { richText = true });
             GUILayout.Space(10);
 
             if (_replayPlayer == null) return;
@@ -385,8 +372,8 @@ namespace StellarNet.Lite.Demo
             int currentTick = _replayPlayer.CurrentTick;
 
             GUILayout.BeginVertical("box");
-            GUILayout.Label($"<b>播放进度: {currentTick} / {totalTicks}</b>", new GUIStyle(GUI.skin.label) { richText = true });
-
+            GUILayout.Label($"<b>播放进度: {currentTick} / {totalTicks}</b>",
+                new GUIStyle(GUI.skin.label) { richText = true });
             float newProgress = GUILayout.HorizontalSlider(currentTick, 0, totalTicks);
             if (Mathf.Abs(newProgress - currentTick) > 1f)
             {
@@ -431,18 +418,19 @@ namespace StellarNet.Lite.Demo
 
         private void DrawServerPanel()
         {
-            GUILayout.Label("<b><size=16>服务端上帝视角 (Server Admin)</size></b>", new GUIStyle(GUI.skin.label) { richText = true, alignment = TextAnchor.MiddleCenter });
+            GUILayout.Label("<b><size=16>服务端上帝视角 (Server Admin)</size></b>",
+                new GUIStyle(GUI.skin.label) { richText = true, alignment = TextAnchor.MiddleCenter });
             GUILayout.Space(10);
 
-            var sessions = GetServerSessions();
-            var rooms = GetServerRooms();
+            // 核心修复：彻底剔除反射，使用 ServerApp 提供的合法只读边界
+            var sessions = _manager.ServerApp.Sessions;
+            var rooms = _manager.ServerApp.Rooms;
 
             GUILayout.Label($"<b>在线/离线会话总数: {sessions.Count}</b>", new GUIStyle(GUI.skin.label) { richText = true });
             foreach (var kvp in sessions)
             {
                 var session = kvp.Value;
                 GUILayout.BeginVertical("box");
-
                 string status = session.IsOnline ? "<color=green>在线</color>" : "<color=gray>物理离线</color>";
                 GUILayout.Label($"UID: {session.Uid} | 状态: {status}", new GUIStyle(GUI.skin.label) { richText = true });
                 GUILayout.Label($"SessionId: {session.SessionId}");
@@ -454,14 +442,7 @@ namespace StellarNet.Lite.Demo
                     if (GUILayout.Button("强制踢下线 (KickOut)"))
                     {
                         var msg = new S2C_KickOut { Reason = "被管理员强制踢出" };
-                        byte[] payload = _manager.SerializeFunc(msg);
-                        var packet = new Packet(0, 102, NetScope.Global, "", payload);
-
-                        if (NetworkServer.connections.TryGetValue(session.ConnectionId, out var conn))
-                        {
-                            conn.Send(new MirrorPacketMsg(packet));
-                        }
-
+                        _manager.ServerApp.SendMessageToSession(session, msg);
                         _manager.ServerApp.UnbindConnection(session);
                     }
 
@@ -472,18 +453,17 @@ namespace StellarNet.Lite.Demo
             }
 
             GUILayout.Space(20);
-
             GUILayout.Label($"<b>活跃房间总数: {rooms.Count}</b>", new GUIStyle(GUI.skin.label) { richText = true });
             foreach (var kvp in rooms)
             {
                 var room = kvp.Value;
                 GUILayout.BeginVertical("box");
-
-                GUILayout.Label($"RoomName: {room.RoomName}\nRoomId: {room.RoomId} | 成员数: {room.MemberCount} | 状态: {room.State}");
-                GUILayout.Label($"录制状态: {(room.IsRecording ? "<color=red>录制中...</color>" : "未录制")}", new GUIStyle(GUI.skin.label) { richText = true });
+                GUILayout.Label(
+                    $"RoomName: {room.RoomName}\nRoomId: {room.RoomId} | 成员数: {room.MemberCount} | 状态: {room.State}");
+                GUILayout.Label($"录制状态: {(room.IsRecording ? "<color=red>录制中...</color>" : "未录制")}",
+                    new GUIStyle(GUI.skin.label) { richText = true });
 
                 GUILayout.BeginHorizontal();
-
                 if (room.State == RoomState.Playing)
                 {
                     GUI.enabled = false;
@@ -505,50 +485,8 @@ namespace StellarNet.Lite.Demo
 
                 GUI.color = Color.white;
                 GUILayout.EndHorizontal();
-
                 GUILayout.EndVertical();
             }
-        }
-
-        private Dictionary<string, Session> GetServerSessions()
-        {
-            var field = typeof(ServerApp).GetField("_sessions", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (field != null && _manager.ServerApp != null)
-            {
-                return field.GetValue(_manager.ServerApp) as Dictionary<string, Session> ?? new Dictionary<string, Session>();
-            }
-
-            return new Dictionary<string, Session>();
-        }
-
-        private Dictionary<string, Room> GetServerRooms()
-        {
-            var field = typeof(ServerApp).GetField("_rooms", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (field != null && _manager.ServerApp != null)
-            {
-                return field.GetValue(_manager.ServerApp) as Dictionary<string, Room> ?? new Dictionary<string, Room>();
-            }
-
-            return new Dictionary<string, Room>();
-        }
-
-        private T GetClientComponent<T>(ClientRoom room) where T : ClientRoomComponent
-        {
-            if (room == null) return null;
-            var field = typeof(ClientRoom).GetField("_components", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (field != null)
-            {
-                var list = field.GetValue(room) as List<ClientRoomComponent>;
-                if (list != null)
-                {
-                    foreach (var c in list)
-                    {
-                        if (c is T target) return target;
-                    }
-                }
-            }
-
-            return null;
         }
     }
 }

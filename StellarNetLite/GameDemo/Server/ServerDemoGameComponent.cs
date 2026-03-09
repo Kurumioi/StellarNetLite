@@ -51,8 +51,7 @@ namespace StellarNet.Lite.GameDemo.Server
             if (_players.Remove(session.SessionId))
             {
                 var msg = new S2C_DemoPlayerLeft { SessionId = session.SessionId };
-                Broadcast(1005, msg);
-
+                Broadcast(msg);
                 CheckWinCondition();
             }
         }
@@ -76,7 +75,7 @@ namespace StellarNet.Lite.GameDemo.Server
 
             var snapshot = new List<DemoPlayerInfo>(_players.Values);
             var msg = new S2C_DemoSnapshot { Players = snapshot.ToArray() };
-            Broadcast(1003, msg);
+            Broadcast(msg);
 
             Debug.Log($"[ServerDemoGame] 游戏正式开始，已为 {_players.Count} 名玩家生成实体");
         }
@@ -87,13 +86,14 @@ namespace StellarNet.Lite.GameDemo.Server
 
             var snapshot = new List<DemoPlayerInfo>(_players.Values);
             var msg = new S2C_DemoSnapshot { Players = snapshot.ToArray() };
-            SendTo(session, 1003, msg);
+            SendTo(session, msg);
         }
 
         [NetHandler]
         public void OnC2S_DemoMoveReq(Session session, C2S_DemoMoveReq msg)
         {
             if (session == null || msg == null) return;
+
             if (_isGameOver || Room.State != RoomState.Playing) return;
 
             if (!_players.TryGetValue(session.SessionId, out var player)) return;
@@ -110,13 +110,15 @@ namespace StellarNet.Lite.GameDemo.Server
                 TargetY = msg.TargetY,
                 TargetZ = msg.TargetZ
             };
-            Broadcast(1006, syncMsg);
+
+            Broadcast(syncMsg);
         }
 
         [NetHandler]
         public void OnC2S_DemoAttackReq(Session session, C2S_DemoAttackReq msg)
         {
             if (session == null || msg == null) return;
+
             if (_isGameOver || Room.State != RoomState.Playing) return;
             if (string.IsNullOrEmpty(msg.TargetSessionId)) return;
 
@@ -133,7 +135,8 @@ namespace StellarNet.Lite.GameDemo.Server
                 SessionId = target.SessionId,
                 Hp = target.Hp
             };
-            Broadcast(1007, hpMsg);
+
+            Broadcast(hpMsg);
 
             if (target.Hp <= 0)
             {
@@ -161,27 +164,39 @@ namespace StellarNet.Lite.GameDemo.Server
             {
                 _isGameOver = true;
 
-                // 核心修改：废弃 1008，改用框架标准协议 503 通知游戏结束
                 var overMsg = new S2C_GameEnded { WinnerSessionId = lastAliveSessionId };
-                Broadcast(503, overMsg);
+                Broadcast(overMsg);
 
                 Debug.Log($"[ServerDemoGame] 游戏结束，胜利者: {lastAliveSessionId}。触发房间结算。");
-
                 Room.EndGame();
             }
         }
 
-        private void Broadcast(int msgId, object msgObj)
+        // 核心修复：升级为强类型泛型广播，彻底消灭魔数
+        private void Broadcast<T>(T msgObj) where T : class
         {
+            if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta))
+            {
+                Debug.LogError($"[ServerDemoGame] 广播失败: 未找到类型 {typeof(T).Name} 的网络元数据");
+                return;
+            }
+
             byte[] payload = _serializeFunc(msgObj);
-            var packet = new Packet(msgId, NetScope.Room, Room.RoomId, payload);
+            var packet = new Packet(meta.Id, meta.Scope, Room.RoomId, payload);
             Room.Broadcast(packet);
         }
 
-        private void SendTo(Session session, int msgId, object msgObj)
+        // 核心修复：升级为强类型泛型定向发送，彻底消灭魔数
+        private void SendTo<T>(Session session, T msgObj) where T : class
         {
+            if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta))
+            {
+                Debug.LogError($"[ServerDemoGame] 发送失败: 未找到类型 {typeof(T).Name} 的网络元数据");
+                return;
+            }
+
             byte[] payload = _serializeFunc(msgObj);
-            var packet = new Packet(msgId, NetScope.Room, Room.RoomId, payload);
+            var packet = new Packet(meta.Id, meta.Scope, Room.RoomId, payload);
             Room.SendTo(session, packet);
         }
     }

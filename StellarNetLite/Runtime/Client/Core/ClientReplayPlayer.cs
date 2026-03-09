@@ -48,8 +48,8 @@ namespace StellarNet.Lite.Client.Core
             _tickAccumulator = 0f;
 
             RestartSandbox();
-
-            Debug.Log($"[ClientReplayPlayer] 回放启动: 房间 {file.RoomId}, 总帧数 {file.Frames.Count}, 总 Tick {GetTotalTicks()}");
+            Debug.Log(
+                $"[ClientReplayPlayer] 回放启动: 房间 {file.RoomId}, 总帧数 {file.Frames.Count}, 总 Tick {GetTotalTicks()}");
         }
 
         public void StopReplay()
@@ -116,6 +116,7 @@ namespace StellarNet.Lite.Client.Core
 
             _app.EnterReplayRoom(_currentFile.RoomId);
             bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, _currentFile.ComponentIds);
+
             if (!buildSuccess)
             {
                 Debug.LogError($"[ClientReplayPlayer] 回放房间 {_currentFile.RoomId} 本地装配失败，强制终止回放");
@@ -140,7 +141,7 @@ namespace StellarNet.Lite.Client.Core
                     break;
                 }
 
-                var packet = new Packet(frame.MsgId, NetScope.Room, frame.RoomId, frame.Payload);
+                var packet = new Packet(0, frame.MsgId, NetScope.Room, frame.RoomId, frame.Payload);
                 _app.CurrentRoom.Dispatcher.Dispatch(packet);
                 _frameIndex++;
             }

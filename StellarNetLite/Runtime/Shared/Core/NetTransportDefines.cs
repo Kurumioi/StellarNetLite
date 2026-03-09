@@ -4,7 +4,6 @@ namespace StellarNet.Lite.Shared.Core
 {
     /// <summary>
     /// 极简底层传输封套 (高性能值类型版)。
-    /// 核心优化：改为 struct，在栈上分配，彻底消灭高频发包时的堆内存 GC。
     /// </summary>
     public struct Packet
     {
@@ -24,7 +23,6 @@ namespace StellarNet.Lite.Shared.Core
             Payload = payload;
         }
 
-        // 兼容旧代码的构造函数，默认 Seq 为 0
         public Packet(int msgId, NetScope scope, string roomId, byte[] payload)
         {
             Seq = 0;

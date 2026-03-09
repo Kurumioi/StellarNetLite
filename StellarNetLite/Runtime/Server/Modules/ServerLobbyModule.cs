@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Reflection;
 using UnityEngine;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
@@ -30,13 +29,10 @@ namespace StellarNet.Lite.Server.Modules
         {
             if (session == null) return;
 
-            var field = typeof(ServerApp).GetField("_rooms", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (field == null) return;
-
-            var roomsDict = field.GetValue(_app) as Dictionary<string, Room>;
-            if (roomsDict == null) return;
-
+            // 核心修复：移除反射，直接使用 ServerApp 提供的合法只读接口
+            var roomsDict = _app.Rooms;
             var roomList = new List<RoomBriefInfo>();
+
             foreach (var kvp in roomsDict)
             {
                 var room = kvp.Value;
@@ -58,11 +54,9 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             var response = new S2C_RoomListResponse { Rooms = roomList.ToArray() };
-            byte[] payload = _serializeFunc(response);
 
-            // 核心修复：同步修改硬编码的发包 ID 为 211
-            var packet = new Packet(211, NetScope.Global, string.Empty, payload);
-            _networkSender.Invoke(session.ConnectionId, packet);
+            // 核心修复：改用强类型统一发送器，消除硬编码发包
+            _app.SendMessageToSession(session, response);
         }
     }
 }
