@@ -242,7 +242,7 @@ Assets/StellarNetLite/
 ### 1. 克隆项目
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/StarrDream/StellarNetLite.git
 ```
 
 ### 2. 用 Unity 打开工程
@@ -404,11 +404,8 @@ StellarNet Lite 选择显式协议驱动，正是为了保证：
 
 ## License
 
-可根据你的开源计划自行选择：
-
 - MIT
 - Apache-2.0
-- 私有仓库内部使用
 
 ---
 
