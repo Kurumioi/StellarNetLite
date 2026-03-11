@@ -8,16 +8,17 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.GameDemo.Server
 {
-    // 核心新增：添加组件元数据特性，驱动常量表生成
-    [RoomComponent(100, "DemoGame")]
+    [RoomComponent(100, "DemoGame", "测试对战玩法")]
     public sealed class ServerDemoGameComponent : RoomComponent
     {
+        private readonly ServerApp _app;
         private readonly Dictionary<string, DemoPlayerInfo> _players = new Dictionary<string, DemoPlayerInfo>();
         private readonly List<string> _pendingMembers = new List<string>();
         private bool _isGameOver = false;
 
-        public ServerDemoGameComponent(Func<object, byte[]> serializeFunc)
+        public ServerDemoGameComponent(ServerApp app)
         {
+            _app = app;
         }
 
         public override void OnInit()
@@ -93,6 +94,7 @@ namespace StellarNet.Lite.GameDemo.Server
         public void OnC2S_DemoMoveReq(Session session, C2S_DemoMoveReq msg)
         {
             if (session == null || msg == null) return;
+
             if (_isGameOver || Room.State != RoomState.Playing) return;
 
             if (!_players.TryGetValue(session.SessionId, out var player)) return;
@@ -116,7 +118,9 @@ namespace StellarNet.Lite.GameDemo.Server
         public void OnC2S_DemoAttackReq(Session session, C2S_DemoAttackReq msg)
         {
             if (session == null || msg == null) return;
+
             if (_isGameOver || Room.State != RoomState.Playing) return;
+
             if (string.IsNullOrEmpty(msg.TargetSessionId)) return;
 
             if (!_players.TryGetValue(session.SessionId, out var attacker)) return;
@@ -161,7 +165,6 @@ namespace StellarNet.Lite.GameDemo.Server
                 _isGameOver = true;
                 var overMsg = new S2C_GameEnded { WinnerSessionId = lastAliveSessionId };
                 Room.BroadcastMessage(overMsg);
-
                 LiteLogger.LogInfo("ServerDemoGame", $"游戏结束，胜利者: {lastAliveSessionId}。触发房间结算。", Room.RoomId);
                 Room.EndGame();
             }

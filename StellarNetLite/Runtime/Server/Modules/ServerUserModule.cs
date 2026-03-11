@@ -8,21 +8,16 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Server.Modules
 {
+    [GlobalModule("ServerUserModule", "用户鉴权与登录模块")]
     public sealed class ServerUserModule
     {
         private readonly ServerApp _app;
-        private readonly Action<int, Packet> _networkSender;
-        private readonly Func<object, byte[]> _serializeFunc;
-        private readonly NetConfig _config;
         private readonly Dictionary<string, Session> _accountToSession = new Dictionary<string, Session>();
 
-        public ServerUserModule(ServerApp app, Action<int, Packet> networkSender, Func<object, byte[]> serializeFunc,
-            NetConfig config)
+        // 核心改造：统一极简构造函数，底层依赖通过 ServerApp 容器获取
+        public ServerUserModule(ServerApp app)
         {
             _app = app;
-            _networkSender = networkSender;
-            _serializeFunc = serializeFunc;
-            _config = config;
         }
 
         [NetHandler]
@@ -43,24 +38,24 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             if (Version.TryParse(msg.ClientVersion, out Version clientVer) &&
-                Version.TryParse(_config.MinClientVersion, out Version minVer))
+                Version.TryParse(_app.Config.MinClientVersion, out Version minVer))
             {
                 if (clientVer < minVer)
                 {
                     LiteLogger.LogWarning("ServerUserModule",
-                        $"登录拦截: 客户端版本 {msg.ClientVersion} 低于最低要求 {_config.MinClientVersion}", "-", session.SessionId);
+                        $"登录拦截: 客户端版本 {msg.ClientVersion} 低于最低要求 {_app.Config.MinClientVersion}", "-", session.SessionId);
                     var rejectRes = new S2C_LoginResult
-                        { Success = false, Reason = $"客户端版本过旧，请在Unity中更新至 {_config.MinClientVersion} 或以上版本" };
+                        { Success = false, Reason = $"客户端版本过旧，请在Unity中更新至 {_app.Config.MinClientVersion} 或以上版本" };
                     _app.SendMessageToSession(session, rejectRes);
                     return;
                 }
             }
-            else if (msg.ClientVersion != _config.MinClientVersion)
+            else if (msg.ClientVersion != _app.Config.MinClientVersion)
             {
                 LiteLogger.LogWarning("ServerUserModule",
-                    $"登录拦截: 客户端版本 {msg.ClientVersion} 不匹配要求 {_config.MinClientVersion}", "-", session.SessionId);
+                    $"登录拦截: 客户端版本 {msg.ClientVersion} 不匹配要求 {_app.Config.MinClientVersion}", "-", session.SessionId);
                 var rejectRes = new S2C_LoginResult
-                    { Success = false, Reason = $"客户端版本不匹配，请更新至 {_config.MinClientVersion}" };
+                    { Success = false, Reason = $"客户端版本不匹配，请更新至 {_app.Config.MinClientVersion}" };
                 _app.SendMessageToSession(session, rejectRes);
                 return;
             }
@@ -79,7 +74,6 @@ namespace StellarNet.Lite.Server.Modules
                 _app.RemoveSession(session.SessionId);
                 _app.BindConnection(oldSession, session.ConnectionId);
 
-                // 核心修复：同步新物理连接的 Seq 到旧 Session，对齐防重放基线
                 oldSession.ResetSeq(session.LastReceivedSeq);
 
                 bool hasRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) &&
@@ -92,7 +86,6 @@ namespace StellarNet.Lite.Server.Modules
                     HasReconnectRoom = hasRoom,
                     Reason = string.Empty
                 };
-
                 _app.SendMessageToSession(oldSession, reconnectRes);
                 LiteLogger.LogInfo("ServerUserModule", $"玩家断线重连(顶号)成功，Seq 状态已重置对齐", oldSession.CurrentRoomId,
                     oldSession.SessionId);
@@ -101,9 +94,7 @@ namespace StellarNet.Lite.Server.Modules
 
             _app.RemoveSession(session.SessionId);
             var authSession = new Session(session.SessionId, msg.AccountId, session.ConnectionId);
-            // 首次登录，继承当前 UNAUTH session 的 Seq (即 1)
             authSession.ResetSeq(session.LastReceivedSeq);
-
             _accountToSession[msg.AccountId] = authSession;
             _app.RegisterSession(authSession);
 
@@ -114,7 +105,6 @@ namespace StellarNet.Lite.Server.Modules
                 HasReconnectRoom = false,
                 Reason = string.Empty
             };
-
             _app.SendMessageToSession(authSession, res);
             LiteLogger.LogInfo("ServerUserModule", $"玩家全新登录成功", "-", authSession.SessionId);
         }
@@ -155,7 +145,6 @@ namespace StellarNet.Lite.Server.Modules
                 ComponentIds = room.ComponentIds,
                 Reason = string.Empty
             };
-
             _app.SendMessageToSession(session, successRes);
         }
 

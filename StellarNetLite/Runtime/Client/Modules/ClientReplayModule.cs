@@ -8,17 +8,14 @@ using StellarNet.Lite.Client.Core.Events;
 
 namespace StellarNet.Lite.Client.Modules
 {
+    [GlobalModule("ClientReplayModule", "客户端回放模块")]
     public sealed class ClientReplayModule
     {
         private readonly ClientApp _app;
-        private readonly Action<Packet> _networkSender;
-        private readonly Func<object, byte[]> _serializeFunc;
 
-        public ClientReplayModule(ClientApp app, Action<Packet> networkSender, Func<object, byte[]> serializeFunc)
+        public ClientReplayModule(ClientApp app)
         {
             _app = app;
-            _networkSender = networkSender;
-            _serializeFunc = serializeFunc;
         }
 
         [NetHandler]
@@ -46,7 +43,6 @@ namespace StellarNet.Lite.Client.Modules
                 LiteLogger.LogInfo("ClientReplayModule", $"录像下载成功，准备派发给表现层解析");
             }
 
-            // 核心重构：不再在 Module 层做 JSON 反序列化，直接抛出协议，由真正需要播放的系统去解析
             GlobalTypeNetEvent.Broadcast(msg);
         }
     }

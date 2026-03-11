@@ -10,21 +10,14 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Modules
 {
-    /// <summary>
-    /// 服务端录像模块。
-    /// 职责：处理客户端拉取录像列表与下载录像文件的请求。
-    /// </summary>
+    [GlobalModule("ServerReplayModule", "录像下载与分发模块")]
     public sealed class ServerReplayModule
     {
         private readonly ServerApp _app;
-        private readonly Action<int, Packet> _networkSender;
-        private readonly Func<object, byte[]> _serializeFunc;
 
-        public ServerReplayModule(ServerApp app, Action<int, Packet> networkSender, Func<object, byte[]> serializeFunc)
+        public ServerReplayModule(ServerApp app)
         {
             _app = app;
-            _networkSender = networkSender;
-            _serializeFunc = serializeFunc;
         }
 
         [NetHandler]
@@ -36,16 +29,15 @@ namespace StellarNet.Lite.Server.Modules
                 .Replace("\\", "/");
             string[] replayIds = new string[0];
 
-            // 核心修复 (Point 14)：前置校验目录是否存在，避免抛出不必要的异常
             if (Directory.Exists(folderPath))
             {
                 try
                 {
-                    // 获取最新的 10 个录像文件
                     var files = new DirectoryInfo(folderPath).GetFiles("*.json")
                         .OrderByDescending(f => f.CreationTimeUtc)
                         .Take(10)
                         .ToArray();
+
                     replayIds = files.Select(f => Path.GetFileNameWithoutExtension(f.Name)).ToArray();
                 }
                 catch (Exception e)
@@ -67,7 +59,6 @@ namespace StellarNet.Lite.Server.Modules
                 .Replace("\\", "/");
             string fullPath = Path.Combine(folderPath, $"{msg.ReplayId}.json").Replace("\\", "/");
 
-            // 核心修复 (Point 14)：前置校验文件是否存在，拒绝深层嵌套
             if (!File.Exists(fullPath))
             {
                 LiteLogger.LogWarning("ServerReplayModule", $"请求的录像文件不存在: {msg.ReplayId}", "-", session.SessionId);

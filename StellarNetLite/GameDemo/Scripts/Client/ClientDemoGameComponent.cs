@@ -7,17 +7,24 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.GameDemo.Client
 {
-    [RoomComponent(100, "DemoGame")]
+    [RoomComponent(100, "DemoGame", "测试对战玩法")]
     public sealed class ClientDemoGameComponent : ClientRoomComponent
     {
+        private readonly ClientApp _app;
+
+        public ClientDemoGameComponent(ClientApp app)
+        {
+            _app = app;
+        }
+
         public override void OnInit()
         {
-            LiteLogger.LogInfo("[ClientDemoGame]", $"  客户端业务组件初始化完毕，开始监听服务端同步数据");
+            LiteLogger.LogInfo("[ClientDemoGame]", $"客户端业务组件初始化完毕，开始监听服务端同步数据");
         }
 
         public override void OnDestroy()
         {
-            LiteLogger.LogInfo("[ClientDemoGame]", $"  客户端业务组件销毁，清理相关状态");
+            LiteLogger.LogInfo("[ClientDemoGame]", $"客户端业务组件销毁，清理相关状态");
         }
 
         [NetHandler]

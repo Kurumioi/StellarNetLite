@@ -11,7 +11,7 @@ namespace StellarNet.Lite.Editor.Tools
     /// <summary>
     /// StellarNet Lite 业务脚手架生成器。
     /// 职责：提供可视化的 UI 界面，一键生成符合 MSV 架构与防重放规范的模板代码。
-    /// 架构说明：已对齐最新的无侵入式协议直抛架构，不再生成冗余的 Event 结构体。
+    /// 架构说明：已对齐最新的无侵入式协议直抛架构，并全面适配 AutoRegistry 自动装配机制。
     /// </summary>
     public sealed class StellarNetScaffoldWindow : EditorWindow
     {
@@ -25,6 +25,7 @@ namespace StellarNet.Lite.Editor.Tools
 
         private ModuleType _currentType = ModuleType.RoomComponent;
         private string _moduleName = "NewFeature";
+        private string _displayName = "新功能模块";
         private int _startProtocolId = 10000;
         private int _componentId = 10;
         private string _authorName = "Developer";
@@ -45,7 +46,7 @@ namespace StellarNet.Lite.Editor.Tools
         public static void ShowWindow()
         {
             var window = GetWindow<StellarNetScaffoldWindow>("StellarNet 脚手架");
-            window.minSize = new Vector2(500, 550);
+            window.minSize = new Vector2(500, 600);
             window.Show();
         }
 
@@ -57,7 +58,7 @@ namespace StellarNet.Lite.Editor.Tools
 
             GUILayout.Space(10);
             GUILayout.Label("StellarNet Lite 业务代码生成器", _headerStyle);
-            EditorGUILayout.HelpBox("输入模块名称与起始协议 ID，工具将自动在指定的业务目录下生成 Shared、Server、Client 脚本，实现框架与业务的物理隔离。",
+            EditorGUILayout.HelpBox("输入模块名称与起始协议 ID，工具将自动在指定的业务目录下生成 Shared、Server、Client 脚本，并自动打上装配特性。",
                 MessageType.Info);
             GUILayout.Space(10);
 
@@ -89,7 +90,6 @@ namespace StellarNet.Lite.Editor.Tools
         private void DrawMainPanel()
         {
             EditorGUILayout.BeginVertical("box");
-
             GUILayout.Space(5);
             GUILayout.Label("目录与命名空间配置", _sectionStyle);
             GUILayout.Space(5);
@@ -104,13 +104,14 @@ namespace StellarNet.Lite.Editor.Tools
             _currentType = (ModuleType)EditorGUILayout.EnumPopup("模块类型 (Type):", _currentType);
 
             EditorGUI.BeginChangeCheck();
-            _moduleName = EditorGUILayout.TextField("模块名称 (Name):", _moduleName);
+            _moduleName = EditorGUILayout.TextField("模块类名 (Name):", _moduleName);
             if (EditorGUI.EndChangeCheck())
             {
                 // 防御性编程：强制剔除空格与非法字符，防止生成非法的 C# 类名
                 _moduleName = System.Text.RegularExpressions.Regex.Replace(_moduleName, @"[^a-zA-Z0-9_]", "");
             }
 
+            _displayName = EditorGUILayout.TextField("中文展示名 (DisplayName):", _displayName);
             _startProtocolId = EditorGUILayout.IntField("起始协议 ID:", _startProtocolId);
 
             if (_currentType == ModuleType.RoomComponent)
@@ -195,7 +196,10 @@ namespace StellarNet.Lite.Editor.Tools
 
                 AssetDatabase.Refresh();
                 LiteLogger.LogInfo($"[Scaffold] ", $" 业务模块 {_moduleName} 生成完毕，输出路径: {_outputRootPath}");
-                EditorUtility.DisplayDialog("成功", $"业务模块 {_moduleName} 生成完毕！\n请前往 StellarNetMirrorManager.cs 进行装配注册。",
+
+                // 核心修复：更新弹窗指引，引导开发者使用自动装配工具链
+                EditorUtility.DisplayDialog("成功",
+                    $"业务模块 {_moduleName} 生成完毕！\n\n请点击顶部菜单：\n[StellarNet/Lite 强制重新生成协议与组件常量表]\n以完成模块的自动装配。",
                     "确定");
             }
             catch (Exception e)
@@ -251,9 +255,16 @@ namespace StellarNet.Lite.Editor.Tools
             sb.AppendLine("");
             sb.AppendLine($"namespace {ns}");
             sb.AppendLine("{");
-            sb.AppendLine($"    [RoomComponent({_componentId}, \"{_moduleName}\")]");
+            sb.AppendLine($"    [RoomComponent({_componentId}, \"{_moduleName}\", \"{_displayName}\")]");
             sb.AppendLine($"    public sealed class Server{_moduleName}Component : RoomComponent");
             sb.AppendLine("    {");
+            sb.AppendLine("        private readonly ServerApp _app;");
+            sb.AppendLine("");
+            sb.AppendLine($"        public Server{_moduleName}Component(ServerApp app)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            _app = app;");
+            sb.AppendLine("        }");
+            sb.AppendLine("");
             sb.AppendLine("        public override void OnInit()");
             sb.AppendLine("        {");
             sb.AppendLine("        }");
@@ -286,9 +297,16 @@ namespace StellarNet.Lite.Editor.Tools
             sb.AppendLine("");
             sb.AppendLine($"namespace {ns}");
             sb.AppendLine("{");
-            sb.AppendLine($"    [RoomComponent({_componentId}, \"{_moduleName}\")]");
+            sb.AppendLine($"    [RoomComponent({_componentId}, \"{_moduleName}\", \"{_displayName}\")]");
             sb.AppendLine($"    public sealed class Client{_moduleName}Component : ClientRoomComponent");
             sb.AppendLine("    {");
+            sb.AppendLine("        private readonly ClientApp _app;");
+            sb.AppendLine("");
+            sb.AppendLine($"        public Client{_moduleName}Component(ClientApp app)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            _app = app;");
+            sb.AppendLine("        }");
+            sb.AppendLine("");
             sb.AppendLine("        public override void OnInit()");
             sb.AppendLine("        {");
             sb.AppendLine("        }");
@@ -321,6 +339,7 @@ namespace StellarNet.Lite.Editor.Tools
             sb.AppendLine("");
             sb.AppendLine($"namespace {ns}");
             sb.AppendLine("{");
+            sb.AppendLine($"    [GlobalModule(\"{_moduleName}\", \"{_displayName}\")]");
             sb.AppendLine($"    public sealed class Server{_moduleName}Module");
             sb.AppendLine("    {");
             sb.AppendLine("        private readonly ServerApp _app;");
@@ -360,6 +379,7 @@ namespace StellarNet.Lite.Editor.Tools
             sb.AppendLine("");
             sb.AppendLine($"namespace {ns}");
             sb.AppendLine("{");
+            sb.AppendLine($"    [GlobalModule(\"{_moduleName}\", \"{_displayName}\")]");
             sb.AppendLine($"    public sealed class Client{_moduleName}Module");
             sb.AppendLine("    {");
             sb.AppendLine("        private readonly ClientApp _app;");

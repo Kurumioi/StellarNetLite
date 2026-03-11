@@ -19,14 +19,16 @@ namespace StellarNet.Lite.Client.Core
         public ClientRoom CurrentRoom { get; private set; }
         public ClientAppState State { get; private set; } = ClientAppState.InLobby;
 
-        private readonly Action<Packet> _networkSender;
-        private readonly Func<object, byte[]> _serializeFunc;
+        // 核心改造：暴露底层依赖，作为简易 IoC 容器供模块与组件使用
+        public Action<Packet> NetworkSender { get; }
+        public Func<object, byte[]> SerializeFunc { get; }
+
         private uint _sendSeq = 0;
 
         public ClientApp(Action<Packet> networkSender, Func<object, byte[]> serializeFunc)
         {
-            _networkSender = networkSender;
-            _serializeFunc = serializeFunc;
+            NetworkSender = networkSender;
+            SerializeFunc = serializeFunc;
         }
 
         public void OnReceivePacket(Packet packet)
@@ -60,7 +62,6 @@ namespace StellarNet.Lite.Client.Core
             }
         }
 
-        // 核心修复 (Point 11)：状态机统一封锁与审计矩阵
         private bool TryChangeState(ClientAppState targetState)
         {
             if (State == targetState) return true;
@@ -69,13 +70,11 @@ namespace StellarNet.Lite.Client.Core
             switch (State)
             {
                 case ClientAppState.InLobby:
-                    // Idle 只能进入 OnlineRoom 或 ReplayRoom
                     isValidTransition = (targetState == ClientAppState.OnlineRoom ||
                                          targetState == ClientAppState.ReplayRoom);
                     break;
                 case ClientAppState.OnlineRoom:
                 case ClientAppState.ReplayRoom:
-                    // 房间内只能退回 Idle，绝对禁止 Online <-> Replay 互跳
                     isValidTransition = (targetState == ClientAppState.InLobby);
                     break;
             }
@@ -166,10 +165,11 @@ namespace StellarNet.Lite.Client.Core
             }
 
             _sendSeq++;
-            byte[] payload = _serializeFunc(msg);
+            byte[] payload = SerializeFunc(msg);
             string roomId = meta.Scope == NetScope.Room ? CurrentRoom.RoomId : string.Empty;
+
             var packet = new Packet(_sendSeq, meta.Id, meta.Scope, roomId, payload);
-            _networkSender?.Invoke(packet);
+            NetworkSender?.Invoke(packet);
         }
     }
 }

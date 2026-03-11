@@ -6,13 +6,7 @@ using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.Binders;
 using StellarNet.Lite.Server.Core;
-using StellarNet.Lite.Server.Modules;
-using StellarNet.Lite.Server.Components;
 using StellarNet.Lite.Client.Core;
-using StellarNet.Lite.Client.Modules;
-using StellarNet.Lite.Client.Components;
-using StellarNet.Lite.GameDemo.Server;
-using StellarNet.Lite.GameDemo.Client;
 
 namespace StellarNet.Lite.Shared.Infrastructure
 {
@@ -22,9 +16,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         public Func<object, byte[]> SerializeFunc { get; private set; }
         public Func<byte[], Type, object> DeserializeFunc { get; private set; }
-
         private NetConfig _netConfig;
-        private static bool _factoriesRegistered = false;
 
         public override void Awake()
         {
@@ -39,19 +31,19 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
             NetMessageMapper.Initialize();
 
-            if (!_factoriesRegistered)
-            {
-                OnRegisterServerComponents();
-                OnRegisterClientComponents();
-                _factoriesRegistered = true;
-            }
+            // 核心改造：绑定组件装配器，实际的工厂注册已移交至 AutoRegistry
+            ServerRoomFactory.ComponentBinder = (comp, dispatcher) =>
+                AutoBinder.BindServerComponent(comp, dispatcher, DeserializeFunc);
+
+            ClientRoomFactory.ComponentBinder = (comp, dispatcher) =>
+                AutoBinder.BindClientComponent(comp, dispatcher, DeserializeFunc);
         }
 
         private void FixedUpdate()
         {
             if (NetworkServer.active && ServerApp != null)
             {
-                ServerApp.Tick(_netConfig);
+                ServerApp.Tick();
             }
         }
 
@@ -59,47 +51,27 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         #region 服务端专属 (状态、事件与逻辑)
 
-        // 服务端核心应用实例
         public ServerApp ServerApp { get; private set; }
 
-        // 服务端节点生命周期事件
         public static event Action OnServerStartedEvent;
         public static event Action OnServerStoppedEvent;
-
-        // 服务端感知客户端连接状态事件 (附带连接ID)
         public static event Action<int> OnServerClientConnectedEvent;
         public static event Action<int> OnServerClientDisconnectedEvent;
-
-        protected virtual void OnRegisterServerComponents()
-        {
-            ServerRoomFactory.Register(ComponentIdConst.RoomSettings, () => new ServerRoomSettingsComponent(SerializeFunc));
-            ServerRoomFactory.Register(ComponentIdConst.DemoGame, () => new ServerDemoGameComponent(SerializeFunc));
-
-            ServerRoomFactory.ComponentBinder = (comp, dispatcher) =>
-                AutoBinder.BindServerComponent(comp, dispatcher, DeserializeFunc);
-        }
 
         public override void OnStartServer()
         {
             base.OnStartServer();
-
             NetworkServer.tickRate = _netConfig.TickRate;
-            ServerApp = new ServerApp(MirrorServerSend, SerializeFunc);
 
-            var userModule = new ServerUserModule(ServerApp, MirrorServerSend, SerializeFunc, _netConfig);
-            var roomModule = new ServerRoomModule(ServerApp, MirrorServerSend, SerializeFunc);
-            var lobbyModule = new ServerLobbyModule(ServerApp, MirrorServerSend, SerializeFunc);
-            var replayModule = new ServerReplayModule(ServerApp, MirrorServerSend, SerializeFunc);
+            // 1. 初始化容器
+            ServerApp = new ServerApp(MirrorServerSend, SerializeFunc, _netConfig);
 
-            AutoBinder.BindServerModule(userModule, ServerApp.GlobalDispatcher, DeserializeFunc);
-            AutoBinder.BindServerModule(roomModule, ServerApp.GlobalDispatcher, DeserializeFunc);
-            AutoBinder.BindServerModule(lobbyModule, ServerApp.GlobalDispatcher, DeserializeFunc);
-            AutoBinder.BindServerModule(replayModule, ServerApp.GlobalDispatcher, DeserializeFunc);
+            // 2. 核心改造：一键自动装配所有服务端模块与房间组件
+            AutoRegistry.RegisterServer(ServerApp, DeserializeFunc);
 
             NetworkServer.RegisterHandler<MirrorPacketMsg>(OnServerReceivePacket, false);
 
             LiteLogger.LogInfo("StellarNetManager", $"服务端装配完毕，开始监听网络请求。TickRate: {NetworkServer.tickRate}, MaxConn: {this.maxConnections}");
-
             OnServerStartedEvent?.Invoke();
         }
 
@@ -107,14 +79,12 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             OnServerStoppedEvent?.Invoke();
             LiteLogger.LogInfo("StellarNetManager", "服务端物理节点已停止运行");
-
             base.OnStopServer();
         }
 
         public override void OnServerConnect(NetworkConnectionToClient conn)
         {
             base.OnServerConnect(conn);
-
             LiteLogger.LogInfo("StellarNetManager", $"物理连接建立", "-", "-", $"ConnId:{conn.connectionId}");
             OnServerClientConnectedEvent?.Invoke(conn.connectionId);
         }
@@ -152,46 +122,26 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         #region 客户端专属 (状态、事件与逻辑)
 
-        // 客户端核心应用实例
         public ClientApp ClientApp { get; private set; }
 
-        // 客户端节点生命周期事件
         public static event Action OnClientStartedEvent;
         public static event Action OnClientStoppedEvent;
-
-        // 客户端感知服务端连接状态事件
         public static event Action OnClientConnectedEvent;
         public static event Action OnClientDisconnectedEvent;
-
-        protected virtual void OnRegisterClientComponents()
-        {
-            ClientRoomFactory.Register(ComponentIdConst.RoomSettings, () => new ClientRoomSettingsComponent());
-            ClientRoomFactory.Register(ComponentIdConst.DemoGame, () => new ClientDemoGameComponent());
-
-            ClientRoomFactory.ComponentBinder = (comp, dispatcher) =>
-                AutoBinder.BindClientComponent(comp, dispatcher, DeserializeFunc);
-        }
 
         public override void OnStartClient()
         {
             base.OnStartClient();
 
+            // 1. 初始化容器
             ClientApp = new ClientApp(MirrorClientSend, SerializeFunc);
 
-            var userModule = new ClientUserModule(ClientApp, MirrorClientSend, SerializeFunc);
-            var roomModule = new ClientRoomModule(ClientApp, MirrorClientSend, SerializeFunc);
-            var lobbyModule = new ClientLobbyModule(ClientApp, MirrorClientSend, SerializeFunc);
-            var replayModule = new ClientReplayModule(ClientApp, MirrorClientSend, SerializeFunc);
-
-            AutoBinder.BindClientModule(userModule, ClientApp.GlobalDispatcher, DeserializeFunc);
-            AutoBinder.BindClientModule(roomModule, ClientApp.GlobalDispatcher, DeserializeFunc);
-            AutoBinder.BindClientModule(lobbyModule, ClientApp.GlobalDispatcher, DeserializeFunc);
-            AutoBinder.BindClientModule(replayModule, ClientApp.GlobalDispatcher, DeserializeFunc);
+            // 2. 核心改造：一键自动装配所有客户端模块与房间组件
+            AutoRegistry.RegisterClient(ClientApp, DeserializeFunc);
 
             NetworkClient.RegisterHandler<MirrorPacketMsg>(OnClientReceivePacket, false);
 
             LiteLogger.LogInfo("StellarNetManager", "客户端装配完毕，准备就绪。");
-
             OnClientStartedEvent?.Invoke();
         }
 
@@ -199,14 +149,12 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             OnClientStoppedEvent?.Invoke();
             LiteLogger.LogInfo("StellarNetManager", "客户端物理节点已停止运行");
-
             base.OnStopClient();
         }
 
         public override void OnClientConnect()
         {
             base.OnClientConnect();
-
             LiteLogger.LogInfo("StellarNetManager", "成功连接到服务端");
             OnClientConnectedEvent?.Invoke();
         }

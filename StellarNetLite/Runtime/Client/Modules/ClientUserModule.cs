@@ -7,17 +7,15 @@ using StellarNet.Lite.Client.Core.Events;
 
 namespace StellarNet.Lite.Client.Modules
 {
+    [GlobalModule("ClientUserModule", "客户端用户模块")]
     public sealed class ClientUserModule
     {
         private readonly ClientApp _app;
-        private readonly Action<Packet> _networkSender;
-        private readonly Func<object, byte[]> _serializeFunc;
 
-        public ClientUserModule(ClientApp app, Action<Packet> networkSender, Func<object, byte[]> serializeFunc)
+        // 核心改造：统一极简构造函数
+        public ClientUserModule(ClientApp app)
         {
             _app = app;
-            _networkSender = networkSender;
-            _serializeFunc = serializeFunc;
         }
 
         [NetHandler]
@@ -28,15 +26,16 @@ namespace StellarNet.Lite.Client.Modules
             if (msg.Success)
             {
                 _app.Session.OnLoginSuccess(msg.SessionId, "UID_PLACEHOLDER");
-                LiteLogger.LogInfo($"[ClientUserModule]", $"  登录成功, SessionId: {msg.SessionId}");
+                LiteLogger.LogInfo($"[ClientUserModule]", $"登录成功, SessionId: {msg.SessionId}");
+
                 if (msg.HasReconnectRoom)
                 {
-                    LiteLogger.LogInfo("[ClientUserModule] ", $" 发现可重连房间，等待玩家选择...");
+                    LiteLogger.LogInfo("[ClientUserModule]", $"发现可重连房间，等待玩家选择...");
                 }
             }
             else
             {
-                LiteLogger.LogError($"[ClientUserModule]", $"  登录失败: {msg.Reason}");
+                LiteLogger.LogError($"[ClientUserModule]", $"登录失败: {msg.Reason}");
             }
 
             GlobalTypeNetEvent.Broadcast(msg);
@@ -49,7 +48,7 @@ namespace StellarNet.Lite.Client.Modules
 
             if (_app.State == ClientAppState.ReplayRoom)
             {
-                LiteLogger.LogWarning("[ClientUserModule] ", $" 拦截: 当前处于回放模式，忽略重连结果");
+                LiteLogger.LogWarning("[ClientUserModule]", $"拦截: 当前处于回放模式，忽略重连结果");
                 return;
             }
 
@@ -57,20 +56,21 @@ namespace StellarNet.Lite.Client.Modules
             {
                 _app.EnterOnlineRoom(msg.RoomId);
                 bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, msg.ComponentIds);
+
                 if (!buildSuccess)
                 {
-                    LiteLogger.LogError($"[ClientUserModule]", $"  重连房间 {msg.RoomId} 本地装配失败，已强制销毁本地实例并终止重连握手");
+                    LiteLogger.LogError($"[ClientUserModule]", $"重连房间 {msg.RoomId} 本地装配失败，已强制销毁本地实例并终止重连握手");
                     _app.LeaveRoom();
                     return;
                 }
 
-                LiteLogger.LogInfo($"[ClientUserModule]", $"  重连房间 {msg.RoomId} 本地装配完毕，准备发送就绪握手");
+                LiteLogger.LogInfo($"[ClientUserModule]", $"重连房间 {msg.RoomId} 本地装配完毕，准备发送就绪握手");
                 var readyMsg = new C2S_ReconnectReady();
                 _app.SendMessage(readyMsg);
             }
             else
             {
-                LiteLogger.LogInfo($"[ClientUserModule]", $"  重连结束: {msg.Reason}");
+                LiteLogger.LogInfo($"[ClientUserModule]", $"重连结束: {msg.Reason}");
             }
 
             GlobalTypeNetEvent.Broadcast(msg);
@@ -83,12 +83,12 @@ namespace StellarNet.Lite.Client.Modules
 
             if (_app.State == ClientAppState.OnlineRoom)
             {
-                LiteLogger.LogWarning("[ClientUserModule]", $"  被踢下线，强制退出当前在线房间");
+                LiteLogger.LogWarning("[ClientUserModule]", $"被踢下线，强制退出当前在线房间");
                 _app.LeaveRoom();
             }
 
             _app.Session.Clear();
-            LiteLogger.LogError($"[ClientUserModule] ", $" 被踢下线: {msg.Reason}");
+            LiteLogger.LogError($"[ClientUserModule]", $"被踢下线: {msg.Reason}");
 
             GlobalTypeNetEvent.Broadcast(msg);
         }

@@ -8,17 +8,14 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Server.Modules
 {
+    [GlobalModule("ServerRoomModule", "房间生命周期模块")]
     public sealed class ServerRoomModule
     {
         private readonly ServerApp _app;
-        private readonly Action<int, Packet> _networkSender;
-        private readonly Func<object, byte[]> _serializeFunc;
 
-        public ServerRoomModule(ServerApp app, Action<int, Packet> networkSender, Func<object, byte[]> serializeFunc)
+        public ServerRoomModule(ServerApp app)
         {
             _app = app;
-            _networkSender = networkSender;
-            _serializeFunc = serializeFunc;
         }
 
         [NetHandler]
@@ -35,6 +32,7 @@ namespace StellarNet.Lite.Server.Modules
 
             string roomId = Guid.NewGuid().ToString("N").Substring(0, 8);
             var room = _app.CreateRoom(roomId);
+
             if (room == null)
             {
                 var failMsg = new S2C_CreateRoomResult { Success = false, Reason = "服务器内部错误" };
@@ -42,13 +40,13 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            // 领域模型映射：将 DTO 扁平字段映射到服务端的 RoomConfigModel
             room.Config.RoomName = string.IsNullOrEmpty(msg.RoomName) ? $"房间_{roomId}" : msg.RoomName;
-            room.Config.MaxMembers = msg.MaxMembers <= 0 ? 4 : msg.MaxMembers; // 容错保底
+            room.Config.MaxMembers = msg.MaxMembers <= 0 ? 4 : msg.MaxMembers;
             room.Config.Password = msg.Password ?? string.Empty;
 
             int[] uniqueComponentIds = DeduplicateComponentIds(msg.ComponentIds);
             bool buildSuccess = ServerRoomFactory.BuildComponents(room, uniqueComponentIds);
+
             if (!buildSuccess)
             {
                 _app.DestroyRoom(roomId);
@@ -67,6 +65,7 @@ namespace StellarNet.Lite.Server.Modules
                 ComponentIds = uniqueComponentIds,
                 Reason = string.Empty
             };
+
             session.AuthorizeRoom(roomId);
             _app.SendMessageToSession(session, successMsg);
         }
@@ -91,7 +90,6 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            // 前置拦截：人数校验
             if (room.MemberCount >= room.Config.MaxMembers)
             {
                 LiteLogger.LogWarning("[ServerRoomModule]", $"加入拦截: 房间人数已满", msg.RoomId, session.SessionId);
@@ -100,7 +98,6 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            // 前置拦截：密码校验
             if (room.Config.IsPrivate && room.Config.Password != msg.Password)
             {
                 LiteLogger.LogWarning("[ServerRoomModule]", $"加入拦截: 密码错误", msg.RoomId, session.SessionId);
@@ -116,6 +113,7 @@ namespace StellarNet.Lite.Server.Modules
                 ComponentIds = room.ComponentIds,
                 Reason = string.Empty
             };
+
             session.AuthorizeRoom(room.RoomId);
             _app.SendMessageToSession(session, successMsg);
         }

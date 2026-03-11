@@ -7,15 +7,16 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Components
 {
-    // 核心新增：添加组件元数据特性，驱动常量表生成
-    [RoomComponent(1, "RoomSettings")]
+    [RoomComponent(1, "RoomSettings", "基础房间设置")]
     public sealed class ServerRoomSettingsComponent : RoomComponent
     {
+        private readonly ServerApp _app;
         private readonly Dictionary<string, bool> _readyStates = new Dictionary<string, bool>();
         private string _ownerSessionId;
 
-        public ServerRoomSettingsComponent(Func<object, byte[]> serializeFunc)
+        public ServerRoomSettingsComponent(ServerApp app)
         {
+            _app = app;
         }
 
         public override void OnInit()
@@ -141,6 +142,7 @@ namespace StellarNet.Lite.Server.Components
         public void OnC2S_SetReady(Session session, C2S_SetReady msg)
         {
             if (session == null || msg == null) return;
+
             if (!_readyStates.ContainsKey(session.SessionId)) return;
 
             _readyStates[session.SessionId] = msg.IsReady;
