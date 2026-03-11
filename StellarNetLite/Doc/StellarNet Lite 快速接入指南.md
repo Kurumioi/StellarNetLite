@@ -1,9 +1,7 @@
 ﻿# StellarNet Lite 快速接入指南 (手把手实战版)
 > 面向第一次接入 StellarNet Lite 的开发者  
 > 目标：**从 0 到 1，手把手带你开发全局模块、房间业务组件，并摆脱 Demo 制作属于你自己的正式游戏启动器。**
-
 ---
-
 ## 目录
 - [1. 核心心智与开发原则 (必读)](#1-核心心智与开发原则-必读)
 - [2. 实战一：开发一个全局模块 (大厅广播)](#2-实战一开发一个全局模块-大厅广播)
@@ -13,7 +11,7 @@
     - [步骤 4：装配与注册 (Manager)](#步骤-4装配与注册-manager)
     - [步骤 5：表现层接入 (View)](#步骤-5表现层接入-view)
 - [3. 实战二：开发一个房间业务组件 (房间表情与统计)](#3-实战二开发一个房间业务组件-房间表情与统计)
-    - [步骤 1：定义协议与内部事件 (Shared)](#步骤-1定义协议与内部事件-shared)
+    - [步骤 1：定义协议 (Shared)](#步骤-1定义协议-shared)
     - [步骤 2：生成组件常量表 (Editor)](#步骤-2生成组件常量表-editor)
     - [步骤 3：编写服务端组件 (Server - 含重连原理)](#步骤-3编写服务端组件-server---含重连原理)
     - [步骤 4：编写客户端组件 (Client)](#步骤-4编写客户端组件-client)
@@ -25,20 +23,15 @@
     - [步骤 3：场景挂载与运行测试](#步骤-3场景挂载与运行测试)
 - [5. 回放与重连是怎么生效的？(原理解析)](#5-回放与重连是怎么生效的原理解析)
 - [6. 避坑指南与终极排障手册](#6-避坑指南与终极排障手册)
-
 ---
-
 ## 1. 核心心智与开发原则 (必读)
-
 在写下第一行代码前，请将以下三句话刻在脑子里：
 1. **服务端才是真相**：客户端绝不能自己修改核心数据，只能“发请求 -> 等服务端广播 -> 刷新表现”。
 2. **拒绝巨石类，拥抱组件化**：新增房间玩法，绝对不要去改 `Room.cs` 或 `ServerRoomSettingsComponent.cs`，而是新建一个独立的 `RoomComponent`。
-3. **MSV 架构解耦**：View（MonoBehaviour）只负责播特效和点按钮，绝不能直接解析网络协议。网络包必须由 ClientComponent 接收，并转成纯值类型 Event 丢给 View。
+3. **MSV 架构解耦**：View（MonoBehaviour）只负责播特效和点按钮，绝不能直接解析网络协议。网络包必须由 ClientComponent 接收，并**直接将协议对象抛给 View**，实现 0GC 极速流转。
 
 ---
-
 ## 2. 实战一：开发一个全局模块 (大厅广播)
-
 **需求描述**：玩家在大厅点击按钮，发送一条全服广播，所有在线玩家的控制台都会打印这条消息。
 **技术定性**：不依赖具体房间，属于 `Global` 作用域。
 
@@ -48,7 +41,7 @@
 **为什么这么写？**
 - `[NetMsg]` 特性让框架自动识别协议，免去手动维护 switch-case。
 - `NetScope.Global` 明确这是全局消息，底层路由会自动将其派发给 `GlobalDispatcher`。
-- 必须定义一个 `IGlobalEvent` 结构体，用于 Client 层和 View 层解耦。
+- **注意：不需要再定义任何 Event 结构体，我们将直接抛出协议！**
 
 ```csharp
 using StellarNet.Lite.Shared.Core;
@@ -65,13 +58,6 @@ namespace StellarNet.Lite.Shared.Protocol
     // 2. 服务端广播给所有客户端的同步包
     [NetMsg(801, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_GlobalBroadcastSync
-    {
-        public string SenderSessionId;
-        public string Content;
-    }
-
-    // 3. 客户端内部事件（用于解耦 View）
-    public struct GlobalBroadcastEvent : IGlobalEvent
     {
         public string SenderSessionId;
         public string Content;
@@ -139,12 +125,13 @@ namespace StellarNet.Lite.Server.Modules
 
 **为什么这么写？**
 - 客户端模块**绝不**直接操作 UI 组件。
-- 收到协议后，立刻将其转化为 `GlobalBroadcastEvent`，通过 `GlobalEventBus` 派发出去。
+- 收到协议后，直接通过 `GlobalTypeEvent.Broadcast(msg)` 原封不动地抛出，0GC 且极速。
 
 ```csharp
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Client.Core;
+using StellarNet.Lite.Client.Core.Events;
 
 namespace StellarNet.Lite.Client.Modules
 {
@@ -161,13 +148,9 @@ namespace StellarNet.Lite.Client.Modules
         public void OnS2C_GlobalBroadcastSync(S2C_GlobalBroadcastSync msg)
         {
             if (msg == null) return;
-
-            // 转化为纯值类型事件，派发给表现层
-            GlobalEventBus<GlobalBroadcastEvent>.Fire(new GlobalBroadcastEvent
-            {
-                SenderSessionId = msg.SenderSessionId,
-                Content = msg.Content
-            });
+            
+            // 直接抛出协议对象，交由表现层处理
+            GlobalTypeEvent.Broadcast(msg);
         }
     }
 }
@@ -189,41 +172,47 @@ AutoBinder.BindClientModule(clientBroadcastModule, ClientApp.GlobalDispatcher, D
 ### 步骤 5：表现层接入 (View)
 在任意 UI 脚本中监听事件并发送请求。
 
+**核心技巧**：使用 `.UnRegisterWhenGameObjectDestroyed(gameObject)`，彻底告别繁琐的 `OnDisable` 手动注销！
+
 ```csharp
-// 1. 订阅与解绑
-private void OnEnable()
-{
-    GlobalEventBus<GlobalBroadcastEvent>.OnEvent += HandleGlobalBroadcast;
-}
-private void OnDisable()
-{
-    GlobalEventBus<GlobalBroadcastEvent>.OnEvent -= HandleGlobalBroadcast;
-}
+using UnityEngine;
+using StellarNet.Lite.Shared.Protocol;
+using StellarNet.Lite.Client.Core.Events;
+using StellarNet.Lite.Shared.Infrastructure;
 
-// 2. 接收事件刷新表现
-private void HandleGlobalBroadcast(GlobalBroadcastEvent evt)
+public class BroadcastView : MonoBehaviour
 {
-    LiteLogger.Log($"<color=cyan>[全服广播] {evt.SenderSessionId}: {evt.Content}</color>");
-}
+    private void Start()
+    {
+        // 1. 链式注册，自动绑定生命周期，直接监听协议类型
+        GlobalTypeEvent.Register<S2C_GlobalBroadcastSync>(HandleGlobalBroadcast)
+                       .UnRegisterWhenGameObjectDestroyed(gameObject);
+    }
 
-// 3. 按钮点击发送请求
-public void SendBroadcast()
-{
-    _manager.ClientApp.SendMessage(new C2S_GlobalBroadcastReq { Content = "大家好，我是新来的！" });
+    // 2. 接收协议刷新表现
+    private void HandleGlobalBroadcast(S2C_GlobalBroadcastSync evt)
+    {
+        LiteLogger.LogInfo("BroadcastView", $"<color=cyan>[全服广播] {evt.SenderSessionId}: {evt.Content}</color>");
+    }
+
+    // 3. 按钮点击发送请求
+    public void SendBroadcast()
+    {
+        var manager = FindObjectOfType<StellarNetMirrorManager>();
+        manager.ClientApp.SendMessage(new C2S_GlobalBroadcastReq { Content = "大家好，我是新来的！" });
+    }
 }
 ```
 
 ---
-
 ## 3. 实战二：开发一个房间业务组件 (房间表情与统计)
-
 **需求描述**：玩家在房间内发表情。要求：
 1. 只有同房间的人能看到。
 2. **回放**中必须能看到发表情的历史。
 3. **断线重连**后，玩家需要知道当前房间总共发了多少个表情（状态恢复）。
    **技术定性**：强依赖房间上下文，属于 `Room` 作用域，必须使用 `RoomComponent`。
 
-### 步骤 1：定义协议与内部事件 (Shared)
+### 步骤 1：定义协议 (Shared)
 新建 `Assets/StellarNetLite/Runtime/Shared/Protocol/RoomEmojiProtocols.cs`。
 
 ```csharp
@@ -248,17 +237,6 @@ namespace StellarNet.Lite.Shared.Protocol
     public sealed class S2C_EmojiSnapshot 
     { 
         public int TotalEmojiCount; 
-    }
-
-    // 4. 客户端内部事件 (注意是 IRoomEvent)
-    public struct RoomEmojiEvent : IRoomEvent
-    {
-        public string SessionId;
-        public int EmojiId;
-    }
-    public struct RoomEmojiSnapshotEvent : IRoomEvent
-    {
-        public int TotalEmojiCount;
     }
 }
 ```
@@ -333,13 +311,13 @@ namespace StellarNet.Lite.Server.Components
 新建 `Assets/StellarNetLite/Runtime/Client/Components/ClientEmojiComponent.cs`。
 
 **为什么这么写？**
-- 必须使用 `Room.EventBus` 派发事件，绝不能用 `GlobalEventBus`。这保证了回放房间和在线房间的事件物理隔离。
+- 必须使用 `Room.EventSystem.Broadcast` 抛出协议，绝不能用 `GlobalTypeEvent`。这保证了回放房间和在线房间的事件物理隔离。
 
 ```csharp
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Client.Core;
-using UnityEngine;
+using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Client.Components
 {
@@ -357,9 +335,9 @@ namespace StellarNet.Lite.Client.Components
         public void OnS2C_EmojiSync(S2C_EmojiSync msg)
         {
             if (msg == null) return;
-            
+
             LocalTotalCount++; // 客户端轻状态累加
-            Room.EventBus.Fire(new RoomEmojiEvent { SessionId = msg.SessionId, EmojiId = msg.EmojiId });
+            Room.EventSystem.Broadcast(msg); // 房间内直抛协议
         }
 
         [NetHandler]
@@ -368,8 +346,9 @@ namespace StellarNet.Lite.Client.Components
             if (msg == null) return;
 
             LocalTotalCount = msg.TotalEmojiCount; // 重连时状态覆盖
-            Room.EventBus.Fire(new RoomEmojiSnapshotEvent { TotalEmojiCount = msg.TotalEmojiCount });
-            LiteLogger.Log($"[ClientEmoji] 收到重连快照，当前房间已发表情总数: {LocalTotalCount}");
+            Room.EventSystem.Broadcast(msg);
+            
+            LiteLogger.LogInfo("ClientEmoji", $"收到重连快照，当前房间已发表情总数: {LocalTotalCount}");
         }
     }
 }
@@ -401,29 +380,25 @@ protected virtual void OnRegisterClientComponents()
 ### 步骤 6：表现层接入 (View)
 在 `DemoGameView.cs` 中监听房间事件。
 
-**避坑警告**：房间事件必须在绑定了具体房间时才订阅，离开房间必须解绑！框架已在 `DemoGameView.Update` 中提供了动态绑定机制。
+**避坑警告**：房间事件必须在绑定了具体房间时才订阅，离开房间必须解绑！框架已在 `DemoGameView.Update` 中提供了动态绑定机制，我们通过收集 `IUnRegister` 令牌来安全管理。
 
 ```csharp
 // 1. 在 BindEvents() 中添加：
-_boundRoom.EventBus.Subscribe<RoomEmojiEvent>(HandleEmoji);
-_boundRoom.EventBus.Subscribe<RoomEmojiSnapshotEvent>(HandleEmojiSnapshot);
+_roomEventTokens.Add(_boundRoom.EventSystem.Register<S2C_EmojiSync>(HandleEmoji));
+_roomEventTokens.Add(_boundRoom.EventSystem.Register<S2C_EmojiSnapshot>(HandleEmojiSnapshot));
 
-// 2. 在 UnbindEvents() 中添加：
-_boundRoom.EventBus.Unsubscribe<RoomEmojiEvent>(HandleEmoji);
-_boundRoom.EventBus.Unsubscribe<RoomEmojiSnapshotEvent>(HandleEmojiSnapshot);
-
-// 3. 实现表现逻辑
-private void HandleEmoji(RoomEmojiEvent evt)
+// 2. 实现表现逻辑 (直接接收 S2C 协议)
+private void HandleEmoji(S2C_EmojiSync evt)
 {
-    LiteLogger.Log($"<color=yellow>[房间表现] 玩家 {evt.SessionId} 头顶冒出了表情 {evt.EmojiId}！</color>");
+    LiteLogger.LogInfo("RoomView", $"<color=yellow>[房间表现] 玩家 {evt.SessionId} 头顶冒出了表情 {evt.EmojiId}！</color>");
 }
 
-private void HandleEmojiSnapshot(RoomEmojiSnapshotEvent evt)
+private void HandleEmojiSnapshot(S2C_EmojiSnapshot evt)
 {
-    LiteLogger.Log($"<color=green>[房间表现] UI刷新：本局累计表情数 {evt.TotalEmojiCount}</color>");
+    LiteLogger.LogInfo("RoomView", $"<color=green>[房间表现] UI刷新：本局累计表情数 {evt.TotalEmojiCount}</color>");
 }
 
-// 4. 输入发送 (在 ProcessInput 中添加)
+// 3. 输入发送 (在 ProcessInput 中添加)
 if (Input.GetKeyDown(KeyCode.E))
 {
     _manager.ClientApp.SendMessage(new C2S_SendEmojiReq { EmojiId = 1 });
@@ -431,9 +406,7 @@ if (Input.GetKeyDown(KeyCode.E))
 ```
 
 ---
-
 ## 4. 实战三：摆脱 DemoUI，制作你自己的游戏启动器
-
 很多开发者在看完 Demo 后会有疑问：“我正式项目里总不能用 `OnGUI` 写的 `StellarNetDemoUI` 吧？我该怎么自己接管登录和建房流程？”
 
 ### 步骤 1：理解启动器的核心职责
@@ -476,7 +449,7 @@ public class MyGameLauncher : MonoBehaviour
         _manager = NetworkManager.singleton as StellarNetMirrorManager;
         if (_manager == null)
         {
-            LiteLogger.LogError("[Launcher] 场景中缺失 StellarNetMirrorManager！");
+            LiteLogger.LogError("[Launcher]", "场景中缺失 StellarNetMirrorManager！");
             return;
         }
 
@@ -500,7 +473,7 @@ public class MyGameLauncher : MonoBehaviour
         {
             if (_manager.ClientApp.Session.IsLoggedIn && LoginPanel.activeSelf)
             {
-                LiteLogger.Log("[Launcher] 登录成功，切换至大厅界面");
+                LiteLogger.LogInfo("[Launcher]", "登录成功，切换至大厅界面");
                 LoginPanel.SetActive(false);
                 LobbyPanel.SetActive(true);
             }
@@ -512,7 +485,7 @@ public class MyGameLauncher : MonoBehaviour
         // 防御性拦截：确保物理连接已建立
         if (!NetworkClient.active || _manager.ClientApp == null)
         {
-            LiteLogger.LogWarning("[Launcher] 请先点击 Start Client 或 Start Host 建立物理连接！");
+            LiteLogger.LogWarning("[Launcher]", "请先点击 Start Client 或 Start Host 建立物理连接！");
             return;
         }
 
@@ -560,9 +533,7 @@ public class MyGameLauncher : MonoBehaviour
 至此，你已经完全掌握了如何用自己的 UI 架构接管 StellarNet Lite 的底层核心！
 
 ---
-
 ## 5. 回放与重连是怎么生效的？(原理解析)
-
 通过上面的实战，你其实已经完美接入了回放和重连。原理如下：
 
 ### 回放原理
@@ -570,7 +541,7 @@ public class MyGameLauncher : MonoBehaviour
 2. 游戏结束时，录像文件落地。
 3. 客户端下载录像并进入 `ReplayRoom` 状态。
 4. `ClientReplayPlayer` 会按 Tick 顺序，把历史包丢给 `ClientEmojiComponent`。
-5. 你的 View 层会像在线一样收到 `RoomEmojiEvent`，完美重演！
+5. 你的 View 层会像在线一样收到 `S2C_EmojiSync` 协议，完美重演！
 
 ### 重连原理
 1. 玩家断网，Session 保留。
@@ -581,9 +552,7 @@ public class MyGameLauncher : MonoBehaviour
 6. 客户端收到快照，UI 瞬间恢复到断线前的状态！
 
 ---
-
 ## 6. 避坑指南与终极排障手册
-
 如果你接完功能发现跑不通，请按以下顺序排查：
 
 ### 坑 1：发了请求没反应？
@@ -600,8 +569,8 @@ public class MyGameLauncher : MonoBehaviour
 - **修正**：影响全局表现的事件必须走广播。
 
 ### 坑 4：切换房间后，UI 疯狂报错或收到旧房间消息？
-- **原因**：你的 View 直接监听了全局静态事件，或者在 `OnDisable` 时忘记 `Unsubscribe`。
-- **修正**：严格使用 `Room.EventBus`，并在房间销毁或 View 销毁时注销事件。
+- **原因**：你的 View 监听了房间事件，但在房间销毁时忘记注销。
+- **修正**：严格使用 `_roomEventTokens.Add(...)` 收集令牌，并在离开房间时遍历 `UnRegister()`。
 
 ### 坑 5：手拼 Packet 导致各种诡异 Bug
 - **原因**：业务层手写了 `new Packet(...)`，导致 Seq 为 0，或者 RoomId 拼错。

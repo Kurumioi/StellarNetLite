@@ -2,12 +2,16 @@
 
 namespace StellarNet.Lite.Shared.Protocol
 {
+    // 架构约束：协议层仅作为 DTO (数据传输对象)，保持扁平化，不与服务端内部模型耦合
+
     [NetMsg(200, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_CreateRoom
     {
         public string RoomName;
-
         public int[] ComponentIds;
+        public int MaxMembers; // 客户端请求的配置字段
+
+        public string Password; // 客户端请求的密码
         // 架构说明：底层网络已实现基于 Seq 的防重放机制，业务层不再需要手动传递 Token 保证幂等性。
     }
 
@@ -24,6 +28,7 @@ namespace StellarNet.Lite.Shared.Protocol
     public sealed class C2S_JoinRoom
     {
         public string RoomId;
+        public string Password; // 加入时携带密码进行校验
     }
 
     [NetMsg(203, NetScope.Global, NetDir.S2C)]

@@ -1,31 +1,25 @@
-﻿# StellarNet Lite
-2026年3月9日22:59:30修订
+﻿# StellarNet Lite 开发者使用手册
+2026年3月11日修订
 > 面向中小型 Unity 商业项目的轻量级房间式网络框架  
 > 核心目标：**服务端绝对权威、协议事件驱动、房间组件化、回放沙盒化、客户端表现解耦**
-
 ---
-
 ## 目录
-
 - [框架定位](#框架定位)
 - [核心特性](#核心特性)
 - [适用边界](#适用边界)
 - [总体架构](#总体架构)
 - [目录结构](#目录结构)
 - [快速启动](#快速启动)
+- [基础 API 调用指引 (核心流转)](#基础-api-调用指引-核心流转)
 - [核心开发流程](#核心开发流程)
 - [通信与状态流转](#通信与状态流转)
 - [房间与回放机制](#房间与回放机制)
 - [当前版本开发建议](#当前版本开发建议)
 - [文档入口](#文档入口)
-
 ---
-
 ## 框架定位
-
 StellarNet Lite 不是一个追求“黑盒自动同步”的网络方案。  
 它的设计目标非常明确：
-
 1. **保证服务端权威**
 2. **保证协议流转清晰可控**
 3. **保证房间作用域隔离**
@@ -33,602 +27,218 @@ StellarNet Lite 不是一个追求“黑盒自动同步”的网络方案。
 5. **保证业务功能可以横向扩展，不把代码堆进巨石类**
 
 这套框架的核心哲学只有一句话：
-
 > **客户端只发请求和播放结果，服务端才是真相。**
 
 ---
-
 ## 核心特性
 
 ### 1. 强类型协议发送
-
 业务层不直接手拼 `Packet`，统一通过强类型发送入口完成发包。
-
 - 客户端：`ClientApp.SendMessage<T>()`
 - 服务端：`ServerApp.SendMessageToSession<T>()`
 - 房间内广播：`Room.BroadcastMessage<T>()`
 - 房间内单播：`Room.SendMessageTo<T>()`
 
-这套机制会自动处理：
-
-- `MsgId`
-- `Scope`
-- `RoomId`
-- `Seq`
-- 协议方向校验
-- 房间上下文校验
-
----
+这套机制会自动处理：`MsgId`、`Scope`、`RoomId`、`Seq`、协议方向校验、房间上下文校验。
 
 ### 2. NetMessageMapper 元数据驱动
-
-框架启动时扫描所有带 `[NetMsg]` 的协议类型，建立：
-
-- 类型 -> 协议元数据
-- 协议 ID
-- 作用域
-- 方向
-
-这意味着业务层只需要关心“发送什么对象”，不需要关心“这个对象应该用哪个魔数协议号”。
-
----
+框架启动时扫描所有带 `[NetMsg]` 的协议类型，建立类型到协议元数据的映射。这意味着业务层只需要关心“发送什么对象”，不需要关心“这个对象应该用哪个魔数协议号”。
 
 ### 3. Shared / Server / Client 物理分层
-
 框架严格分为三层：
-
-- **Shared**：共享协议、基础结构、事件、序列化抽象、工具
+- **Shared**：共享协议、基础结构、序列化抽象、工具 (绝对纯净，无表现层事件)
 - **Server**：服务端权威逻辑、房间容器、会话、录制、GC、重连
-- **Client**：客户端状态机、协议接入、轻状态缓存、回放控制、表现桥接
-
----
+- **Client**：客户端状态机、协议接入、轻状态缓存、回放控制、表现桥接、事件系统
 
 ### 4. Global / Room 作用域分离
-
 框架内部把所有网络消息严格分成两种作用域：
-
-#### Global
-不依赖房间上下文的逻辑，例如：
-
-- 登录
-- 建房
-- 加房
-- 离房
-- 大厅房间列表
-- 录像列表
-- 下载录像
-
-#### Room
-必须依赖某个房间上下文的逻辑，例如：
-
-- 房间成员快照
-- Ready 状态
-- 开始游戏
-- 局内移动
-- 房间聊天
-- 表情广播
-- 战斗同步
-
----
+- **Global**：不依赖房间上下文的逻辑（如登录、大厅列表、建房）。
+- **Room**：必须依赖某个房间上下文的逻辑（如战斗同步、房间聊天）。
 
 ### 5. 房间组件化装配
 房间不是靠一个巨大的 `RoomLogic.cs` 处理所有事情，而是采用 **Room Component** 横向扩展模式。
-通过在类上标记 `[RoomComponent(Id, Name)]` 特性，框架会自动生成常量表。例如：
-- `ComponentIdConst.RoomSettings`：房间基础设置组件
-- `ComponentIdConst.DemoGame`：Demo 战斗组件
-- `ComponentIdConst.RoomEmoji`：房间表情组件
-
-建房时通过传入 `ComponentIds` 数组（如 `new int[] { ComponentIdConst.RoomSettings }`）动态装配。
-这样新增功能时只需要新增组件并打上特性标签，不需要修改已有巨石类，也无需死记硬背数字 ID。
-
----
+通过在类上标记 `[RoomComponent(Id, Name)]` 特性，框架会自动生成常量表。建房时通过传入 `ComponentIds` 数组动态装配。
 
 ### 6. 两阶段装配与失败回滚
+服务端和客户端房间组件装配都采用统一原则：先全量校验 -> 再统一挂载与绑定 -> 最后统一初始化。任一阶段失败，整体回滚，保证不会产生“半残房间实例”。
 
-服务端和客户端房间组件装配都采用统一原则：
+### 7. 无侵入式事件直抛与沙盒隔离
+客户端内部采用两类事件系统，支持直接抛出协议对象，0GC 且无需 DTO 转换：
+- `GlobalTypeEvent`：大厅、登录、录像列表等全局事件，基于泛型静态类，极速派发。
+- `RoomEventSystem`：挂载在 `ClientRoom` 实例上的房间级事件总线。彻底避免回放房间和在线房间串线。
 
-1. 先全量校验
-2. 再统一挂载与绑定
-3. 最后统一初始化
-4. 任一阶段失败，整体回滚
-
-这保证不会产生“半残房间实例”。
-
----
-
-### 7. 房间级事件总线隔离
-
-客户端内部采用两类事件总线：
-
-- `GlobalEventBus<T>`：大厅、登录、录像列表等全局事件
-- `RoomEventBus`：房间快照、战斗同步、结算等房间内事件
-
-这样可以彻底避免：
-
-- 回放房间和在线房间串线
-- 多房间切换残留监听
-- 全局静态事件污染局内状态
-
----
+两者均支持 `.UnRegisterWhenGameObjectDestroyed(gameObject)` 链式调用，实现优雅的生命周期管理。
 
 ### 8. Replay 沙盒回放
-
-回放不是在线房间的一个标志位，而是一个**客户端本地沙盒房间**。
-
-回放时：
-
-- 不接收真实在线房间广播
-- 不发送真实网络包
-- 使用录像文件里的 `ComponentIds` 本地装配房间组件
-- 按 Tick 顺序重放历史房间消息
-- Seek 倒退时采用“销毁重建 + 极速快进”恢复状态纯净
-
----
+回放是一个**客户端本地沙盒房间**。回放时：不接收真实在线房间广播、不发送真实网络包、使用录像文件本地装配房间组件、按 Tick 顺序重放历史房间消息。
 
 ### 9. Seq 防重放机制
-
-客户端每次发包自动递增 `Seq`，服务端按 Session 记录 `LastReceivedSeq`。  
-如果收到旧包或重复包，直接拦截，不进入业务层。
-
-这套机制用于防止：
-
-- 重复点击
-- 网络重试导致的旧包重入
-- 一般性的重复请求污染
-
----
+客户端每次发包自动递增 `Seq`，服务端按 Session 记录 `LastReceivedSeq`。收到旧包或重复包直接拦截，防止重复点击或网络重试污染。
 
 ### 10. 结构化日志
-
-框架提供统一日志入口 `LiteLogger`，统一输出：
-
-- 模块名
-- RoomId
-- SessionId
-- 额外上下文
-
-便于多人联机、回放、断线、GC、装配失败等场景快速排查。
+提供统一日志入口 `LiteLogger`，统一输出模块名、RoomId、SessionId 等上下文，便于多人联机、回放、断线等场景快速排查。
 
 ---
-
 ## 适用边界
-
-这套框架适合：
-
-- 轻中量级多人合作游戏
-- 房间制 PVE
-- 多人副本
-- 生存 / 建造 / 休闲联机
+**适合：**
+- 轻中量级多人合作游戏 / 房间制 PVE / 桌游棋牌
 - 100~200 连接规模的中小型商业项目
 - 需要回放、断线重连、房间组件化管理的项目
 
-这套框架不适合：
-
-- 高竞技强对抗 PVP
-- 强预测回滚
-- 严苛帧级命中公平判定
-- 电竞级低容错对抗产品
-
-一句话概括：
-
-> **它适合可维护、可扩展、可快速落地的合作型房间项目，不适合高竞技对抗底座。**
+**不适合：**
+- 高竞技强对抗 PVP / 强预测回滚 / 严苛帧级命中公平判定
 
 ---
-
 ## 总体架构
 
 ### 服务端主链路
-
-客户端请求 -> `MirrorPacketMsg` -> `ServerApp.OnReceivePacket()` ->  
-按 `Scope` 路由到 `GlobalDispatcher` 或 `RoomDispatcher` ->  
-对应 `Module / RoomComponent` 处理 ->  
-修改权威状态 ->  
-服务端发送 `S2C` -> 客户端接收同步
-
----
+客户端请求 -> `MirrorPacketMsg` -> `ServerApp.OnReceivePacket()` -> 按 `Scope` 路由 -> 对应 `Module / RoomComponent` 处理 -> 修改权威状态 -> 服务端发送 `S2C` -> 客户端接收同步。
 
 ### 客户端主链路
-
-收到服务端协议 -> `ClientApp.OnReceivePacket()` ->  
-按 `Scope` 路由到 `ClientGlobalDispatcher` 或 `ClientRoomDispatcher` ->  
-对应 `ClientModule / ClientRoomComponent` 处理 ->  
-转成 `GlobalEventBus<T>` 或 `Room.EventBus` 内部事件 ->  
-View 层监听事件并刷新表现
+收到服务端协议 -> `ClientApp.OnReceivePacket()` -> 按 `Scope` 路由 -> 对应 `ClientModule / ClientRoomComponent` 处理 -> 直接通过 `GlobalTypeEvent` 或 `Room.EventSystem` 抛出协议对象 -> View 层监听协议并刷新表现。
 
 ---
-
-### 核心分层心智
-
-#### Server
-- 绝对权威
-- 校验合法性
-- 修改状态
-- 广播同步
-- 录制回放
-- 管理 Session 与 Room 生命周期
-
-#### Client
-- 协议接入
-- 轻状态缓存
-- View 事件桥接
-- 本地回放沙盒
-- 输入采集与请求发送
-
-#### View
-- 监听事件
-- 查询轻状态
-- 驱动 UI / 特效 / 插值
-- 根据状态决定是否允许输入
-
----
-
 ## 目录结构
-
-推荐按下面的目录心智理解项目：
-
-```
+```text
 Assets/StellarNetLite
 ├── Runtime
-│   ├── Shared
-│   │   ├── Core
-│   │   ├── Protocol
-│   │   ├── Infrastructure
-│   │   └── Binders
-│   ├── Server
-│   │   ├── Core
-│   │   ├── Modules
-│   │   ├── Components
-│   │   └── Infrastructure
-│   ├── Client
-│   │   ├── Core
-│   │   ├── Modules
-│   │   └── Components
-│   └── StellarNetMirrorManager.cs
-├── Editor
-│   ├── LiteProtocolScanner.cs
-│   ├── NetConfigEditorWindow.cs
-│   └── StellarNetScaffoldWindow.cs
-└── GameDemo
-    ├── Shared
-    ├── Server
-    ├── Client
-    ├── StellarNetDemoUI.cs
-    └── ServerAdminPanel.cs
+│   ├── Shared        (共享协议、核心契约)
+│   ├── Server        (权威逻辑、房间生命周期、GC治理)
+│   ├── Client        (状态机、事件系统、回放沙盒)
+│   └── StellarNetMirrorManager.cs (网络总入口)
+├── Editor            (协议扫描器、配置面板、脚手架)
+└── GameDemo          (示例业务代码与测试 UI)
 ```
 
 ---
-
 ## 快速启动
-
-### 1. 导入依赖
-
-当前框架依赖：
-
-- Unity
-- Mirror
-- Newtonsoft.Json
-
-请先确保工程内已经正确导入以上依赖。
+1. **导入依赖**：确保工程内已安装 Mirror 与 Newtonsoft.Json。
+2. **场景挂载**：在启动场景中挂载 `StellarNetMirrorManager` 脚本。
+3. **配置网络**：点击菜单 `StellarNet/Lite 网络配置 (NetConfig)`，配置 IP、端口、TickRate 等参数并保存。
+4. **运行测试**：使用项目内置的 `StellarNetDemoUI`，可直接在 Editor 中测试 Host、Server Only 或 Client Only 模式。
+5. **生成常量表**：新增协议或组件后，点击菜单 `StellarNet/Lite 强制重新生成协议与组件常量表`。
 
 ---
+## 基础 API 调用指引 (核心流转)
+在正式脱离 Demo UI 进行业务开发时，你需要通过代码直接驱动框架。以下是客户端最核心的网络流转 API 调用范例。
 
-### 2. 场景中放置 `StellarNetMirrorManager`
+### 1. 建立物理连接与发起登录
+网络连接建立后，必须发送登录协议进行会话鉴权。
+```csharp
+// 获取核心网络管理器引用
+var manager = NetworkManager.singleton as StellarNetMirrorManager;
+if (manager == null) return;
 
-在启动场景中挂载：
+// 1. 建立物理连接 (通常绑定在 UI 按钮上)
+manager.StartClient();
 
-- `StellarNetMirrorManager`
+// 2. 发送登录请求 (必须携带 ClientVersion 供服务端进行版本拦截)
+var loginReq = new C2S_Login 
+{ 
+    AccountId = "Player_001", 
+    ClientVersion = Application.version 
+};
+manager.ClientApp.SendMessage(loginReq);
+```
 
-它负责：
+### 2. 状态轮询与界面跳转
+客户端不应直接监听底层的登录成功协议，而是通过轮询 `ClientApp.Session.IsLoggedIn` 状态机来驱动 UI 跳转。
+```csharp
+private void Update()
+{
+    var app = _manager?.ClientApp;
+    if (app != null && app.Session.IsLoggedIn)
+    {
+        // 登录成功，关闭登录面板，打开大厅面板
+        // ...
+    }
+}
+```
 
-- 初始化序列化器
-- 初始化 `NetMessageMapper`
-- 注册客户端 / 服务端组件工厂
-- 驱动 `ServerApp` / `ClientApp`
-- 接入 Mirror 生命周期
+### 3. 创建与加入房间
+建房时，通过传入 `ComponentIds` 数组来声明该房间需要挂载哪些业务组件。
+```csharp
+// 创建房间：使用自动生成的常量表装配组件，拒绝魔法数字
+var createReq = new C2S_CreateRoom 
+{ 
+    RoomName = "我的专属房间", 
+    ComponentIds = new int[] 
+    { 
+        ComponentIdConst.RoomSettings, 
+        ComponentIdConst.DemoGame 
+    } 
+};
+manager.ClientApp.SendMessage(createReq);
 
----
+// 加入已有房间
+var joinReq = new C2S_JoinRoom { RoomId = "Room_123456" };
+manager.ClientApp.SendMessage(joinReq);
+```
 
-### 3. 配置网络参数
+### 4. 离开房间
+离开房间同样通过强类型发送器完成，底层会自动处理状态机回滚与本地实例销毁。
+```csharp
+// 前置拦截：确保当前处于在线房间状态
+if (manager.ClientApp.State == ClientAppState.OnlineRoom)
+{
+    manager.ClientApp.SendMessage(new C2S_LeaveRoom());
+}
+```
 
-打开编辑器菜单：
-
-- `StellarNet/Lite 网络配置 (NetConfig)`
-
-配置：
-
-- `Ip`
-- `Port`
-- `MaxConnections`
-- `TickRate`
-- `MaxRoomLifetimeHours`
-- `MaxReplayFiles`
-- `OfflineTimeoutLobbyMinutes`
-- `OfflineTimeoutRoomMinutes`
-- `EmptyRoomTimeoutMinutes`
-- `MinClientVersion`
-
-保存到：
-
-- `StreamingAssets/NetConfig/netconfig.json`
-- 或 `PersistentDataPath/NetConfig/netconfig.json`
-
----
-
-### 4. 运行 Demo
-
-项目内已提供 Demo 控制台与服务端管理面板：
-
-- `StellarNetDemoUI`
-- `ServerAdminPanel`
-
-支持快速验证：
-
-- 登录
-- 建房
-- 加房
-- 准备
-- 开始游戏
-- 战斗同步
-- 断线重连
-- 录像列表
-- 下载并播放回放
-
----
-
-### 5. 重新生成协议与组件常量表
-若新增了 `[NetMsg]` 协议或 `[RoomComponent]` 业务组件，执行：
-- `StellarNet/Lite 强制重新生成协议与组件常量表`
-  编辑器会自动扫描特性元数据，进行防冲突校验，并更新：
-- `MsgIdConst.cs`
-- `ComponentIdConst.cs`
+*(注：关于如何从 0 到 1 编写完整的 Launcher 启动器，请查阅《StellarNet Lite 快速接入指南》的实战三章节。)*
 
 ---
-
 ## 核心开发流程
 
 ### 新增一个房间玩法功能
-
 标准步骤如下：
-
-1. 定义 Shared 协议
-2. 设计客户端内部房间事件
-3. 编写服务端 `RoomComponent`
-4. 编写客户端 `ClientRoomComponent`
-5. 注册服务端组件工厂
-6. 注册客户端组件工厂
-7. 在建房时把 `ComponentId` 加入 `ComponentIds`
-8. View 监听事件并做表现
-9. 验证在线房间
-10. 验证断线重连
-11. 验证回放
-12. 验证非法输入拦截
-
----
-
-### 新增一个大厅功能
-
-标准步骤如下：
-
-1. 定义 Global 协议
-2. 写 `ServerXXXModule`
-3. 写 `ClientXXXModule`
-4. 在 `StellarNetMirrorManager` 启动时绑定
-5. 用 `GlobalEventBus<T>` 或轻状态把数据交给 UI
-6. 验证断线、重复点击、异常输入场景
-
----
+1. 定义 Shared 协议 (`[NetMsg]`)
+2. 编写服务端 `RoomComponent` (`[RoomComponent]`)
+3. 编写客户端 `ClientRoomComponent` (`[RoomComponent]`)，收到协议直接 `Room.EventSystem.Broadcast(msg)`
+4. 在 `StellarNetMirrorManager` 中注册双端组件工厂
+5. 在建房时把 `ComponentId` 加入 `ComponentIds`
+6. View 层监听 `Room.EventSystem` 抛出的协议事件并做表现
 
 ### 使用脚手架生成业务模板
-
-打开菜单：
-
-- `StellarNet/Lite 业务脚手架 (Scaffold)`
-
-可一键生成：
-
-- Shared 协议
-- Server 组件 / 模块
-- Client 组件 / 模块
-
-当前脚手架已统一到新口径：
-
-- 默认使用强类型发送器
-- 房间模块默认走 `Room.EventBus`
-- 全局模块默认走 `GlobalEventBus<T>`
-- 不再鼓励手拼 `Packet`
+打开菜单：`StellarNet/Lite 业务脚手架 (Scaffold)`
+可一键生成：Shared 协议、Server 组件/模块、Client 组件/模块，默认遵循强类型发送器与事件总线规范。
 
 ---
-
 ## 通信与状态流转
 
 ### 标准请求-同步流程
-
 标准业务链路必须遵守：
-
-1. 客户端发 `C2S`
-2. 服务端校验
-3. 服务端修改权威状态
-4. 服务端发 `S2C`
-5. 客户端接收同步
-6. 客户端转为内部事件
-7. View 刷新表现
-
----
+客户端发 `C2S` -> 服务端校验 -> 服务端修改权威状态 -> 服务端发 `S2C` -> 客户端接收同步 -> 客户端直接抛出协议事件 -> View 刷新表现。
 
 ### 为什么拒绝自动同步
-
-框架明确不依赖：
-
-- SyncVar
-- 自动字段镜像
-- 黑盒状态复制器
-
-原因不是“不能用”，而是这些方案在多人房间、重连、回放、局部恢复、协议排障场景下很容易失去可追踪性。
-
-框架坚持：
-
-> **所有状态变化必须通过显式协议事件流转。**
+框架明确不依赖 SyncVar 或自动字段镜像。因为这些方案在多人房间、重连、回放、局部恢复场景下很容易失去可追踪性。框架坚持：**所有状态变化必须通过显式协议事件流转。**
 
 ---
-
 ## 房间与回放机制
 
 ### 房间加入为什么分两段握手
-
-建房 / 加房成功后，服务端不会立刻把玩家正式加进房间，而是先：
-
+建房/加房成功后，服务端不会立刻下发快照，而是：
 1. 返回房间信息和 `ComponentIds`
 2. 客户端本地装配房间组件
 3. 客户端发送 `C2S_RoomSetupReady`
-4. 服务端再正式 `room.AddMember(session)`
+4. 服务端再正式加入成员并下发快照
 
-这样做的目的，是防止：
-
-- 客户端组件还没绑完
-- 服务端房间快照已经下发
-- 导致进入半初始化状态
-
----
+目的：防止客户端组件还没绑完，服务端房间快照已经下发，导致进入半初始化状态。
 
 ### 回放为什么必须单独状态机隔离
-
-回放房间和在线房间必须物理隔离，否则会出现：
-
-- 回放时收到真实在线房间包
-- 在线包覆盖回放状态
-- View 分不清当前数据来源
-- 玩家在回放里还能继续发在线请求
-
-所以框架内部把客户端状态明确切成：
-
-- `Idle`
-- `OnlineRoom`
-- `ReplayRoom`
-
-并在底层阻断：
-
-- 回放中接收真实房间包
-- 回放中发送在线房间请求
-
----
+回放房间和在线房间必须物理隔离（`ClientAppState.ReplayRoom`），底层阻断回放中接收真实房间包或发送在线请求，防止状态互相覆盖。
 
 ### 回放为什么要“销毁重建 + 快进”
-
-因为当前同步模型是**事件流重演**，不是完整状态帧覆盖。  
-Seek 回退时，不能安全逆推当前状态，所以正确做法只能是：
-
-1. 销毁当前回放沙盒
-2. 重建本地回放房间
-3. 从 Tick 0 重新按历史帧重放
-4. 快进到目标 Tick
-
-这套方案虽然更朴素，但可以保证状态绝对纯净。
+当前同步模型是**事件流重演**。Seek 回退时不能安全逆推状态，正确做法是：销毁当前回放沙盒 -> 重建本地房间 -> 从 Tick 0 极速快进到目标 Tick，保证状态绝对纯净。
 
 ---
-
 ## 当前版本开发建议
-
-### 1. 新业务统一走强类型发送器
-
-不要再手写：
-
-- `new Packet(...)`
-- 手动写 `MsgId`
-- 手动拼 `RoomId`
-
-统一使用：
-
-- `ClientApp.SendMessage<T>()`
-- `ServerApp.SendMessageToSession<T>()`
-- `Room.BroadcastMessage<T>()`
-- `Room.SendMessageTo<T>()`
+1. **新业务统一走强类型发送器**：绝对不要手写 `new Packet(...)`，统一使用 `ClientApp.SendMessage<T>()` 和 `Room.BroadcastMessage<T>()`。
+2. **优先横向扩展 RoomComponent**：新增房间功能时，优先新增独立组件，不要把功能堆进现有的巨石类中。
+3. **View 享受直抛红利**：View 直接监听 `S2C_` 协议，并务必使用 `.UnRegisterWhenGameObjectDestroyed(gameObject)` 确保生命周期安全。
+4. **所有高风险入口先做前置拦截**：例如判空、RoomId 校验、状态机校验。统一原则：**先拦截，先报错，先 return，绝不带病继续。**
 
 ---
-
-### 2. 优先横向扩展 RoomComponent
-
-新增房间功能时，优先新增独立组件，例如：
-
-- `ServerEmojiComponent`
-- `ClientEmojiComponent`
-
-不要把功能继续堆进：
-
-- `ServerRoomSettingsComponent`
-- 某个现有大组件
-- 某个测试 UI 脚本
-
----
-
-### 3. View 不直接理解协议
-
-View 推荐只依赖：
-
-- `GlobalEventBus<T>`
-- `RoomEventBus`
-- 轻状态缓存
-
-尽量不要让 View 直接处理：
-
-- `S2C_XXX`
-- 协议解析
-- 权威状态判断
-
----
-
-### 4. 回放友好设计优先
-
-如果某个玩法表现必须进回放，就必须通过权威协议广播表达。  
-纯本地临时表现默认不会出现在录像里。
-
----
-
-### 5. 所有高风险入口先做前置拦截
-
-例如：
-
-- `msg == null`
-- `session == null`
-- `RoomId` 不匹配
-- `State` 非法
-- `ReplayRoom` 状态误发包
-- 非房主越权操作
-
-统一原则：
-
-> **先拦截，先报错，先 return，绝不带病继续。**
-
----
-
 ## 文档入口
-
-如果你是第一次接项目，建议阅读顺序如下：
-
-1. `README.md`
-2. `Docs/开发者使用手册.md`
-
-如果你要开始接正式业务，请重点阅读：
-
-- 协议设计规范
-- Room Component 开发规范
-- 回放系统规范
-- 重连恢复规范
-- 编码规范与排障清单
-
----
-
-## 一句话总结
-
-StellarNet Lite 的核心价值不在“功能很多”，而在于：
-
-- **数据流转清晰**
-- **房间上下文明确**
-- **服务端权威边界明确**
-- **回放和重连有清晰状态隔离**
-- **业务扩展点稳定，不容易写成巨石类**
-
-请始终记住三句话：
-
-1. **服务端才是真相，客户端只播结果。**
-2. **新增玩法优先横向扩展组件，不要纵向堆进巨石类。**
-3. **回放是本地沙盒，不是在线房间的附属状态。**
+- **了解框架能力边界**：请阅读 `Docs/StellarNet Literal 功能说明文档.md`
+- **新手实战与代码编写**：请重点阅读 `Docs/StellarNet Lite 快速接入指南.md`，内含从 0 到 1 的完整组件开发实战。

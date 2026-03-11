@@ -5,6 +5,7 @@ using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.GameDemo.Shared;
+using StellarNet.Lite.Client.Core.Events;
 
 namespace StellarNet.Lite.GameDemo.Client
 {
@@ -26,8 +27,10 @@ namespace StellarNet.Lite.GameDemo.Client
         private string _winnerSessionId = string.Empty;
         private float _autoLeaveTimer = -1f;
 
-        // 核心新增：记录当前绑定的房间，用于动态订阅/取消订阅 EventBus，防止事件串线
         private ClientRoom _boundRoom;
+
+        // 核心重构：使用令牌列表管理房间级事件的注销，确保沙盒切换时绝对不残留
+        private readonly List<IUnRegister> _roomEventTokens = new List<IUnRegister>();
 
         private void Start()
         {
@@ -42,7 +45,6 @@ namespace StellarNet.Lite.GameDemo.Client
             var app = _manager.ClientApp;
             var state = app.State;
 
-            // 核心架构：动态绑定/解绑当前房间的 EventBus
             if ((state == ClientAppState.OnlineRoom || state == ClientAppState.ReplayRoom) && app.CurrentRoom != null)
             {
                 if (_boundRoom != app.CurrentRoom)
@@ -72,8 +74,6 @@ namespace StellarNet.Lite.GameDemo.Client
                 {
                     _autoLeaveTimer = -1f;
                     LiteLogger.LogInfo("[DemoGameView] ", $" 倒计时结束，自动发送离开房间请求");
-
-                    // 核心修复：使用强类型发送器，彻底消灭 Packet 拼装与魔数 204
                     app.SendMessage(new C2S_LeaveRoom());
                 }
             }
@@ -89,23 +89,25 @@ namespace StellarNet.Lite.GameDemo.Client
         private void BindEvents()
         {
             if (_boundRoom == null) return;
-            _boundRoom.EventBus.Subscribe<DemoSnapshotEvent>(HandleSnapshot);
-            _boundRoom.EventBus.Subscribe<DemoPlayerJoinedEvent>(HandlePlayerJoined);
-            _boundRoom.EventBus.Subscribe<DemoPlayerLeftEvent>(HandlePlayerLeft);
-            _boundRoom.EventBus.Subscribe<DemoMoveEvent>(HandleMoveSync);
-            _boundRoom.EventBus.Subscribe<DemoHpEvent>(HandleHpSync);
-            _boundRoom.EventBus.Subscribe<DemoGameOverEvent>(HandleGameOver);
+
+            // 核心重构：直接监听协议，并收集注销令牌
+            _roomEventTokens.Add(_boundRoom.NetEventSystem.Register<S2C_DemoSnapshot>(HandleSnapshot));
+            _roomEventTokens.Add(_boundRoom.NetEventSystem.Register<S2C_DemoPlayerJoined>(HandlePlayerJoined));
+            _roomEventTokens.Add(_boundRoom.NetEventSystem.Register<S2C_DemoPlayerLeft>(HandlePlayerLeft));
+            _roomEventTokens.Add(_boundRoom.NetEventSystem.Register<S2C_DemoMoveSync>(HandleMoveSync));
+            _roomEventTokens.Add(_boundRoom.NetEventSystem.Register<S2C_DemoHpSync>(HandleHpSync));
+            _roomEventTokens.Add(_boundRoom.NetEventSystem.Register<S2C_GameEnded>(HandleGameOver));
         }
 
         private void UnbindEvents()
         {
-            if (_boundRoom == null) return;
-            _boundRoom.EventBus.Unsubscribe<DemoSnapshotEvent>(HandleSnapshot);
-            _boundRoom.EventBus.Unsubscribe<DemoPlayerJoinedEvent>(HandlePlayerJoined);
-            _boundRoom.EventBus.Unsubscribe<DemoPlayerLeftEvent>(HandlePlayerLeft);
-            _boundRoom.EventBus.Unsubscribe<DemoMoveEvent>(HandleMoveSync);
-            _boundRoom.EventBus.Unsubscribe<DemoHpEvent>(HandleHpSync);
-            _boundRoom.EventBus.Unsubscribe<DemoGameOverEvent>(HandleGameOver);
+            // 核心重构：遍历令牌安全注销
+            foreach (var token in _roomEventTokens)
+            {
+                token?.UnRegister();
+            }
+
+            _roomEventTokens.Clear();
         }
 
         private void OnGUI()
@@ -117,6 +119,7 @@ namespace StellarNet.Lite.GameDemo.Client
                 string tips = _manager.ClientApp.State == ClientAppState.ReplayRoom
                     ? "回放结束"
                     : "即将自动离开房间...";
+
                 GUI.Label(new Rect(Screen.width / 2 - 200, Screen.height / 2 - 50, 400, 100),
                     $"游戏结束!\n胜利者: {_winnerSessionId}\n{tips}");
                 GUI.skin.label.fontSize = 0;
@@ -157,14 +160,12 @@ namespace StellarNet.Lite.GameDemo.Client
 
         private void SendMoveRequest(Vector3 targetPos)
         {
-            // 核心修复：使用强类型发送器，彻底消灭 Packet 拼装与魔数 1001
             var msg = new C2S_DemoMoveReq { TargetX = targetPos.x, TargetY = targetPos.y, TargetZ = targetPos.z };
             _manager.ClientApp.SendMessage(msg);
         }
 
         private void SendAttackRequest(string targetSessionId)
         {
-            // 核心修复：使用强类型发送器，彻底消灭 Packet 拼装与魔数 1002
             var msg = new C2S_DemoAttackReq { TargetSessionId = targetSessionId };
             _manager.ClientApp.SendMessage(msg);
         }
@@ -251,16 +252,17 @@ namespace StellarNet.Lite.GameDemo.Client
             _winnerSessionId = string.Empty;
         }
 
-        private void HandleSnapshot(DemoSnapshotEvent evt)
+        // 核心重构：参数直接改为协议类型 S2C_XXX
+        private void HandleSnapshot(S2C_DemoSnapshot evt)
         {
             DestroyAllCapsules();
             if (evt.Players == null) return;
             for (int i = 0; i < evt.Players.Length; i++) CreateOrUpdateCapsule(evt.Players[i]);
         }
 
-        private void HandlePlayerJoined(DemoPlayerJoinedEvent evt) => CreateOrUpdateCapsule(evt.Player);
+        private void HandlePlayerJoined(S2C_DemoPlayerJoined evt) => CreateOrUpdateCapsule(evt.Player);
 
-        private void HandlePlayerLeft(DemoPlayerLeftEvent evt)
+        private void HandlePlayerLeft(S2C_DemoPlayerLeft evt)
         {
             if (_views.TryGetValue(evt.SessionId, out var view))
             {
@@ -269,19 +271,19 @@ namespace StellarNet.Lite.GameDemo.Client
             }
         }
 
-        private void HandleMoveSync(DemoMoveEvent evt)
+        private void HandleMoveSync(S2C_DemoMoveSync evt)
         {
             if (_views.TryGetValue(evt.SessionId, out var view))
                 view.TargetPosition = new Vector3(evt.TargetX, evt.TargetY, evt.TargetZ);
         }
 
-        private void HandleHpSync(DemoHpEvent evt)
+        private void HandleHpSync(S2C_DemoHpSync evt)
         {
             if (_views.TryGetValue(evt.SessionId, out var view))
                 UpdateHpDisplay(view, evt.Hp);
         }
 
-        private void HandleGameOver(DemoGameOverEvent evt)
+        private void HandleGameOver(S2C_GameEnded evt)
         {
             _winnerSessionId = evt.WinnerSessionId;
             _autoLeaveTimer = 3f;

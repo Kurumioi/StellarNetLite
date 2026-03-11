@@ -7,7 +7,7 @@ namespace StellarNet.Lite.Client.Core
 {
     public enum ClientAppState
     {
-        Idle,
+        InLobby,
         OnlineRoom,
         ReplayRoom
     }
@@ -17,7 +17,7 @@ namespace StellarNet.Lite.Client.Core
         public ClientSession Session { get; } = new ClientSession();
         public ClientGlobalDispatcher GlobalDispatcher { get; } = new ClientGlobalDispatcher();
         public ClientRoom CurrentRoom { get; private set; }
-        public ClientAppState State { get; private set; } = ClientAppState.Idle;
+        public ClientAppState State { get; private set; } = ClientAppState.InLobby;
 
         private readonly Action<Packet> _networkSender;
         private readonly Func<object, byte[]> _serializeFunc;
@@ -68,7 +68,7 @@ namespace StellarNet.Lite.Client.Core
             bool isValidTransition = false;
             switch (State)
             {
-                case ClientAppState.Idle:
+                case ClientAppState.InLobby:
                     // Idle 只能进入 OnlineRoom 或 ReplayRoom
                     isValidTransition = (targetState == ClientAppState.OnlineRoom ||
                                          targetState == ClientAppState.ReplayRoom);
@@ -76,7 +76,7 @@ namespace StellarNet.Lite.Client.Core
                 case ClientAppState.OnlineRoom:
                 case ClientAppState.ReplayRoom:
                     // 房间内只能退回 Idle，绝对禁止 Online <-> Replay 互跳
-                    isValidTransition = (targetState == ClientAppState.Idle);
+                    isValidTransition = (targetState == ClientAppState.InLobby);
                     break;
             }
 
@@ -100,7 +100,7 @@ namespace StellarNet.Lite.Client.Core
             CurrentRoom = ClientRoom.Create(roomId);
             if (CurrentRoom == null)
             {
-                TryChangeState(ClientAppState.Idle); // 回滚状态
+                TryChangeState(ClientAppState.InLobby); // 回滚状态
                 return;
             }
 
@@ -116,7 +116,7 @@ namespace StellarNet.Lite.Client.Core
             CurrentRoom = ClientRoom.Create(roomId);
             if (CurrentRoom == null)
             {
-                TryChangeState(ClientAppState.Idle); // 回滚状态
+                TryChangeState(ClientAppState.InLobby); // 回滚状态
                 return;
             }
         }
@@ -130,7 +130,7 @@ namespace StellarNet.Lite.Client.Core
             }
 
             Session.UnbindRoom();
-            TryChangeState(ClientAppState.Idle);
+            TryChangeState(ClientAppState.InLobby);
         }
 
         public void SendMessage<T>(T msg) where T : class

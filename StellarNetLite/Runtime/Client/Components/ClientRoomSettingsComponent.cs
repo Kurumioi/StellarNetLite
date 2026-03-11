@@ -3,11 +3,9 @@ using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Shared.Infrastructure;
-using UnityEngine;
 
 namespace StellarNet.Lite.Client.Components
 {
-    // 核心新增：添加组件元数据特性，驱动常量表生成
     [RoomComponent(1, "RoomSettings")]
     public sealed class ClientRoomSettingsComponent : ClientRoomComponent
     {
@@ -34,7 +32,8 @@ namespace StellarNet.Lite.Client.Components
                 }
             }
 
-            LiteLogger.LogInfo($"[ClientRoomSettings] ",$" 收到房间快照, 当前人数: {Members.Count}");
+            LiteLogger.LogInfo($"[ClientRoomSettings] ", $" 收到房间快照, 当前人数: {Members.Count}");
+            Room.NetEventSystem.Broadcast(msg);
         }
 
         [NetHandler]
@@ -45,8 +44,10 @@ namespace StellarNet.Lite.Client.Components
             if (!Members.ContainsKey(msg.SessionId))
             {
                 Members[msg.SessionId] = new MemberInfo { SessionId = msg.SessionId, IsReady = false, IsOwner = false };
-                LiteLogger.LogInfo($"[ClientRoomSettings] ",$" 成员加入: {msg.SessionId}");
+                LiteLogger.LogInfo($"[ClientRoomSettings] ", $" 成员加入: {msg.SessionId}");
             }
+
+            Room.NetEventSystem.Broadcast(msg);
         }
 
         [NetHandler]
@@ -56,8 +57,10 @@ namespace StellarNet.Lite.Client.Components
 
             if (Members.Remove(msg.SessionId))
             {
-                LiteLogger.LogInfo($"[ClientRoomSettings]",$"  成员离开: {msg.SessionId}");
+                LiteLogger.LogInfo($"[ClientRoomSettings]", $"  成员离开: {msg.SessionId}");
             }
+
+            Room.NetEventSystem.Broadcast(msg);
         }
 
         [NetHandler]
@@ -68,28 +71,33 @@ namespace StellarNet.Lite.Client.Components
             if (Members.TryGetValue(msg.SessionId, out var member))
             {
                 member.IsReady = msg.IsReady;
-                LiteLogger.LogInfo($"[ClientRoomSettings]",$"  成员准备状态变更: {msg.SessionId} -> {msg.IsReady}");
+                LiteLogger.LogInfo($"[ClientRoomSettings]", $"  成员准备状态变更: {msg.SessionId} -> {msg.IsReady}");
             }
+
+            Room.NetEventSystem.Broadcast(msg);
         }
 
         [NetHandler]
         public void OnS2C_GameStarted(S2C_GameStarted msg)
         {
+            if (msg == null) return;
             IsGameStarted = true;
-            LiteLogger.LogInfo($"[ClientRoomSettings] ",$" 收到游戏开始事件, 时间戳: {msg?.StartUnixTime}");
+            LiteLogger.LogInfo($"[ClientRoomSettings] ", $" 收到游戏开始事件, 时间戳: {msg.StartUnixTime}");
+            Room.NetEventSystem.Broadcast(msg);
         }
 
         [NetHandler]
         public void OnS2C_GameEnded(S2C_GameEnded msg)
         {
+            if (msg == null) return;
             IsGameStarted = false;
-
             foreach (var kvp in Members)
             {
                 kvp.Value.IsReady = false;
             }
 
-            LiteLogger.LogInfo($"[ClientRoomSettings] ",$" 收到游戏结束事件, 胜者: {msg?.WinnerSessionId}。房间状态已重置为等待中。");
+            LiteLogger.LogInfo($"[ClientRoomSettings] ", $" 收到游戏结束事件, 胜者: {msg.WinnerSessionId}。房间状态已重置为等待中。");
+            Room.NetEventSystem.Broadcast(msg);
         }
     }
 }

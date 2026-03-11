@@ -3,13 +3,10 @@ using UnityEngine;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Client.Core;
+using StellarNet.Lite.Client.Core.Events;
 
 namespace StellarNet.Lite.Client.Modules
 {
-    /// <summary>
-    /// 客户端大厅模块。
-    /// 职责：接收服务端下发的大厅数据（如房间列表），并转化为纯值类型事件驱动 UI 刷新。
-    /// </summary>
     public sealed class ClientLobbyModule
     {
         private readonly ClientApp _app;
@@ -28,8 +25,8 @@ namespace StellarNet.Lite.Client.Modules
         {
             if (msg == null) return;
 
-            // 核心修复：使用新的 GlobalEventBus 派发大厅事件
-            GlobalEventBus<RoomListEvent>.Fire(new RoomListEvent { Rooms = msg.Rooms ?? new RoomBriefInfo[0] });
+            // 核心重构：直接将协议对象作为事件抛出，0GC 且无需转换
+            GlobalTypeNetEvent.Broadcast(msg);
         }
     }
 }

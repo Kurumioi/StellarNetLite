@@ -6,9 +6,8 @@ using StellarNet.Lite.Shared.Infrastructure;
 namespace StellarNet.Lite.Demo
 {
     /// <summary>
-    /// 核心重构 (Point 15)：独立的物理隔离管理面板。
+    /// 独立的物理隔离管理面板。
     /// 职责：仅在服务端激活时显示，提供对 ServerApp 的上帝视角监控与强制干预能力。
-    /// 彻底与客户端 Demo 逻辑解耦，防止客户端代码中混杂服务端特权 API。
     /// </summary>
     public class ServerAdminPanel : MonoBehaviour
     {
@@ -71,14 +70,18 @@ namespace StellarNet.Lite.Demo
             }
 
             GUILayout.Space(20);
-
             GUILayout.Label($"<b>活跃房间总数: {rooms.Count}</b>", new GUIStyle(GUI.skin.label) { richText = true });
             foreach (var kvp in rooms)
             {
                 var room = kvp.Value;
                 GUILayout.BeginVertical("box");
+
+                // 核心更新：展示 Config 领域模型中的数据
+                string privateStr = room.Config.IsPrivate ? "<color=red>[私密]</color>" : "";
                 GUILayout.Label(
-                    $"RoomName: {room.RoomName}\nRoomId: {room.RoomId} | 成员数: {room.MemberCount} | 状态: {room.State}");
+                    $"RoomName: {room.Config.RoomName} {privateStr}\nRoomId: {room.RoomId} | 人数: {room.MemberCount}/{room.Config.MaxMembers} | 状态: {room.State}",
+                    new GUIStyle(GUI.skin.label) { richText = true });
+
                 GUILayout.Label($"录制状态: {(room.IsRecording ? "<color=red>录制中...</color>" : "未录制")}",
                     new GUIStyle(GUI.skin.label) { richText = true });
 

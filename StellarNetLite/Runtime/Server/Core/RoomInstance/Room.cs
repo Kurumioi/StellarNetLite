@@ -16,7 +16,13 @@ namespace StellarNet.Lite.Server.Core
     public sealed class Room
     {
         public string RoomId { get; }
-        public string RoomName { get; set; }
+
+        // 核心架构：引入纯净的领域配置模型，统一管理房间业务属性
+        public RoomConfigModel Config { get; } = new RoomConfigModel();
+
+        // 保留快捷属性，兼容外部日志与面板查询
+        public string RoomName => Config.RoomName;
+
         public RoomDispatcher Dispatcher { get; }
         public bool IsRecording { get; private set; }
         public int CurrentTick { get; private set; }
@@ -33,13 +39,13 @@ namespace StellarNet.Lite.Server.Core
 
         private readonly Action<int, Packet> _sendToConnection;
         private readonly Func<object, byte[]> _serializeFunc;
+
         private const int MaxReplayFrames = 108000;
         private int _finishedTickCount = 0;
 
         public Room(string roomId, Action<int, Packet> sendToConnection, Func<object, byte[]> serializeFunc)
         {
             RoomId = roomId;
-            RoomName = "未命名房间";
             Dispatcher = new RoomDispatcher(roomId);
             _sendToConnection = sendToConnection;
             _serializeFunc = serializeFunc;
@@ -181,10 +187,6 @@ namespace StellarNet.Lite.Server.Core
             }
         }
 
-        /// <summary>
-        /// 房间级强类型广播接口。
-        /// 录制规范 (Point 7)：广播包代表全局状态变更，默认【强制录入】回放时间轴。
-        /// </summary>
         public void BroadcastMessage<T>(T msg) where T : class
         {
             if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta))
@@ -202,7 +204,6 @@ namespace StellarNet.Lite.Server.Core
             byte[] payload = _serializeFunc(msg);
             var packet = new Packet(0, meta.Id, meta.Scope, RoomId, payload);
 
-            // 广播包强制录入
             RecordPacket(packet);
 
             foreach (var kvp in _members)
@@ -215,11 +216,6 @@ namespace StellarNet.Lite.Server.Core
             }
         }
 
-        /// <summary>
-        /// 房间级强类型定向发送接口。
-        /// 录制规范 (Point 7)：定向包（如重连快照）默认【不录入】回放时间轴，防止污染录像导致状态翻倍。
-        /// 仅当业务层明确指定 recordToReplay = true 时才录入。
-        /// </summary>
         public void SendMessageTo<T>(Session session, T msg, bool recordToReplay = false) where T : class
         {
             if (session == null || !session.IsOnline) return;
@@ -283,7 +279,6 @@ namespace StellarNet.Lite.Server.Core
         public ReplayFile StopRecordAndSave()
         {
             IsRecording = false;
-
             var replayFile = new ReplayFile
             {
                 ReplayId = Guid.NewGuid().ToString("N"),
@@ -291,7 +286,6 @@ namespace StellarNet.Lite.Server.Core
                 ComponentIds = this.ComponentIds,
                 Frames = new List<ReplayFrame>(_recorder)
             };
-
             _recorder.Clear();
             return replayFile;
         }
@@ -330,7 +324,6 @@ namespace StellarNet.Lite.Server.Core
             }
 
             _members.Clear();
-
             Dispatcher.Clear();
         }
     }

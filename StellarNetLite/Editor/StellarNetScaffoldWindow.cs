@@ -11,6 +11,7 @@ namespace StellarNet.Lite.Editor.Tools
     /// <summary>
     /// StellarNet Lite 业务脚手架生成器。
     /// 职责：提供可视化的 UI 界面，一键生成符合 MSV 架构与防重放规范的模板代码。
+    /// 架构说明：已对齐最新的无侵入式协议直抛架构，不再生成冗余的 Event 结构体。
     /// </summary>
     public sealed class StellarNetScaffoldWindow : EditorWindow
     {
@@ -92,12 +93,14 @@ namespace StellarNet.Lite.Editor.Tools
             GUILayout.Space(5);
             GUILayout.Label("目录与命名空间配置", _sectionStyle);
             GUILayout.Space(5);
+
             _outputRootPath = EditorGUILayout.TextField("输出根目录 (Root Path):", _outputRootPath);
             _baseNamespace = EditorGUILayout.TextField("业务命名空间 (Namespace):", _baseNamespace);
 
             GUILayout.Space(15);
             GUILayout.Label("业务模块配置", _sectionStyle);
             GUILayout.Space(5);
+
             _currentType = (ModuleType)EditorGUILayout.EnumPopup("模块类型 (Type):", _currentType);
 
             EditorGUI.BeginChangeCheck();
@@ -120,6 +123,7 @@ namespace StellarNet.Lite.Editor.Tools
             GUILayout.Space(15);
             GUILayout.Label("生成选项", _sectionStyle);
             GUILayout.Space(5);
+
             _genProtocol = EditorGUILayout.Toggle("生成 Shared 协议定义", _genProtocol);
             _genServer = EditorGUILayout.Toggle("生成 Server 端逻辑", _genServer);
             _genClient = EditorGUILayout.Toggle("生成 Client 端逻辑", _genClient);
@@ -227,21 +231,6 @@ namespace StellarNet.Lite.Editor.Tools
             sb.AppendLine($"    public sealed class S2C_{_moduleName}Sync");
             sb.AppendLine("    {");
             sb.AppendLine("    }");
-            sb.AppendLine("");
-
-            if (_currentType == ModuleType.RoomComponent)
-            {
-                sb.AppendLine($"    public struct {_moduleName}Event : IRoomEvent");
-                sb.AppendLine("    {");
-                sb.AppendLine("    }");
-            }
-            else
-            {
-                sb.AppendLine($"    public struct {_moduleName}Event : IGlobalEvent");
-                sb.AppendLine("    {");
-                sb.AppendLine("    }");
-            }
-
             sb.AppendLine("}");
 
             WriteToFile(path, sb.ToString());
@@ -309,7 +298,7 @@ namespace StellarNet.Lite.Editor.Tools
             sb.AppendLine("        {");
             sb.AppendLine("            if (msg == null) return;");
             sb.AppendLine("");
-            sb.AppendLine($"            Room.EventBus.Fire(new {_moduleName}Event());");
+            sb.AppendLine($"            Room.EventSystem.Broadcast(msg);");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -366,6 +355,7 @@ namespace StellarNet.Lite.Editor.Tools
             sb.AppendLine("using UnityEngine;");
             sb.AppendLine("using StellarNet.Lite.Shared.Core;");
             sb.AppendLine("using StellarNet.Lite.Client.Core;");
+            sb.AppendLine("using StellarNet.Lite.Client.Core.Events;");
             sb.AppendLine($"using {protocolNs};");
             sb.AppendLine("");
             sb.AppendLine($"namespace {ns}");
@@ -384,7 +374,7 @@ namespace StellarNet.Lite.Editor.Tools
             sb.AppendLine("        {");
             sb.AppendLine("            if (msg == null) return;");
             sb.AppendLine("");
-            sb.AppendLine($"            GlobalEventBus<{_moduleName}Event>.Fire(new {_moduleName}Event());");
+            sb.AppendLine($"            GlobalTypeEvent.Broadcast(msg);");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");

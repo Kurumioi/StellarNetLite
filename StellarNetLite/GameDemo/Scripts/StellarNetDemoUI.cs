@@ -1,12 +1,13 @@
 ﻿using System;
-using System.Collections.Generic;
 using UnityEngine;
 using Mirror;
+using Newtonsoft.Json;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Components;
 using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Client.Core.Events;
 
 namespace StellarNet.Lite.Demo
 {
@@ -16,9 +17,13 @@ namespace StellarNet.Lite.Demo
         private string _inputAccountId = "Player_1001";
         private string _inputRoomName = "我的对战房间";
 
+        // 核心新增：建房与加房的配置输入缓存
+        private string _inputMaxMembers = "4";
+        private string _inputCreatePassword = "";
+        private string _inputJoinPassword = "";
+
         private Vector2 _clientScroll;
         private ClientReplayPlayer _replayPlayer;
-
         private RoomBriefInfo[] _roomList = new RoomBriefInfo[0];
         private string[] _replayList = new string[0];
         private string _downloadingReplayId = string.Empty;
@@ -26,6 +31,13 @@ namespace StellarNet.Lite.Demo
         private void Start()
         {
             _manager = NetworkManager.singleton as StellarNetMirrorManager;
+
+            GlobalTypeNetEvent.Register<S2C_RoomListResponse>(HandleRoomList)
+                .UnRegisterWhenGameObjectDestroyed(gameObject);
+            GlobalTypeNetEvent.Register<S2C_ReplayList>(HandleReplayList)
+                .UnRegisterWhenGameObjectDestroyed(gameObject);
+            GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(HandleReplayDownloaded)
+                .UnRegisterWhenGameObjectDestroyed(gameObject);
         }
 
         private void Update()
@@ -33,37 +45,34 @@ namespace StellarNet.Lite.Demo
             _replayPlayer?.Update(Time.deltaTime);
         }
 
-        private void OnEnable()
+        private void HandleRoomList(S2C_RoomListResponse evt)
         {
-            GlobalEventBus<RoomListEvent>.OnEvent += HandleRoomList;
-            GlobalEventBus<ReplayListEvent>.OnEvent += HandleReplayList;
-            GlobalEventBus<ReplayDownloadedEvent>.OnEvent += HandleReplayDownloaded;
+            _roomList = evt.Rooms ?? new RoomBriefInfo[0];
         }
 
-        private void OnDisable()
+        private void HandleReplayList(S2C_ReplayList evt)
         {
-            GlobalEventBus<RoomListEvent>.OnEvent -= HandleRoomList;
-            GlobalEventBus<ReplayListEvent>.OnEvent -= HandleReplayList;
-            GlobalEventBus<ReplayDownloadedEvent>.OnEvent -= HandleReplayDownloaded;
+            _replayList = evt.ReplayIds ?? new string[0];
         }
 
-        private void HandleRoomList(RoomListEvent evt)
-        {
-            _roomList = evt.Rooms;
-        }
-
-        private void HandleReplayList(ReplayListEvent evt)
-        {
-            _replayList = evt.ReplayIds;
-        }
-
-        private void HandleReplayDownloaded(ReplayDownloadedEvent evt)
+        private void HandleReplayDownloaded(S2C_DownloadReplayResult evt)
         {
             _downloadingReplayId = string.Empty;
-            if (evt.Success && evt.File != null)
+            if (evt.Success && !string.IsNullOrEmpty(evt.ReplayFileData))
             {
-                _replayPlayer = new ClientReplayPlayer(_manager.ClientApp);
-                _replayPlayer.StartReplay(evt.File);
+                try
+                {
+                    var replayFile = JsonConvert.DeserializeObject<ReplayFile>(evt.ReplayFileData);
+                    if (replayFile != null)
+                    {
+                        _replayPlayer = new ClientReplayPlayer(_manager.ClientApp);
+                        _replayPlayer.StartReplay(replayFile);
+                    }
+                }
+                catch (Exception e)
+                {
+                    LiteLogger.LogError("DemoUI", $"录像解析异常: {e.Message}");
+                }
             }
             else
             {
@@ -97,7 +106,6 @@ namespace StellarNet.Lite.Demo
             GUILayout.Label("<b><size=16>StellarNet 综合测试台</size></b>",
                 new GUIStyle(GUI.skin.label) { richText = true, alignment = TextAnchor.MiddleCenter });
             GUILayout.Space(20);
-
             if (GUILayout.Button("Host 模式 (Server + Client 同进程)", GUILayout.Height(40))) _manager.StartHost();
             GUILayout.Space(10);
             if (GUILayout.Button("Server Only (独立服务端)", GUILayout.Height(40))) _manager.StartServer();
@@ -129,13 +137,12 @@ namespace StellarNet.Lite.Demo
                 _inputAccountId = GUILayout.TextField(_inputAccountId);
                 GUILayout.EndHorizontal();
                 GUILayout.Space(10);
-
                 if (GUILayout.Button("发起登录 (Login)", GUILayout.Height(40)))
                 {
                     app.SendMessage(new C2S_Login { AccountId = _inputAccountId, ClientVersion = Application.version });
                 }
             }
-            else if (app.State == ClientAppState.Idle)
+            else if (app.State == ClientAppState.InLobby)
             {
                 GUILayout.Label($"当前状态: 大厅闲置\nSessionId: {app.Session.SessionId}\nUID: {app.Session.Uid}");
                 GUILayout.Space(10);
@@ -155,37 +162,67 @@ namespace StellarNet.Lite.Demo
 
                 GUILayout.EndHorizontal();
                 GUI.color = Color.white;
-
                 GUILayout.Space(10);
+
                 GUILayout.Label("--- 房间创建 ---");
                 GUILayout.BeginHorizontal();
                 GUILayout.Label("房间名称:", GUILayout.Width(60));
                 _inputRoomName = GUILayout.TextField(_inputRoomName);
                 GUILayout.EndHorizontal();
+
+                // 核心新增：建房配置参数输入
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("最大人数:", GUILayout.Width(60));
+                _inputMaxMembers = GUILayout.TextField(_inputMaxMembers, GUILayout.Width(40));
+                GUILayout.Label("密码(选填):", GUILayout.Width(70));
+                _inputCreatePassword = GUILayout.TextField(_inputCreatePassword);
+                GUILayout.EndHorizontal();
+
                 GUILayout.Space(5);
 
-                // 核心修复：彻底消灭魔法数字，使用自动生成的强类型常量
                 if (GUILayout.Button("创建基础房间 (仅 Settings)", GUILayout.Height(30)))
                 {
-                    app.SendMessage(new C2S_CreateRoom { RoomName = _inputRoomName, ComponentIds = new int[] { ComponentIdConst.RoomSettings } });
+                    int.TryParse(_inputMaxMembers, out int maxMembers);
+                    app.SendMessage(new C2S_CreateRoom
+                    {
+                        RoomName = _inputRoomName,
+                        MaxMembers = maxMembers,
+                        Password = _inputCreatePassword,
+                        ComponentIds = new int[] { ComponentIdConst.RoomSettings }
+                    });
                 }
 
                 GUILayout.Space(5);
                 GUI.color = Color.green;
                 if (GUILayout.Button("创建对战房间 (Settings + GameDemo)", GUILayout.Height(40)))
                 {
+                    int.TryParse(_inputMaxMembers, out int maxMembers);
                     app.SendMessage(new C2S_CreateRoom
-                        { RoomName = _inputRoomName, ComponentIds = new int[] { ComponentIdConst.RoomSettings, ComponentIdConst.DemoGame } });
+                    {
+                        RoomName = _inputRoomName,
+                        MaxMembers = maxMembers,
+                        Password = _inputCreatePassword,
+                        ComponentIds = new int[] { ComponentIdConst.RoomSettings, ComponentIdConst.DemoGame }
+                    });
                 }
 
                 GUI.color = Color.white;
-
                 GUILayout.Space(15);
+
                 GUILayout.Label("--- 房间大厅 ---");
+                GUILayout.BeginHorizontal();
                 if (GUILayout.Button("刷新房间列表", GUILayout.Height(30)))
                 {
                     app.SendMessage(new C2S_GetRoomList());
                 }
+
+                GUILayout.EndHorizontal();
+
+                // 核心新增：全局加入密码输入框
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("加入私密房间密码:", GUILayout.Width(110));
+                _inputJoinPassword = GUILayout.TextField(_inputJoinPassword);
+                GUILayout.EndHorizontal();
 
                 GUILayout.Space(5);
 
@@ -195,15 +232,18 @@ namespace StellarNet.Lite.Demo
                     {
                         GUILayout.BeginHorizontal("box");
                         string stateStr = room.State == 0 ? "<color=green>等待中</color>" : "<color=yellow>游戏中</color>";
+                        string privateStr = room.IsPrivate ? "<color=red>[私密]</color>" : "";
+
+                        // 核心新增：展示 MemberCount / MaxMembers
                         GUILayout.Label(
-                            $"<b>{room.RoomName}</b>\nID: {room.RoomId} | 人数: {room.MemberCount} | 状态: {stateStr}",
+                            $"<b>{room.RoomName}</b> {privateStr}\nID: {room.RoomId} | 人数: {room.MemberCount}/{room.MaxMembers} | 状态: {stateStr}",
                             new GUIStyle(GUI.skin.label) { richText = true });
 
                         if (room.State == 0)
                         {
                             if (GUILayout.Button("加入", GUILayout.Width(60), GUILayout.Height(35)))
                             {
-                                app.SendMessage(new C2S_JoinRoom { RoomId = room.RoomId });
+                                app.SendMessage(new C2S_JoinRoom { RoomId = room.RoomId, Password = _inputJoinPassword });
                             }
                         }
                         else
@@ -239,7 +279,6 @@ namespace StellarNet.Lite.Demo
                         GUILayout.BeginHorizontal("box");
                         GUILayout.Label($"录像 ID:\n{replayId}");
                         bool isDownloading = _downloadingReplayId == replayId;
-
                         GUI.enabled = !isDownloading && string.IsNullOrEmpty(_downloadingReplayId);
                         if (GUILayout.Button(isDownloading ? "下载中..." : "下载并播放", GUILayout.Width(90),
                                 GUILayout.Height(35)))

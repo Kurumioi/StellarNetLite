@@ -36,7 +36,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
-            if (_app.State != ClientAppState.Idle)
+            if (_app.State != ClientAppState.InLobby)
             {
                 LiteLogger.LogError($"[ClientReplayPlayer] ",$" 启动阻断: 当前状态为 {_app.State}，必须在 Idle 状态下才能进入回放");
                 return;
