@@ -16,11 +16,7 @@ namespace StellarNet.Lite.Server.Core
     public sealed class Room
     {
         public string RoomId { get; }
-
-        // 核心架构：引入纯净的领域配置模型，统一管理房间业务属性
         public RoomConfigModel Config { get; } = new RoomConfigModel();
-
-        // 保留快捷属性，兼容外部日志与面板查询
         public string RoomName => Config.RoomName;
 
         public RoomDispatcher Dispatcher { get; }
@@ -35,21 +31,24 @@ namespace StellarNet.Lite.Server.Core
 
         private readonly Dictionary<string, Session> _members = new Dictionary<string, Session>();
         public IReadOnlyDictionary<string, Session> Members => _members;
+
         private readonly List<RoomComponent> _components = new List<RoomComponent>();
         private readonly List<ReplayFrame> _recorder = new List<ReplayFrame>();
 
         private readonly Action<int, Packet> _sendToConnection;
         private readonly Func<object, byte[]> _serializeFunc;
+        private readonly NetConfig _netConfig; // 核心修复：引入全局配置，用于准确控制录像滚动清理
 
         private const int MaxReplayFrames = 108000;
         private int _finishedTickCount = 0;
 
-        public Room(string roomId, Action<int, Packet> sendToConnection, Func<object, byte[]> serializeFunc)
+        public Room(string roomId, Action<int, Packet> sendToConnection, Func<object, byte[]> serializeFunc, NetConfig config)
         {
             RoomId = roomId;
             Dispatcher = new RoomDispatcher(roomId);
             _sendToConnection = sendToConnection;
             _serializeFunc = serializeFunc;
+            _netConfig = config ?? new NetConfig();
             CreateTime = DateTime.UtcNow;
             EmptySince = DateTime.UtcNow;
             CurrentTick = 0;
@@ -67,6 +66,19 @@ namespace StellarNet.Lite.Server.Core
             if (component == null) return;
             component.Room = this;
             _components.Add(component);
+        }
+
+        public T GetComponent<T>() where T : RoomComponent
+        {
+            for (int i = 0; i < _components.Count; i++)
+            {
+                if (_components[i] is T target)
+                {
+                    return target;
+                }
+            }
+
+            return null;
         }
 
         public void InitializeComponents()
@@ -125,6 +137,7 @@ namespace StellarNet.Lite.Server.Core
         public void NotifyMemberOffline(Session session)
         {
             if (session == null || !_members.ContainsKey(session.SessionId)) return;
+
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnMemberOffline(session);
@@ -151,6 +164,7 @@ namespace StellarNet.Lite.Server.Core
         public void TriggerReconnectSnapshot(Session session)
         {
             if (session == null || !_members.ContainsKey(session.SessionId)) return;
+
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnSendSnapshot(session);
@@ -160,6 +174,7 @@ namespace StellarNet.Lite.Server.Core
         public void StartGame()
         {
             if (State != RoomState.Waiting) return;
+
             State = RoomState.Playing;
             LastReplay = null;
             StartRecord();
@@ -173,13 +188,15 @@ namespace StellarNet.Lite.Server.Core
         public void EndGame()
         {
             if (State != RoomState.Playing) return;
+
             State = RoomState.Finished;
             _finishedTickCount = 0;
 
             if (IsRecording)
             {
                 LastReplay = StopRecordAndSave();
-                ServerReplayStorage.SaveReplay(LastReplay, new NetConfig());
+                // 核心修复：使用真实的全局配置保存录像，确保 MaxReplayFiles 限制生效
+                ServerReplayStorage.SaveReplay(LastReplay, _netConfig);
             }
 
             for (int i = 0; i < _components.Count; i++)
@@ -188,7 +205,7 @@ namespace StellarNet.Lite.Server.Core
             }
         }
 
-        public void BroadcastMessage<T>(T msg) where T : class
+        public void BroadcastMessage<T>(T msg, bool recordToReplay = true) where T : class
         {
             if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta))
             {
@@ -205,12 +222,15 @@ namespace StellarNet.Lite.Server.Core
             byte[] payload = _serializeFunc(msg);
             var packet = new Packet(0, meta.Id, meta.Scope, RoomId, payload);
 
-            RecordPacket(packet);
+            if (recordToReplay)
+            {
+                RecordPacket(packet);
+            }
 
             foreach (var kvp in _members)
             {
                 var session = kvp.Value;
-                if (session.IsOnline)
+                if (session.IsOnline && session.IsRoomReady)
                 {
                     _sendToConnection?.Invoke(session.ConnectionId, packet);
                 }
@@ -229,8 +249,7 @@ namespace StellarNet.Lite.Server.Core
 
             if (meta.Dir != NetDir.S2C)
             {
-                NetLogger.LogError("Room", $"发送阻断: 协议 {meta.Id} 方向为 {meta.Dir}，服务端只能发送 S2C", RoomId,
-                    session.SessionId);
+                NetLogger.LogError("Room", $"发送阻断: 协议 {meta.Id} 方向为 {meta.Dir}，服务端只能发送 S2C", RoomId, session.SessionId);
                 return;
             }
 
@@ -295,13 +314,18 @@ namespace StellarNet.Lite.Server.Core
         {
             CurrentTick++;
 
+            for (int i = 0; i < _components.Count; i++)
+            {
+                _components[i].OnTick();
+            }
+
             if (State == RoomState.Finished)
             {
                 _finishedTickCount++;
                 if (_finishedTickCount > 300 && _members.Count > 0)
                 {
                     NetLogger.LogWarning("Room", $"僵尸清理: 结算已超时，强制清空残留的 {_members.Count} 名玩家", RoomId);
-                    var sessionsToKick = new List<Session>(_members.Values);
+                    var sessionsToKick = new System.Collections.Generic.List<Session>(_members.Values);
                     foreach (var s in sessionsToKick)
                     {
                         RemoveMember(s);
@@ -312,6 +336,12 @@ namespace StellarNet.Lite.Server.Core
 
         public void Destroy()
         {
+            // 核心修复：如果房间在游戏中被意外销毁（如全员退空），必须先触发结算以保存录像
+            if (State == RoomState.Playing)
+            {
+                EndGame();
+            }
+
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnDestroy();

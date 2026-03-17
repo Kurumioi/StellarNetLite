@@ -7,6 +7,7 @@
         public virtual void OnInit()
         {
         }
+        public virtual void OnTick() {}
 
         public virtual void OnDestroy()
         {

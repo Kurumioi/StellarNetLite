@@ -21,7 +21,6 @@ namespace StellarNet.Lite.Client.Modules
         public void OnS2C_CreateRoomResult(S2C_CreateRoomResult msg)
         {
             if (msg == null) return;
-
             if (_app.State == ClientAppState.ReplayRoom)
             {
                 NetLogger.LogWarning("[ClientRoomModule]", $"拦截: 当前处于回放模式，忽略建房结果");
@@ -32,13 +31,16 @@ namespace StellarNet.Lite.Client.Modules
             {
                 _app.EnterOnlineRoom(msg.RoomId);
                 bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, msg.ComponentIds);
-
                 if (!buildSuccess)
                 {
                     NetLogger.LogError($"[ClientRoomModule]", $"房间 {msg.RoomId} 本地装配失败，已强制销毁本地实例并终止握手");
                     _app.LeaveRoom();
                     return;
                 }
+
+                // 核心修复：组件装配完毕后，立刻同步抛出房间进入事件，让 View 层完成绑定！
+                // 遗漏此行将导致在线模式下 3D 场景永远无法初始化
+                GlobalTypeNetEvent.Broadcast(new Local_RoomEntered { Room = _app.CurrentRoom });
 
                 NetLogger.LogInfo($"[ClientRoomModule]", $"建房成功, 本地装配完毕，准备发送就绪握手。房间: {msg.RoomId}");
                 var readyMsg = new C2S_RoomSetupReady { RoomId = msg.RoomId };
@@ -56,7 +58,6 @@ namespace StellarNet.Lite.Client.Modules
         public void OnS2C_JoinRoomResult(S2C_JoinRoomResult msg)
         {
             if (msg == null) return;
-
             if (_app.State == ClientAppState.ReplayRoom)
             {
                 NetLogger.LogWarning("[ClientRoomModule]", $"拦截: 当前处于回放模式，忽略加房结果");
@@ -67,13 +68,15 @@ namespace StellarNet.Lite.Client.Modules
             {
                 _app.EnterOnlineRoom(msg.RoomId);
                 bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, msg.ComponentIds);
-
                 if (!buildSuccess)
                 {
                     NetLogger.LogError($"[ClientRoomModule]", $"房间 {msg.RoomId} 本地装配失败，已强制销毁本地实例并终止握手");
                     _app.LeaveRoom();
                     return;
                 }
+
+                // 核心修复：同步抛出房间进入事件
+                GlobalTypeNetEvent.Broadcast(new Local_RoomEntered { Room = _app.CurrentRoom });
 
                 NetLogger.LogInfo($"[ClientRoomModule]", $"加房成功, 本地装配完毕，准备发送就绪握手。房间: {msg.RoomId}");
                 var readyMsg = new C2S_RoomSetupReady { RoomId = msg.RoomId };
@@ -91,7 +94,6 @@ namespace StellarNet.Lite.Client.Modules
         public void OnS2C_LeaveRoomResult(S2C_LeaveRoomResult msg)
         {
             if (msg == null) return;
-
             if (_app.State == ClientAppState.ReplayRoom)
             {
                 NetLogger.LogWarning("[ClientRoomModule]", $"拦截: 当前处于回放模式，忽略离房结果");
@@ -100,7 +102,6 @@ namespace StellarNet.Lite.Client.Modules
 
             _app.LeaveRoom();
             NetLogger.LogInfo("[ClientRoomModule]", $"已离开房间");
-
             GlobalTypeNetEvent.Broadcast(msg);
         }
     }

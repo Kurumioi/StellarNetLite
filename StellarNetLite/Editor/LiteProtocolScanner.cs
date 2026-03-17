@@ -22,8 +22,8 @@ namespace StellarNet.Lite.Editor
     [InitializeOnLoad]
     public static class LiteProtocolScanner
     {
-        private const string ProtocolOutputPath = "Assets/StellarNetLite/Runtime/Shared/Protocol/MsgIdConst.cs";
-        private const string ComponentOutputPath = "Assets/StellarNetLite/Runtime/Shared/Protocol/ComponentIdConst.cs";
+        private const string ProtocolOutputPath = "Assets/StellarNetLite/Runtime/Shared/Protocol/Const/MsgIdConst.cs";
+        private const string ComponentOutputPath = "Assets/StellarNetLite/Runtime/Shared/Protocol/Const/ComponentIdConst.cs";
         private const string RegistryOutputPath = "Assets/StellarNetLite/Runtime/Shared/Binders/AutoRegistry.cs";
 
         static LiteProtocolScanner()

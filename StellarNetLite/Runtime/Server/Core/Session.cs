@@ -11,9 +11,13 @@ namespace StellarNet.Lite.Server.Core
         public int ConnectionId { get; private set; }
         public string CurrentRoomId { get; private set; }
         public string AuthorizedRoomId { get; private set; }
-        public bool IsOnline => ConnectionId >= 0;
-        public DateTime LastOfflineTime { get; private set; }
 
+        public bool IsOnline => ConnectionId >= 0;
+
+        // 核心修复 2：新增房间就绪状态。防止重连瞬间，客户端尚未装配完毕就被高频房间包轰炸
+        public bool IsRoomReady { get; private set; }
+
+        public DateTime LastOfflineTime { get; private set; }
         public uint LastReceivedSeq { get; private set; }
 
         public Session(string sessionId, string uid, int connectionId)
@@ -25,6 +29,7 @@ namespace StellarNet.Lite.Server.Core
             AuthorizedRoomId = string.Empty;
             LastOfflineTime = DateTime.UtcNow;
             LastReceivedSeq = 0;
+            IsRoomReady = false;
         }
 
         public void UpdateConnection(int newConnectionId)
@@ -41,11 +46,13 @@ namespace StellarNet.Lite.Server.Core
             }
 
             CurrentRoomId = roomId;
+            IsRoomReady = true; // 正常加入房间时，直接就绪
         }
 
         public void UnbindRoom()
         {
             CurrentRoomId = string.Empty;
+            IsRoomReady = false;
         }
 
         public void AuthorizeRoom(string roomId)
@@ -62,6 +69,12 @@ namespace StellarNet.Lite.Server.Core
         {
             ConnectionId = -1;
             LastOfflineTime = DateTime.UtcNow;
+            IsRoomReady = false; // 离线时立刻取消就绪状态
+        }
+
+        public void SetRoomReady(bool ready)
+        {
+            IsRoomReady = ready;
         }
 
         public bool TryConsumeSeq(uint seq)

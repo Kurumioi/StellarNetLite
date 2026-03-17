@@ -10,11 +10,9 @@ namespace StellarNet.Lite.Server.Core
     {
         public GlobalDispatcher GlobalDispatcher { get; } = new GlobalDispatcher();
 
-        // 核心架构：提供合法的只读观测边界，彻底封死外部反射私有字段的后门
         public IReadOnlyDictionary<string, Room> Rooms => _rooms;
         public IReadOnlyDictionary<string, Session> Sessions => _sessions;
 
-        // 核心改造：暴露底层依赖，作为简易 IoC 容器供模块与组件使用
         public NetConfig Config { get; }
         public Action<int, Packet> NetworkSender { get; }
         public Func<object, byte[]> SerializeFunc { get; }
@@ -115,7 +113,6 @@ namespace StellarNet.Lite.Server.Core
                 NetLogger.LogInfo($"[ServerApp]", $"接收到新连接，已分配匿名会话: {session.SessionId}");
             }
 
-            // 架构说明：在路由分发前进行全局防重放拦截。
             if (packet.Seq > 0 && !session.TryConsumeSeq(packet.Seq))
             {
                 NetLogger.LogWarning(
@@ -146,9 +143,6 @@ namespace StellarNet.Lite.Server.Core
             }
         }
 
-        /// <summary>
-        /// 服务端强类型统一发送器 (定向发送)。
-        /// </summary>
         public void SendMessageToSession<T>(Session session, T msg) where T : class
         {
             if (session == null || !session.IsOnline || msg == null) return;
@@ -167,8 +161,8 @@ namespace StellarNet.Lite.Server.Core
 
             byte[] payload = SerializeFunc(msg);
             string roomId = meta.Scope == NetScope.Room ? session.CurrentRoomId : string.Empty;
-
             var packet = new Packet(0, meta.Id, meta.Scope, roomId, payload);
+
             NetworkSender?.Invoke(session.ConnectionId, packet);
         }
 
@@ -177,7 +171,8 @@ namespace StellarNet.Lite.Server.Core
             if (string.IsNullOrEmpty(roomId)) return null;
             if (_rooms.ContainsKey(roomId)) return null;
 
-            var room = new Room(roomId, SendPacketToConnection, SerializeFunc);
+            // 核心修复：将 ServerApp 的 Config 传入 Room，确保录像保存时能读到正确的 MaxReplayFiles 限制
+            var room = new Room(roomId, SendPacketToConnection, SerializeFunc, Config);
             _rooms[roomId] = room;
             return room;
         }
@@ -185,6 +180,7 @@ namespace StellarNet.Lite.Server.Core
         public void DestroyRoom(string roomId)
         {
             if (string.IsNullOrEmpty(roomId)) return;
+
             if (_rooms.TryGetValue(roomId, out var room))
             {
                 room.Destroy();
@@ -212,6 +208,7 @@ namespace StellarNet.Lite.Server.Core
         public void RemoveSession(string sessionId)
         {
             if (string.IsNullOrEmpty(sessionId)) return;
+
             if (_sessions.TryGetValue(sessionId, out var session))
             {
                 _sessions.Remove(sessionId);

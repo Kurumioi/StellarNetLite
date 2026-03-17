@@ -1,14 +1,11 @@
 ﻿using System.Collections.Generic;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Client.Core.Events;
 using UnityEngine;
 
 namespace StellarNet.Lite.Client.Core
 {
-    /// <summary>
-    /// 客户端回放播放器 (沙盒时间轴控制器)
-    /// 职责：接管回放房间的时间轴，支持自动播放、倍速、暂停以及基于状态重建的任意 Tick 跳转。
-    /// </summary>
     public sealed class ClientReplayPlayer
     {
         private readonly ClientApp _app;
@@ -21,7 +18,10 @@ namespace StellarNet.Lite.Client.Core
         private int _frameIndex;
         private bool _isPlaying;
         private float _tickAccumulator;
-        private const float TickInterval = 1f / 60f; // 严格对齐服务端的 60 TickRate
+        private const float TickInterval = 1f / 60f;
+
+        // 用于记录上一次广播的倍速，防止每帧重复派发事件
+        private float _lastReportedTimeScale = -1f;
 
         public ClientReplayPlayer(ClientApp app)
         {
@@ -30,27 +30,17 @@ namespace StellarNet.Lite.Client.Core
 
         public void StartReplay(ReplayFile file)
         {
-            if (file == null || file.Frames == null)
-            {
-                NetLogger.LogError("[ClientReplayPlayer]",$"  启动失败: 回放文件为空");
-                return;
-            }
-
-            if (_app.State != ClientAppState.InLobby)
-            {
-                NetLogger.LogError($"[ClientReplayPlayer] ",$" 启动阻断: 当前状态为 {_app.State}，必须在 Idle 状态下才能进入回放");
-                return;
-            }
+            if (file == null || file.Frames == null) return;
+            if (_app.State != ClientAppState.InLobby) return;
 
             _currentFile = file;
             _isPlaying = true;
             IsPaused = false;
             PlaybackSpeed = 1f;
             _tickAccumulator = 0f;
+            _lastReportedTimeScale = -1f;
 
             RestartSandbox();
-            NetLogger.LogInfo(
-                $"[ClientReplayPlayer] ",$" 回放启动: 房间 {file.RoomId}, 总帧数 {file.Frames.Count}, 总 Tick {GetTotalTicks()}");
         }
 
         public void StopReplay()
@@ -59,16 +49,25 @@ namespace StellarNet.Lite.Client.Core
             _isPlaying = false;
             _currentFile = null;
             _app.LeaveRoom();
-            NetLogger.LogInfo("[ClientReplayPlayer]",$"  回放结束，已清理沙盒");
+
+            // 退出时重置全局倍速
+            GlobalTypeNetEvent.Broadcast(new Local_ReplayTimeScaleChanged { TimeScale = 1f });
         }
 
         public void Update(float deltaTime)
         {
+            // 核心修复：实时计算当前真实倍速，并广播给所有表现层组件
+            float currentTimeScale = IsPaused ? 0f : PlaybackSpeed;
+            if (Mathf.Abs(_lastReportedTimeScale - currentTimeScale) > 0.001f)
+            {
+                _lastReportedTimeScale = currentTimeScale;
+                GlobalTypeNetEvent.Broadcast(new Local_ReplayTimeScaleChanged { TimeScale = currentTimeScale });
+            }
+
             if (!_isPlaying || IsPaused || _currentFile == null) return;
 
             _tickAccumulator += deltaTime * PlaybackSpeed;
 
-            // 追帧逻辑：根据倍速与 deltaTime 消耗累加器
             while (_tickAccumulator >= TickInterval)
             {
                 _tickAccumulator -= TickInterval;
@@ -77,7 +76,6 @@ namespace StellarNet.Lite.Client.Core
                 if (CurrentTick > GetTotalTicks())
                 {
                     IsPaused = true;
-                    NetLogger.LogInfo("[ClientReplayPlayer]",$"  回放播放完毕，已自动暂停");
                     break;
                 }
             }
@@ -89,13 +87,11 @@ namespace StellarNet.Lite.Client.Core
 
             targetTick = Mathf.Clamp(targetTick, 0, GetTotalTicks());
 
-            // 核心架构：由于是事件同步，时间轴倒退必须通过“销毁重建 + 极速快进”来实现状态的绝对纯净
             if (targetTick < CurrentTick)
             {
                 RestartSandbox();
             }
 
-            // 极速快进到目标 Tick (纯逻辑派发，不渲染)
             while (CurrentTick < targetTick)
             {
                 ProcessNextTick();
@@ -117,13 +113,14 @@ namespace StellarNet.Lite.Client.Core
 
             _app.EnterReplayRoom(_currentFile.RoomId);
             bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, _currentFile.ComponentIds);
-
             if (!buildSuccess)
             {
-                NetLogger.LogError($"[ClientReplayPlayer]",$"  回放房间 {_currentFile.RoomId} 本地装配失败，强制终止回放");
+                NetLogger.LogError($"[ClientReplayPlayer]", $"回放房间 {_currentFile.RoomId} 本地装配失败，强制终止回放");
                 StopReplay();
                 return;
             }
+
+            GlobalTypeNetEvent.Broadcast(new Local_RoomEntered { Room = _app.CurrentRoom });
 
             CurrentTick = 0;
             _frameIndex = 0;

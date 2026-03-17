@@ -14,7 +14,6 @@ namespace StellarNet.Lite.Server.Modules
         private readonly ServerApp _app;
         private readonly Dictionary<string, Session> _accountToSession = new Dictionary<string, Session>();
 
-        // 核心改造：统一极简构造函数，底层依赖通过 ServerApp 容器获取
         public ServerUserModule(ServerApp app)
         {
             _app = app;
@@ -73,7 +72,6 @@ namespace StellarNet.Lite.Server.Modules
 
                 _app.RemoveSession(session.SessionId);
                 _app.BindConnection(oldSession, session.ConnectionId);
-
                 oldSession.ResetSeq(session.LastReceivedSeq);
 
                 bool hasRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) &&
@@ -86,6 +84,7 @@ namespace StellarNet.Lite.Server.Modules
                     HasReconnectRoom = hasRoom,
                     Reason = string.Empty
                 };
+
                 _app.SendMessageToSession(oldSession, reconnectRes);
                 NetLogger.LogInfo("ServerUserModule", $"玩家断线重连(顶号)成功，Seq 状态已重置对齐", oldSession.CurrentRoomId,
                     oldSession.SessionId);
@@ -105,6 +104,7 @@ namespace StellarNet.Lite.Server.Modules
                 HasReconnectRoom = false,
                 Reason = string.Empty
             };
+
             _app.SendMessageToSession(authSession, res);
             NetLogger.LogInfo("ServerUserModule", $"玩家全新登录成功", "-", authSession.SessionId);
         }
@@ -145,6 +145,7 @@ namespace StellarNet.Lite.Server.Modules
                 ComponentIds = room.ComponentIds,
                 Reason = string.Empty
             };
+
             _app.SendMessageToSession(session, successRes);
         }
 
@@ -167,6 +168,8 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 核心修复 2：客户端装配完毕，正式标记为就绪，开始接收房间广播
+            session.SetRoomReady(true);
             room.TriggerReconnectSnapshot(session);
             NetLogger.LogInfo("ServerUserModule", "客户端装配就绪，已下发房间全量快照", roomId, session.SessionId);
         }

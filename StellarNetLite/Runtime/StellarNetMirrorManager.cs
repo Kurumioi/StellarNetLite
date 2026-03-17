@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using UnityEngine;
 using Mirror;
 using StellarNet.Lite.Shared.Core;
@@ -7,6 +8,8 @@ using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.Binders;
 using StellarNet.Lite.Server.Core;
 using StellarNet.Lite.Client.Core;
+using StellarNet.Lite.Client.Core.Events;
+using StellarNet.Lite.Client.Infrastructure;
 
 namespace StellarNet.Lite.Shared.Infrastructure
 {
@@ -21,7 +24,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public override void Awake()
         {
             base.Awake();
-
             var serializer = new JsonNetSerializer();
             SerializeFunc = serializer.Serialize;
             DeserializeFunc = serializer.Deserialize;
@@ -31,10 +33,8 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
             NetMessageMapper.Initialize();
 
-            // 核心改造：绑定组件装配器，实际的工厂注册已移交至 AutoRegistry
             ServerRoomFactory.ComponentBinder = (comp, dispatcher) =>
                 AutoBinder.BindServerComponent(comp, dispatcher, DeserializeFunc);
-
             ClientRoomFactory.ComponentBinder = (comp, dispatcher) =>
                 AutoBinder.BindClientComponent(comp, dispatcher, DeserializeFunc);
         }
@@ -62,13 +62,8 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             base.OnStartServer();
             NetworkServer.tickRate = _netConfig.TickRate;
-
-            // 1. 初始化容器
             ServerApp = new ServerApp(MirrorServerSend, SerializeFunc, _netConfig);
-
-            // 2. 核心改造：一键自动装配所有服务端模块与房间组件
             AutoRegistry.RegisterServer(ServerApp, DeserializeFunc);
-
             NetworkServer.RegisterHandler<MirrorPacketMsg>(OnServerReceivePacket, false);
 
             NetLogger.LogInfo("StellarNetManager", $"服务端装配完毕，开始监听网络请求。TickRate: {NetworkServer.tickRate}, MaxConn: {this.maxConnections}");
@@ -123,6 +118,8 @@ namespace StellarNet.Lite.Shared.Infrastructure
         #region 客户端专属 (状态、事件与逻辑)
 
         public ClientApp ClientApp { get; private set; }
+        public ClientNetworkMonitor NetworkMonitor { get; private set; }
+        private Coroutine _reconnectCoroutine;
 
         public static event Action OnClientStartedEvent;
         public static event Action OnClientStoppedEvent;
@@ -133,13 +130,19 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             base.OnStartClient();
 
-            // 1. 初始化容器
-            ClientApp = new ClientApp(MirrorClientSend, SerializeFunc);
+            if (ClientApp == null)
+            {
+                ClientApp = new ClientApp(MirrorClientSend, SerializeFunc);
+                AutoRegistry.RegisterClient(ClientApp, DeserializeFunc);
+                NetworkClient.RegisterHandler<MirrorPacketMsg>(OnClientReceivePacket, false);
+            }
 
-            // 2. 核心改造：一键自动装配所有客户端模块与房间组件
-            AutoRegistry.RegisterClient(ClientApp, DeserializeFunc);
+            if (NetworkMonitor == null)
+            {
+                NetworkMonitor = gameObject.AddComponent<ClientNetworkMonitor>();
+            }
 
-            NetworkClient.RegisterHandler<MirrorPacketMsg>(OnClientReceivePacket, false);
+            NetworkMonitor.Init(ClientApp);
 
             NetLogger.LogInfo("StellarNetManager", "客户端装配完毕，准备就绪。");
             OnClientStartedEvent?.Invoke();
@@ -149,6 +152,12 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             OnClientStoppedEvent?.Invoke();
             NetLogger.LogInfo("StellarNetManager", "客户端物理节点已停止运行");
+            if (_reconnectCoroutine != null)
+            {
+                StopCoroutine(_reconnectCoroutine);
+                _reconnectCoroutine = null;
+            }
+
             base.OnStopClient();
         }
 
@@ -156,6 +165,26 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             base.OnClientConnect();
             NetLogger.LogInfo("StellarNetManager", "成功连接到服务端");
+
+            if (_reconnectCoroutine != null)
+            {
+                StopCoroutine(_reconnectCoroutine);
+                _reconnectCoroutine = null;
+            }
+
+            if (ClientApp != null && ClientApp.Session.IsReconnecting)
+            {
+                NetLogger.LogInfo("StellarNetManager", "物理连接恢复，自动发起恢复链 Login 鉴权");
+                ClientApp.Session.IsPhysicalOnline = true;
+
+                var loginReq = new C2S_Login
+                {
+                    AccountId = ClientApp.Session.AccountId,
+                    ClientVersion = Application.version
+                };
+                ClientApp.SendMessage(loginReq);
+            }
+
             OnClientConnectedEvent?.Invoke();
         }
 
@@ -163,13 +192,76 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             if (ClientApp != null)
             {
-                NetLogger.LogInfo("StellarNetManager", "与服务端的物理连接断开，清理本地房间与会话状态");
-                ClientApp.LeaveRoom();
-                ClientApp.Session.Clear();
+                if (ClientApp.State == ClientAppState.OnlineRoom)
+                {
+                    NetLogger.LogWarning("StellarNetManager", "物理连接意外断开，触发软挂起与自动重试机制");
+                    ClientApp.SuspendConnection();
+
+                    if (_reconnectCoroutine != null) StopCoroutine(_reconnectCoroutine);
+                    _reconnectCoroutine = StartCoroutine(ReconnectionRoutine());
+                }
+                else if (ClientApp.State == ClientAppState.ConnectionSuspended)
+                {
+                    NetLogger.LogInfo("StellarNetManager", "重试尝试失败，等待下一轮...");
+                }
+                else
+                {
+                    NetLogger.LogInfo("StellarNetManager", "非在线对局状态下断开，执行常规硬清理");
+                    ClientApp.AbortConnection();
+                }
             }
 
             OnClientDisconnectedEvent?.Invoke();
             base.OnClientDisconnect();
+        }
+
+        private IEnumerator ReconnectionRoutine()
+        {
+            ClientApp.Session.IsReconnecting = true;
+            // 核心防挂起：采用真实时间戳，无视 Time.deltaTime 冻结
+            DateTime startTime = ClientApp.Session.LastDisconnectRealtime;
+            float timeoutSeconds = 15f;
+            float retryInterval = 2f;
+            float lastRetryTime = 0f;
+
+            while (true)
+            {
+                float elapsed = (float)(DateTime.UtcNow - startTime).TotalSeconds;
+                float remaining = timeoutSeconds - elapsed;
+
+                if (remaining <= 0)
+                {
+                    NetLogger.LogError("StellarNetManager", "15秒自动重试超时，抛出交互事件等待玩家决策");
+                    ClientApp.Session.IsReconnecting = false;
+                    GlobalTypeNetEvent.Broadcast(new Local_ReconnectTimeout());
+                    yield break;
+                }
+
+                GlobalTypeNetEvent.Broadcast(new Local_ConnectionSuspended { RemainingSeconds = remaining });
+
+                // 真实时间节流守卫与 Mirror 底层状态重入守卫
+                if (Time.realtimeSinceStartup - lastRetryTime >= retryInterval)
+                {
+                    if (!NetworkClient.active && !NetworkClient.isConnected)
+                    {
+                        NetLogger.LogInfo("StellarNetManager", $"发起物理重连尝试... 剩余时间: {remaining:F1}s");
+                        lastRetryTime = Time.realtimeSinceStartup;
+                        StartClient();
+                    }
+                }
+
+                yield return null;
+            }
+        }
+
+        // 提供给外部 UI 重新开启倒计时窗口的入口
+        public void RestartReconnectionRoutine()
+        {
+            if (ClientApp == null || ClientApp.State != ClientAppState.ConnectionSuspended) return;
+
+            ClientApp.Session.LastDisconnectRealtime = DateTime.UtcNow;
+            if (_reconnectCoroutine != null) StopCoroutine(_reconnectCoroutine);
+            _reconnectCoroutine = StartCoroutine(ReconnectionRoutine());
         }
 
         private void MirrorClientSend(Packet packet)
@@ -182,6 +274,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         private void OnClientReceivePacket(MirrorPacketMsg msg)
         {
+            NetworkMonitor?.OnPacketReceived();
             ClientApp.OnReceivePacket(msg.ToPacket());
         }
 

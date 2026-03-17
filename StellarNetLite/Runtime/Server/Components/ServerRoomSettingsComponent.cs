@@ -25,15 +25,12 @@ namespace StellarNet.Lite.Server.Components
             _ownerSessionId = string.Empty;
         }
 
-        // 核心工厂方法：将底层的 Session 转换为表现层的 MemberInfo
         private MemberInfo CreateMemberInfo(Session session, bool isReady, bool isOwner)
         {
             return new MemberInfo
             {
                 SessionId = session.SessionId,
                 Uid = session.Uid,
-                // 这里假设 Session 中暂时没有 DisplayName，先用 Uid 兜底。
-                // 后续如果你的 Session 扩展了 userData，可以直接写 DisplayName = session.DisplayName
                 DisplayName = string.IsNullOrEmpty(session.Uid) ? "Unknown" : session.Uid,
                 IsReady = isReady,
                 IsOwner = isOwner
@@ -51,7 +48,6 @@ namespace StellarNet.Lite.Server.Components
 
             _readyStates[session.SessionId] = false;
 
-            // 广播加入事件时，直接下发封装好的全量 MemberInfo
             var memberInfo = CreateMemberInfo(session, false, session.SessionId == _ownerSessionId);
             var msg = new S2C_MemberJoined { Member = memberInfo };
             Room.BroadcastMessage(msg);
@@ -64,7 +60,6 @@ namespace StellarNet.Lite.Server.Components
             if (session == null) return;
 
             _readyStates.Remove(session.SessionId);
-
             var msg = new S2C_MemberLeft { SessionId = session.SessionId };
             Room.BroadcastMessage(msg);
 
@@ -133,7 +128,14 @@ namespace StellarNet.Lite.Server.Components
                 IsPrivate = Room.Config.IsPrivate,
                 Members = members.ToArray()
             };
+
             Room.SendMessageTo(session, msg);
+
+            if (Room.State == RoomState.Playing)
+            {
+                var notify = new S2C_GameStarted { StartUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
+                Room.SendMessageTo(session, notify);
+            }
         }
 
         private void BroadcastSnapshotToAll()
@@ -155,6 +157,7 @@ namespace StellarNet.Lite.Server.Components
                 IsPrivate = Room.Config.IsPrivate,
                 Members = members.ToArray()
             };
+
             Room.BroadcastMessage(msg);
         }
 
@@ -162,8 +165,8 @@ namespace StellarNet.Lite.Server.Components
         public void OnC2S_SetReady(Session session, C2S_SetReady msg)
         {
             if (session == null || msg == null) return;
-            if (!_readyStates.ContainsKey(session.SessionId)) return;
 
+            if (!_readyStates.ContainsKey(session.SessionId)) return;
             _readyStates[session.SessionId] = msg.IsReady;
 
             var notify = new S2C_MemberReadyChanged { SessionId = session.SessionId, IsReady = msg.IsReady };
@@ -183,6 +186,7 @@ namespace StellarNet.Lite.Server.Components
             }
 
             Room.StartGame();
+
             var notify = new S2C_GameStarted { StartUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
             Room.BroadcastMessage(notify);
         }
@@ -194,9 +198,12 @@ namespace StellarNet.Lite.Server.Components
             if (session.SessionId != _ownerSessionId) return;
             if (Room.State != RoomState.Playing) return;
 
-            Room.EndGame();
+            // 核心修复：必须先广播 GameEnded，再调用 Room.EndGame()。
+            // 否则 Room.EndGame() 会立刻停止录制，导致这个结束包无法被录入 Replay 中！
             var notify = new S2C_GameEnded { WinnerSessionId = "房主强制中止" };
             Room.BroadcastMessage(notify);
+
+            Room.EndGame();
         }
     }
 }

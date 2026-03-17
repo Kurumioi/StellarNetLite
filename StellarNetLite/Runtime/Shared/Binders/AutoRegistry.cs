@@ -16,8 +16,8 @@ namespace StellarNet.Lite.Shared.Binders
         public static readonly List<RoomComponentMeta> RoomComponentMetaList = new List<RoomComponentMeta>
         {
             new RoomComponentMeta { Id = 1, Name = "RoomSettings", DisplayName = "基础房间设置" },
-            new RoomComponentMeta { Id = 100, Name = "DemoGame", DisplayName = "测试对战玩法" },
-            new RoomComponentMeta { Id = 101, Name = "WorkRunComponent", DisplayName = "工人运动组件" },
+            new RoomComponentMeta { Id = 102, Name = "SocialRoom", DisplayName = "简易交友房间" },
+            new RoomComponentMeta { Id = 200, Name = "ObjectSync", DisplayName = "空间与动画同步核心服务" },
         };
 
         public static readonly List<GlobalModuleMeta> GlobalModuleMetaList = new List<GlobalModuleMeta>
@@ -38,20 +38,20 @@ namespace StellarNet.Lite.Shared.Binders
             AutoBinder.BindServerModule(new StellarNet.Lite.Server.Modules.ServerRoomModule(serverApp), serverApp.GlobalDispatcher, deserializeFunc);
             AutoBinder.BindServerModule(new StellarNet.Lite.Server.Modules.ServerLobbyModule(serverApp), serverApp.GlobalDispatcher, deserializeFunc);
             AutoBinder.BindServerModule(new StellarNet.Lite.Server.Modules.ServerReplayModule(serverApp), serverApp.GlobalDispatcher, deserializeFunc);
+            ServerRoomFactory.Register(102, () => new StellarNet.Lite.Game.Server.Components.ServerSocialRoomComponent(serverApp));
             ServerRoomFactory.Register(1, () => new StellarNet.Lite.Server.Components.ServerRoomSettingsComponent(serverApp));
-            ServerRoomFactory.Register(101, () => new Game.Server.Components.ServerWorkRunComponent(serverApp));
-            ServerRoomFactory.Register(100, () => new StellarNet.Lite.GameDemo.Server.ServerDemoGameComponent(serverApp));
+            ServerRoomFactory.Register(200, () => new StellarNet.Lite.Server.Components.ServerObjectSyncComponent(serverApp));
         }
 
         public static void RegisterClient(ClientApp clientApp, Func<byte[], Type, object> deserializeFunc)
         {
-            AutoBinder.BindClientModule(new StellarNet.Lite.Client.Modules.ClientUserModule(clientApp), clientApp.GlobalDispatcher, deserializeFunc);
             AutoBinder.BindClientModule(new StellarNet.Lite.Client.Modules.ClientLobbyModule(clientApp), clientApp.GlobalDispatcher, deserializeFunc);
-            AutoBinder.BindClientModule(new StellarNet.Lite.Client.Modules.ClientRoomModule(clientApp), clientApp.GlobalDispatcher, deserializeFunc);
             AutoBinder.BindClientModule(new StellarNet.Lite.Client.Modules.ClientReplayModule(clientApp), clientApp.GlobalDispatcher, deserializeFunc);
-            ClientRoomFactory.Register(101, () => new Game.Client.Components.ClientWorkRunComponent(clientApp));
+            AutoBinder.BindClientModule(new StellarNet.Lite.Client.Modules.ClientUserModule(clientApp), clientApp.GlobalDispatcher, deserializeFunc);
+            AutoBinder.BindClientModule(new StellarNet.Lite.Client.Modules.ClientRoomModule(clientApp), clientApp.GlobalDispatcher, deserializeFunc);
+            ClientRoomFactory.Register(200, () => new StellarNet.Lite.Client.Components.ClientObjectSyncComponent(clientApp));
+            ClientRoomFactory.Register(102, () => new StellarNet.Lite.Game.Client.Components.ClientSocialRoomComponent(clientApp));
             ClientRoomFactory.Register(1, () => new StellarNet.Lite.Client.Components.ClientRoomSettingsComponent(clientApp));
-            ClientRoomFactory.Register(100, () => new StellarNet.Lite.GameDemo.Client.ClientDemoGameComponent(clientApp));
         }
     }
 }

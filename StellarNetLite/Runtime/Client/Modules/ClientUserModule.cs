@@ -12,7 +12,6 @@ namespace StellarNet.Lite.Client.Modules
     {
         private readonly ClientApp _app;
 
-        // 核心改造：统一极简构造函数
         public ClientUserModule(ClientApp app)
         {
             _app = app;
@@ -30,12 +29,31 @@ namespace StellarNet.Lite.Client.Modules
 
                 if (msg.HasReconnectRoom)
                 {
-                    NetLogger.LogInfo("[ClientUserModule]", $"发现可重连房间，等待玩家选择...");
+                    if (_app.State == ClientAppState.ConnectionSuspended)
+                    {
+                        _app.SendMessage(new C2S_ConfirmReconnect { Accept = true });
+                    }
+                    else
+                    {
+                        _app.Session.IsReconnecting = true;
+                    }
+                }
+                else
+                {
+                    if (_app.State == ClientAppState.ConnectionSuspended)
+                    {
+                        _app.Session.ClearRecoveryContext();
+                        _app.LeaveRoom();
+                        GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = "对局已结束，已返回大厅" });
+                    }
                 }
             }
             else
             {
-                NetLogger.LogError($"[ClientUserModule]", $"登录失败: {msg.Reason}");
+                if (_app.State == ClientAppState.ConnectionSuspended)
+                {
+                    _app.AbortConnection();
+                }
             }
 
             GlobalTypeNetEvent.Broadcast(msg);
@@ -45,18 +63,12 @@ namespace StellarNet.Lite.Client.Modules
         public void OnS2C_ReconnectResult(S2C_ReconnectResult msg)
         {
             if (msg == null) return;
-
-            if (_app.State == ClientAppState.ReplayRoom)
-            {
-                NetLogger.LogWarning("[ClientUserModule]", $"拦截: 当前处于回放模式，忽略重连结果");
-                return;
-            }
+            if (_app.State == ClientAppState.ReplayRoom) return;
 
             if (msg.Success)
             {
                 _app.EnterOnlineRoom(msg.RoomId);
                 bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, msg.ComponentIds);
-
                 if (!buildSuccess)
                 {
                     NetLogger.LogError($"[ClientUserModule]", $"重连房间 {msg.RoomId} 本地装配失败，已强制销毁本地实例并终止重连握手");
@@ -64,13 +76,25 @@ namespace StellarNet.Lite.Client.Modules
                     return;
                 }
 
+                // 核心修复：重连装配完毕后，同步抛出房间进入事件
+                GlobalTypeNetEvent.Broadcast(new Local_RoomEntered { Room = _app.CurrentRoom });
+
                 NetLogger.LogInfo($"[ClientUserModule]", $"重连房间 {msg.RoomId} 本地装配完毕，准备发送就绪握手");
                 var readyMsg = new C2S_ReconnectReady();
                 _app.SendMessage(readyMsg);
             }
             else
             {
-                NetLogger.LogInfo($"[ClientUserModule]", $"重连结束: {msg.Reason}");
+                if (_app.State == ClientAppState.ConnectionSuspended)
+                {
+                    _app.Session.ClearRecoveryContext();
+                    _app.LeaveRoom();
+                    GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"重连失败: {msg.Reason}" });
+                }
+                else
+                {
+                    _app.Session.ClearRecoveryContext();
+                }
             }
 
             GlobalTypeNetEvent.Broadcast(msg);
@@ -81,15 +105,13 @@ namespace StellarNet.Lite.Client.Modules
         {
             if (msg == null) return;
 
-            if (_app.State == ClientAppState.OnlineRoom)
+            if (_app.State == ClientAppState.OnlineRoom || _app.State == ClientAppState.ConnectionSuspended)
             {
-                NetLogger.LogWarning("[ClientUserModule]", $"被踢下线，强制退出当前在线房间");
                 _app.LeaveRoom();
             }
 
             _app.Session.Clear();
-            NetLogger.LogError($"[ClientUserModule]", $"被踢下线: {msg.Reason}");
-
+            GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"您已被踢下线: {msg.Reason}" });
             GlobalTypeNetEvent.Broadcast(msg);
         }
     }
