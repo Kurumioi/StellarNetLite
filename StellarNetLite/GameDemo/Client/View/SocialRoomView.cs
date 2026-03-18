@@ -17,10 +17,10 @@ namespace StellarNet.Lite.Game.Client.Views
     /// </summary>
     public class SocialRoomView : MonoBehaviour
     {
-        private StellarNetMirrorManager _manager;
         private ClientRoom _boundRoom;
         private ClientObjectSyncComponent _syncService;
         private readonly List<IUnRegister> _roomEventTokens = new List<IUnRegister>();
+
         private bool _isInputBlockedByWeakNet = false;
         private bool _isSuspended = false;
         private Vector2 _lastInput = Vector2.zero;
@@ -38,17 +38,10 @@ namespace StellarNet.Lite.Game.Client.Views
 
         private void Start()
         {
-            _manager = FindObjectOfType<StellarNetMirrorManager>();
             _mainCamera = Camera.main;
             if (_mainCamera == null)
             {
                 _mainCamera = FindObjectOfType<Camera>();
-            }
-
-            if (_manager == null)
-            {
-                Debug.LogError($"[SocialRoomView] 初始化失败: 场景中缺失 StellarNetMirrorManager 组件");
-                return;
             }
 
             GlobalTypeNetEvent.Register<Local_NetworkQualityChanged>(HandleNetworkQualityChanged)
@@ -83,14 +76,14 @@ namespace StellarNet.Lite.Game.Client.Views
 
         private void Update()
         {
-            if (_manager == null || _manager.ClientApp == null || _boundRoom == null || _isSuspended) return;
+            if (_boundRoom == null || _isSuspended) return;
 
             CleanExpiredBubbles();
 
             var settingsComp = _boundRoom.GetComponent<ClientRoomSettingsComponent>();
             bool isGameStarted = settingsComp != null && settingsComp.IsGameStarted;
 
-            if (_manager.ClientApp.State == ClientAppState.OnlineRoom && isGameStarted)
+            if (NetClient.State == ClientAppState.OnlineRoom && isGameStarted)
             {
                 ProcessInput();
             }
@@ -116,7 +109,6 @@ namespace StellarNet.Lite.Game.Client.Views
         {
             _expiredBubbleKeys.Clear();
             float currentTime = Time.time;
-
             foreach (var kvp in _activeBubbles)
             {
                 if (currentTime > kvp.Value.ExpireTime)
@@ -140,7 +132,7 @@ namespace StellarNet.Lite.Game.Client.Views
                 if (_lastInput != Vector2.zero)
                 {
                     _lastInput = Vector2.zero;
-                    _manager.ClientApp.SendMessage(new C2S_SocialMoveReq { DirX = 0, DirZ = 0 });
+                    NetClient.Send(new C2S_SocialMoveReq { DirX = 0, DirZ = 0 });
                 }
 
                 return;
@@ -154,25 +146,25 @@ namespace StellarNet.Lite.Game.Client.Views
             {
                 _lastInput = currentInput;
                 var moveReq = new C2S_SocialMoveReq { DirX = currentInput.x, DirZ = currentInput.y };
-                _manager.ClientApp.SendMessage(moveReq);
+                NetClient.Send(moveReq);
             }
 
             if (Input.GetKeyDown(KeyCode.Alpha1))
             {
-                _manager.ClientApp.SendMessage(new C2S_SocialActionReq { ActionId = 1 });
+                NetClient.Send(new C2S_SocialActionReq { ActionId = 1 });
             }
             else if (Input.GetKeyDown(KeyCode.Alpha2))
             {
-                _manager.ClientApp.SendMessage(new C2S_SocialActionReq { ActionId = 2 });
+                NetClient.Send(new C2S_SocialActionReq { ActionId = 2 });
             }
 
             if (Input.GetKeyDown(KeyCode.F12))
             {
                 var settingsComp = _boundRoom.GetComponent<ClientRoomSettingsComponent>();
-                if (settingsComp != null && settingsComp.Members.TryGetValue(_manager.ClientApp.Session.SessionId, out var myInfo) && myInfo.IsOwner)
+                if (settingsComp != null && settingsComp.Members.TryGetValue(NetClient.Session.SessionId, out var myInfo) && myInfo.IsOwner)
                 {
                     NetLogger.LogInfo("[SocialRoomView]", "房主按下 F12，请求强制结束交友对局");
-                    _manager.ClientApp.SendMessage(new C2S_EndGame());
+                    NetClient.Send(new C2S_EndGame());
                 }
             }
         }
@@ -192,11 +184,10 @@ namespace StellarNet.Lite.Game.Client.Views
             _chatInputText = string.Empty;
             _lastInput = Vector2.zero;
 
-            if (_manager.ClientApp.State == ClientAppState.OnlineRoom)
+            if (NetClient.State == ClientAppState.OnlineRoom)
             {
-                // 核心修复：交友对局结束后，主动发送离开房间请求，触发 GameLauncher 的状态跌落监控，从而自动退回大厅
                 NetLogger.LogInfo("[SocialRoomView]", "交友对局结束，自动请求离开房间");
-                _manager.ClientApp.SendMessage(new C2S_LeaveRoom());
+                NetClient.Send(new C2S_LeaveRoom());
             }
         }
 
@@ -205,7 +196,7 @@ namespace StellarNet.Lite.Game.Client.Views
             if (_boundRoom == null) return;
 
             var settingsComp = _boundRoom.GetComponent<ClientRoomSettingsComponent>();
-            bool isPlaying = _manager.ClientApp.State == ClientAppState.ReplayRoom || (settingsComp != null && settingsComp.IsGameStarted);
+            bool isPlaying = NetClient.State == ClientAppState.ReplayRoom || (settingsComp != null && settingsComp.IsGameStarted);
 
             if (!isPlaying) return;
 
@@ -230,7 +221,6 @@ namespace StellarNet.Lite.Game.Client.Views
                             float guiY = Screen.height - screenPos.y;
                             GUIContent content = new GUIContent(kvp.Value.Content);
                             Vector2 size = bubbleStyle.CalcSize(content);
-
                             float width = Mathf.Clamp(size.x + 20f, 60f, 200f);
                             float height = bubbleStyle.CalcHeight(content, width) + 10f;
 
@@ -241,14 +231,14 @@ namespace StellarNet.Lite.Game.Client.Views
                 }
             }
 
-            if (_manager.ClientApp.State == ClientAppState.OnlineRoom)
+            if (NetClient.State == ClientAppState.OnlineRoom)
             {
-                if (settingsComp != null && settingsComp.Members.TryGetValue(_manager.ClientApp.Session.SessionId, out var myInfo) && myInfo.IsOwner)
+                if (settingsComp != null && settingsComp.Members.TryGetValue(NetClient.Session.SessionId, out var myInfo) && myInfo.IsOwner)
                 {
                     GUI.color = Color.red;
                     if (GUI.Button(new Rect(Screen.width - 120, 20, 100, 40), "结束交友 (F12)"))
                     {
-                        _manager.ClientApp.SendMessage(new C2S_EndGame());
+                        NetClient.Send(new C2S_EndGame());
                     }
 
                     GUI.color = Color.white;
@@ -264,7 +254,7 @@ namespace StellarNet.Lite.Game.Client.Views
                 {
                     if (!string.IsNullOrEmpty(_chatInputText))
                     {
-                        _manager.ClientApp.SendMessage(new C2S_SocialBubbleReq { Content = _chatInputText });
+                        NetClient.Send(new C2S_SocialBubbleReq { Content = _chatInputText });
                         _chatInputText = string.Empty;
                         GUI.FocusControl(null);
                     }

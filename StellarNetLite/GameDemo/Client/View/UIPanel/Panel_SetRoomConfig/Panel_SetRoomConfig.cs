@@ -47,7 +47,7 @@ public class Panel_SetRoomConfig : UIPanelBase
     public override async UniTask OnOpen(object uiData = null)
     {
         await base.OnOpen(uiData);
-        createBtn.interactable = true; // 每次打开恢复按钮状态
+        createBtn.interactable = true;
     }
 
     #region UI 事件
@@ -66,7 +66,7 @@ public class Panel_SetRoomConfig : UIPanelBase
             return;
         }
 
-        createBtn.interactable = false; // 防连点
+        createBtn.interactable = false;
 
         var memberCount = (int)memberCountSlider.value;
         var roomComIds = GetRoomConIds();
@@ -80,9 +80,7 @@ public class Panel_SetRoomConfig : UIPanelBase
             MaxMembers = memberCount
         };
 
-        GameLauncher.ClientSendMessage(msg);
-
-        // 核心修复 3：移除危险的 MonoKit.Sequence 轮询，完全交由 OnS2C_CreateRoomResult 事件驱动
+        NetClient.Send(msg);
     }
 
     private void OnCancelBtn()
@@ -96,16 +94,10 @@ public class Panel_SetRoomConfig : UIPanelBase
 
     private void OnS2C_CreateRoomResult(S2C_CreateRoomResult msg)
     {
-        if (msg.Success)
+        // 核心修复：UI 仅处理失败的阻断逻辑，成功时的面板跳转交由大厅监听 Local_RoomEntered 统一处理
+        if (!msg.Success)
         {
-            LogKit.Log("Panel_SetRoomConfig", "创建房间成功! 进入房间");
-            UIKit.ClosePanel<Panel_StellarNetLobby>();
-            UIKit.OpenPanel<Panel_StellarNetRoom>();
-            CloseSelf();
-        }
-        else
-        {
-            createBtn.interactable = true; // 失败则恢复按钮
+            createBtn.interactable = true;
             LogKit.LogError("Panel_SetRoomConfig", $"创建房间失败: {msg.Reason}");
             GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"创建房间失败: {msg.Reason}" });
         }

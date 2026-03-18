@@ -17,12 +17,12 @@ public class Panel_StellarNetRoom : UIPanelBase
     [SerializeField] private TMP_Text roomNameText;
     [SerializeField] private Transform playerListContent;
     [SerializeField] private Transform playerListItemPrefab;
+
     [SerializeField] private Button readyBtn;
     [SerializeField] private Button startGameBtn;
     [SerializeField] private Button gameOverBtn;
     [SerializeField] private Button leaveBtn;
 
-    private ClientApp _app;
     private Dictionary<string, Panel_StellarNetRoom_MemberInfoItem> _memberInfoDict = new Dictionary<string, Panel_StellarNetRoom_MemberInfoItem>();
 
     public override void OnInit()
@@ -45,18 +45,21 @@ public class Panel_StellarNetRoom : UIPanelBase
     public override async UniTask OnOpen(object uiData = null)
     {
         await base.OnOpen(uiData);
-        _app = GameLauncher.NetManager.ClientApp;
 
         GlobalTypeNetEvent.Register<S2C_LeaveRoomResult>(OnS2C_LeaveRoomResult).UnRegisterWhenMonoDisable(this);
-        _app.CurrentRoom.NetEventSystem.Register<S2C_MemberJoined>(OnS2C_MemberJoined).UnRegisterWhenMonoDisable(this);
-        _app.CurrentRoom.NetEventSystem.Register<S2C_MemberLeft>(OnS2C_MemberLeft).UnRegisterWhenMonoDisable(this);
-        _app.CurrentRoom.NetEventSystem.Register<S2C_MemberReadyChanged>(OnS2C_MemberReadyChanged).UnRegisterWhenMonoDisable(this);
-        _app.CurrentRoom.NetEventSystem.Register<S2C_RoomSnapshot>(OnS2C_RoomSnapshot).UnRegisterWhenMonoDisable(this);
-        _app.CurrentRoom.NetEventSystem.Register<S2C_GameStarted>(OnS2C_GameStarted).UnRegisterWhenMonoDisable(this);
 
-        uidText.text = _app.Session.Uid;
+        if (NetClient.CurrentRoom != null)
+        {
+            NetClient.CurrentRoom.NetEventSystem.Register<S2C_MemberJoined>(OnS2C_MemberJoined).UnRegisterWhenMonoDisable(this);
+            NetClient.CurrentRoom.NetEventSystem.Register<S2C_MemberLeft>(OnS2C_MemberLeft).UnRegisterWhenMonoDisable(this);
+            NetClient.CurrentRoom.NetEventSystem.Register<S2C_MemberReadyChanged>(OnS2C_MemberReadyChanged).UnRegisterWhenMonoDisable(this);
+            NetClient.CurrentRoom.NetEventSystem.Register<S2C_RoomSnapshot>(OnS2C_RoomSnapshot).UnRegisterWhenMonoDisable(this);
+            NetClient.CurrentRoom.NetEventSystem.Register<S2C_GameStarted>(OnS2C_GameStarted).UnRegisterWhenMonoDisable(this);
+        }
 
-        var settingCom = _app.CurrentRoom.GetComponent<ClientRoomSettingsComponent>();
+        uidText.text = NetClient.Session?.Uid ?? "Unknown";
+
+        var settingCom = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
         if (settingCom == null) return;
 
         roomNameText.text = settingCom.RoomName;
@@ -76,7 +79,6 @@ public class Panel_StellarNetRoom : UIPanelBase
 
     private void OnS2C_GameStarted(S2C_GameStarted msg)
     {
-        // 核心修复 2：游戏开始时，必须关闭房间面板，将屏幕交接给局内战斗 UI
         LogKit.Log("[Panel_StellarNetRoom]", "游戏已开始，关闭房间 UI");
         CloseSelf();
     }
@@ -110,19 +112,22 @@ public class Panel_StellarNetRoom : UIPanelBase
 
     private void OnReadyBtn()
     {
-        var settingsComp = _app.CurrentRoom.GetComponent<ClientRoomSettingsComponent>();
+        var settingsComp = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
         if (settingsComp == null) return;
-        string mySessionId = _app.Session.SessionId;
+
+        string mySessionId = NetClient.Session.SessionId;
         bool isReady = false;
         if (settingsComp.Members.TryGetValue(mySessionId, out var myInfo)) isReady = myInfo.IsReady;
-        _app.SendMessage(new C2S_SetReady() { IsReady = !isReady });
+
+        NetClient.Send(new C2S_SetReady() { IsReady = !isReady });
     }
 
     private void OnStartGameBtn()
     {
-        var settingsComp = _app.CurrentRoom.GetComponent<ClientRoomSettingsComponent>();
+        var settingsComp = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
         if (settingsComp == null) return;
-        string mySessionId = _app.Session.SessionId;
+
+        string mySessionId = NetClient.Session.SessionId;
         bool isMeOwner = false;
         if (settingsComp.Members.TryGetValue(mySessionId, out var myInfo)) isMeOwner = myInfo.IsOwner;
 
@@ -134,7 +139,7 @@ public class Panel_StellarNetRoom : UIPanelBase
 
         if (settingsComp.IsGameStarted) return;
 
-        _app.SendMessage(new C2S_StartGame { });
+        NetClient.Send(new C2S_StartGame { });
     }
 
     private void OnGameOverBtn()
@@ -143,7 +148,7 @@ public class Panel_StellarNetRoom : UIPanelBase
 
     private void OnLeaveBtn()
     {
-        _app.SendMessage(new C2S_LeaveRoom { });
+        NetClient.Send(new C2S_LeaveRoom { });
     }
 
     private void OnS2C_MemberLeft(S2C_MemberLeft msg)
@@ -163,6 +168,7 @@ public class Panel_StellarNetRoom : UIPanelBase
     private void OnS2C_MemberJoined(S2C_MemberJoined msg)
     {
         if (_memberInfoDict.ContainsKey(msg.Member.SessionId)) return;
+
         var item = Instantiate(playerListItemPrefab, playerListContent);
         item.Show();
         var itemCom = item.GetComponent<Panel_StellarNetRoom_MemberInfoItem>();

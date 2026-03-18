@@ -30,12 +30,10 @@ public class Panel_GlobalNetMonitor : UIPanelBase
     public override void OnInit()
     {
         base.OnInit();
-
         continueBtn.onClick.AddListener(OnContinueBtnClick);
         exitBtn.onClick.AddListener(OnExitBtnClick);
         promptOkBtn.onClick.AddListener(OnPromptOkBtnClick);
 
-        // 全局常驻面板，生命周期与 GameObject 绑定
         GlobalTypeNetEvent.Register<Local_NetworkQualityChanged>(HandleNetworkQuality)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<Local_ConnectionSuspended>(HandleConnectionSuspended)
@@ -61,15 +59,11 @@ public class Panel_GlobalNetMonitor : UIPanelBase
 
     private void Update()
     {
-        if (GameLauncher.NetManager == null || GameLauncher.NetManager.ClientApp == null) return;
+        var state = NetClient.State;
 
-        var app = GameLauncher.NetManager.ClientApp;
+        rttGroup.SetActive(state == ClientAppState.OnlineRoom);
 
-        // 仅在在线房间中显示 RTT
-        rttGroup.SetActive(app.State == ClientAppState.OnlineRoom);
-
-        // 状态机恢复正常后，自动清理挂起与超时 UI
-        if (app.State != ClientAppState.ConnectionSuspended)
+        if (state != ClientAppState.ConnectionSuspended)
         {
             if (suspendGroup.activeSelf) suspendGroup.SetActive(false);
             if (timeoutGroup.activeSelf) timeoutGroup.SetActive(false);
@@ -89,7 +83,7 @@ public class Panel_GlobalNetMonitor : UIPanelBase
 
     private void HandleNetworkQuality(Local_NetworkQualityChanged evt)
     {
-        if (GameLauncher.NetManager.ClientApp.State != ClientAppState.OnlineRoom)
+        if (NetClient.State != ClientAppState.OnlineRoom)
         {
             weakNetGroup.SetActive(false);
             return;
@@ -138,13 +132,15 @@ public class Panel_GlobalNetMonitor : UIPanelBase
     private void OnContinueBtnClick()
     {
         timeoutGroup.SetActive(false);
+        // 物理重连机制由 Manager 维护，保留调用
         GameLauncher.NetManager.RestartReconnectionRoutine();
     }
 
     private void OnExitBtnClick()
     {
         timeoutGroup.SetActive(false);
-        GameLauncher.NetManager.ClientApp.AbortConnection();
+        // 核心修复：使用 NetClient.App 替代长链式调用
+        NetClient.App?.AbortConnection();
     }
 
     private void OnPromptOkBtnClick()

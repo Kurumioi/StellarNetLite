@@ -33,32 +33,29 @@ public class GameLauncher : MonoSingleton<GameLauncher>
 
     private void Update()
     {
-        if (NetManager != null && NetManager.ClientApp != null)
+        var currentState = NetClient.State;
+
+        // 核心防御：全面接管状态机跌落监控，实现绝对安全的 UI 路由回退
+        bool isDroppedFromRoom = (_lastClientState == ClientAppState.OnlineRoom || _lastClientState == ClientAppState.ConnectionSuspended)
+                                 && currentState == ClientAppState.InLobby;
+
+        if (isDroppedFromRoom)
         {
-            var currentState = NetManager.ClientApp.State;
+            LogKit.LogWarning("[GameLauncher]", "检测到网络状态从房间/挂起态跌落，执行 UI 路由回退");
+            UIKit.ClosePanel<Panel_StellarNetRoom>();
 
-            // 核心防御：全面接管状态机跌落监控，实现绝对安全的 UI 路由回退
-            bool isDroppedFromRoom = (_lastClientState == ClientAppState.OnlineRoom || _lastClientState == ClientAppState.ConnectionSuspended)
-                                     && currentState == ClientAppState.InLobby;
-
-            if (isDroppedFromRoom)
+            if (NetClient.Session != null && NetClient.Session.IsLoggedIn)
             {
-                LogKit.LogWarning("[GameLauncher]", "检测到网络状态从房间/挂起态跌落，执行 UI 路由回退");
-                UIKit.ClosePanel<Panel_StellarNetRoom>();
-
-                if (NetManager.ClientApp.Session.IsLoggedIn)
-                {
-                    UIKit.OpenPanel<Panel_StellarNetLobby>();
-                }
-                else
-                {
-                    UIKit.ClosePanel<Panel_StellarNetLobby>();
-                    UIKit.OpenPanel<Panel_StellarNetLogin>();
-                }
+                UIKit.OpenPanel<Panel_StellarNetLobby>();
             }
-
-            _lastClientState = currentState;
+            else
+            {
+                UIKit.ClosePanel<Panel_StellarNetLobby>();
+                UIKit.OpenPanel<Panel_StellarNetLogin>();
+            }
         }
+
+        _lastClientState = currentState;
     }
 
     protected override void OnDestroy()
@@ -100,6 +97,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
         }
     }
 
+    [ContextMenu("启动客户端")]
     private void StartClient()
     {
         NetManager.StartClient();
@@ -113,10 +111,5 @@ public class GameLauncher : MonoSingleton<GameLauncher>
     private void StartHost()
     {
         NetManager.StartHost();
-    }
-
-    public static void ClientSendMessage<T>(T msg) where T : class
-    {
-        NetManager.ClientApp.SendMessage(msg);
     }
 }

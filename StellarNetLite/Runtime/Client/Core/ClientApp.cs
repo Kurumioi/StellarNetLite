@@ -3,7 +3,6 @@ using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Client.Core.Events;
-using UnityEngine;
 
 namespace StellarNet.Lite.Client.Core
 {
@@ -21,10 +20,8 @@ namespace StellarNet.Lite.Client.Core
         public ClientGlobalDispatcher GlobalDispatcher { get; } = new ClientGlobalDispatcher();
         public ClientRoom CurrentRoom { get; private set; }
         public ClientAppState State { get; private set; } = ClientAppState.InLobby;
-
         public Action<Packet> NetworkSender { get; }
         public Func<object, byte[]> SerializeFunc { get; }
-
         private uint _sendSeq = 0;
 
         public ClientApp(Action<Packet> networkSender, Func<object, byte[]> serializeFunc)
@@ -43,7 +40,6 @@ namespace StellarNet.Lite.Client.Core
             {
                 if (State == ClientAppState.ReplayRoom) return;
                 if (State == ClientAppState.ConnectionSuspended) return;
-
                 if (CurrentRoom == null || packet.RoomId != CurrentRoom.RoomId) return;
 
                 CurrentRoom.Dispatcher.Dispatch(packet);
@@ -53,6 +49,31 @@ namespace StellarNet.Lite.Client.Core
         private bool TryChangeState(ClientAppState targetState)
         {
             if (State == targetState) return true;
+
+            // 严格的状态流转矩阵校验
+            bool isValidTransition = false;
+            switch (State)
+            {
+                case ClientAppState.InLobby:
+                    isValidTransition = (targetState == ClientAppState.OnlineRoom || targetState == ClientAppState.ReplayRoom);
+                    break;
+                case ClientAppState.OnlineRoom:
+                    isValidTransition = (targetState == ClientAppState.InLobby || targetState == ClientAppState.ConnectionSuspended);
+                    break;
+                case ClientAppState.ReplayRoom:
+                    isValidTransition = (targetState == ClientAppState.InLobby);
+                    break;
+                case ClientAppState.ConnectionSuspended:
+                    isValidTransition = (targetState == ClientAppState.InLobby || targetState == ClientAppState.OnlineRoom);
+                    break;
+            }
+
+            if (!isValidTransition)
+            {
+                NetLogger.LogError("[ClientApp]", $"状态机跃迁非法: 拒绝从 {State} 切换到 {targetState}");
+                return false;
+            }
+
             State = targetState;
             return true;
         }
@@ -91,7 +112,6 @@ namespace StellarNet.Lite.Client.Core
             {
                 CurrentRoom.Destroy();
                 CurrentRoom = null;
-                // 核心修复：房间销毁时同步抛出事件，通知所有 View 解绑
                 GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSuspended = false });
             }
 
@@ -103,12 +123,11 @@ namespace StellarNet.Lite.Client.Core
         {
             if (State != ClientAppState.OnlineRoom) return;
 
-            NetLogger.LogWarning("ClientApp", "触发软清理: 销毁当前房间实例，进入挂起态");
+            NetLogger.LogWarning("[ClientApp]", "触发软清理: 销毁当前房间实例，进入挂起态");
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
                 CurrentRoom = null;
-                // 核心修复：通知 View 层进入挂起态（保留画面定格）
                 GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSuspended = true });
             }
 
@@ -119,7 +138,7 @@ namespace StellarNet.Lite.Client.Core
 
         public void AbortConnection()
         {
-            NetLogger.LogWarning("ClientApp", "触发硬清理: 彻底清空会话与房间状态");
+            NetLogger.LogWarning("[ClientApp]", "触发硬清理: 彻底清空会话与房间状态");
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
@@ -136,8 +155,8 @@ namespace StellarNet.Lite.Client.Core
             if (msg == null) return;
             if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta)) return;
             if (meta.Dir != NetDir.C2S) return;
-            if (State == ClientAppState.ReplayRoom) return;
 
+            if (State == ClientAppState.ReplayRoom) return;
             if (State == ClientAppState.ConnectionSuspended)
             {
                 if (meta.Id != MsgIdConst.C2S_Login &&
@@ -153,8 +172,8 @@ namespace StellarNet.Lite.Client.Core
             _sendSeq++;
             byte[] payload = SerializeFunc(msg);
             string roomId = meta.Scope == NetScope.Room ? CurrentRoom.RoomId : string.Empty;
-            var packet = new Packet(_sendSeq, meta.Id, meta.Scope, roomId, payload);
 
+            var packet = new Packet(_sendSeq, meta.Id, meta.Scope, roomId, payload);
             NetworkSender?.Invoke(packet);
         }
     }

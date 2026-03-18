@@ -52,7 +52,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
         #region 服务端专属 (状态、事件与逻辑)
 
         public ServerApp ServerApp { get; private set; }
-
         public static event Action OnServerStartedEvent;
         public static event Action OnServerStoppedEvent;
         public static event Action<int> OnServerClientConnectedEvent;
@@ -129,10 +128,11 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public override void OnStartClient()
         {
             base.OnStartClient();
-
             if (ClientApp == null)
             {
                 ClientApp = new ClientApp(MirrorClientSend, SerializeFunc);
+                // 核心注入：初始化全局门面
+                NetClient.Initialize(ClientApp);
                 AutoRegistry.RegisterClient(ClientApp, DeserializeFunc);
                 NetworkClient.RegisterHandler<MirrorPacketMsg>(OnClientReceivePacket, false);
             }
@@ -176,7 +176,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
             {
                 NetLogger.LogInfo("StellarNetManager", "物理连接恢复，自动发起恢复链 Login 鉴权");
                 ClientApp.Session.IsPhysicalOnline = true;
-
                 var loginReq = new C2S_Login
                 {
                     AccountId = ClientApp.Session.AccountId,
@@ -196,7 +195,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 {
                     NetLogger.LogWarning("StellarNetManager", "物理连接意外断开，触发软挂起与自动重试机制");
                     ClientApp.SuspendConnection();
-
                     if (_reconnectCoroutine != null) StopCoroutine(_reconnectCoroutine);
                     _reconnectCoroutine = StartCoroutine(ReconnectionRoutine());
                 }
@@ -218,7 +216,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
         private IEnumerator ReconnectionRoutine()
         {
             ClientApp.Session.IsReconnecting = true;
-            // 核心防挂起：采用真实时间戳，无视 Time.deltaTime 冻结
             DateTime startTime = ClientApp.Session.LastDisconnectRealtime;
             float timeoutSeconds = 15f;
             float retryInterval = 2f;
@@ -239,7 +236,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
                 GlobalTypeNetEvent.Broadcast(new Local_ConnectionSuspended { RemainingSeconds = remaining });
 
-                // 真实时间节流守卫与 Mirror 底层状态重入守卫
                 if (Time.realtimeSinceStartup - lastRetryTime >= retryInterval)
                 {
                     if (!NetworkClient.active && !NetworkClient.isConnected)
@@ -254,11 +250,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
         }
 
-        // 提供给外部 UI 重新开启倒计时窗口的入口
         public void RestartReconnectionRoutine()
         {
             if (ClientApp == null || ClientApp.State != ClientAppState.ConnectionSuspended) return;
-
             ClientApp.Session.LastDisconnectRealtime = DateTime.UtcNow;
             if (_reconnectCoroutine != null) StopCoroutine(_reconnectCoroutine);
             _reconnectCoroutine = StartCoroutine(ReconnectionRoutine());

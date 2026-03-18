@@ -28,7 +28,6 @@ public class Panel_StellarNetReplay : UIPanelBase
     public override void OnInit()
     {
         base.OnInit();
-
         playPauseBtn.onClick.AddListener(OnPlayPauseBtn);
         restartBtn.onClick.AddListener(OnRestartBtn);
         exitBtn.onClick.AddListener(OnExitBtn);
@@ -60,8 +59,8 @@ public class Panel_StellarNetReplay : UIPanelBase
 
         if (uiData is ReplayFile replayFile)
         {
-            var app = GameLauncher.NetManager.ClientApp;
-            _replayPlayer = new ClientReplayPlayer(app);
+            // 核心修复：使用 NetClient.App 替代长链式调用
+            _replayPlayer = new ClientReplayPlayer(NetClient.App);
             _replayPlayer.StartReplay(replayFile);
 
             progressSlider.minValue = 0;

@@ -49,9 +49,9 @@ namespace StellarNet.Lite.Shared.Binders
             AutoBinder.BindClientModule(new StellarNet.Lite.Client.Modules.ClientReplayModule(clientApp), clientApp.GlobalDispatcher, deserializeFunc);
             AutoBinder.BindClientModule(new StellarNet.Lite.Client.Modules.ClientUserModule(clientApp), clientApp.GlobalDispatcher, deserializeFunc);
             AutoBinder.BindClientModule(new StellarNet.Lite.Client.Modules.ClientRoomModule(clientApp), clientApp.GlobalDispatcher, deserializeFunc);
-            ClientRoomFactory.Register(200, () => new StellarNet.Lite.Client.Components.ClientObjectSyncComponent(clientApp));
-            ClientRoomFactory.Register(102, () => new StellarNet.Lite.Game.Client.Components.ClientSocialRoomComponent(clientApp));
             ClientRoomFactory.Register(1, () => new StellarNet.Lite.Client.Components.ClientRoomSettingsComponent(clientApp));
+            ClientRoomFactory.Register(102, () => new StellarNet.Lite.Game.Client.Components.ClientSocialRoomComponent(clientApp));
+            ClientRoomFactory.Register(200, () => new StellarNet.Lite.Client.Components.ClientObjectSyncComponent(clientApp));
         }
     }
 }

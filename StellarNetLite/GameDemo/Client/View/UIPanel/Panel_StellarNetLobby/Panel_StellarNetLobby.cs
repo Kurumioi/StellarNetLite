@@ -3,6 +3,7 @@ using Cysharp.Threading.Tasks;
 using Newtonsoft.Json;
 using StellarFramework;
 using StellarFramework.UI;
+using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
@@ -29,10 +30,9 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     [Header("录像列表 (新增)")] [SerializeField] private Button refreshReplayBtn;
     [SerializeField] private Transform replayListContent;
-    [SerializeField] private GameObject replayItemPrefab; // 需在编辑器中制作一个包含 Text 和 Button 的预制体
+    [SerializeField] private GameObject replayItemPrefab;
 
     [SerializeField] private Panel_StellarNetLobbyData dataModel;
-
     private string _downloadingReplayId = string.Empty;
 
     public override void OnInit()
@@ -49,11 +49,13 @@ public class Panel_StellarNetLobby : UIPanelBase
 
         GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
-
-        // 新增：注册回放相关事件
         GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnS2C_DownloadReplayResult)
+            .UnRegisterWhenGameObjectDestroyed(gameObject);
+
+        // 核心修复：大厅统一监听本地房间进入事件，确保装配完毕后再切 UI
+        GlobalTypeNetEvent.Register<Local_RoomEntered>(OnRoomEntered)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
     }
 
@@ -77,6 +79,18 @@ public class Panel_StellarNetLobby : UIPanelBase
         _downloadingReplayId = string.Empty;
     }
 
+    private void OnRoomEntered(Local_RoomEntered evt)
+    {
+        // 确保只有在线模式才跳转房间 UI（排除回放沙盒触发的事件）
+        if (NetClient.State == ClientAppState.OnlineRoom)
+        {
+            LogKit.Log("Panel_StellarNetLobby", "检测到房间装配完毕，执行 UI 路由跳转");
+            UIKit.ClosePanel<Panel_SetRoomConfig>();
+            UIKit.OpenPanel<Panel_StellarNetRoom>();
+            CloseSelf();
+        }
+    }
+
     #region 按钮交互
 
     private void OnLogoutBtn()
@@ -87,7 +101,7 @@ public class Panel_StellarNetLobby : UIPanelBase
     private void OnRefreshRoomListBtn()
     {
         var msg = new C2S_GetRoomList();
-        GameLauncher.ClientSendMessage(msg);
+        NetClient.Send(msg);
         LogKit.Log("Panel_StellarNetLobby", "请求房间列表");
     }
 
@@ -99,7 +113,7 @@ public class Panel_StellarNetLobby : UIPanelBase
     private void OnRefreshReplayBtn()
     {
         var msg = new C2S_GetReplayList();
-        GameLauncher.ClientSendMessage(msg);
+        NetClient.Send(msg);
         LogKit.Log("Panel_StellarNetLobby", "请求录像列表");
     }
 
@@ -112,6 +126,7 @@ public class Panel_StellarNetLobby : UIPanelBase
         var roomList = msg.Rooms;
         LogKit.Log("Panel_StellarNetLobby", $"收到房间列表 {roomList.Length} 个房间");
         roomListContent.ClearChildren();
+
         for (int i = 0; i < roomList.Length; i++)
         {
             var room = roomList[i];
@@ -137,20 +152,19 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     #endregion
 
-    #region 网络事件 - 回放 (新增)
+    #region 网络事件 - 回放
 
     private void OnS2C_ReplayList(S2C_ReplayList msg)
     {
         if (replayListContent == null || replayItemPrefab == null) return;
         replayListContent.ClearChildren();
+
         if (msg.ReplayIds == null || msg.ReplayIds.Length == 0) return;
 
         foreach (var replayId in msg.ReplayIds)
         {
             var item = Instantiate(replayItemPrefab, replayListContent);
             item.Show();
-
-            // 假设预制体下有两个子节点：Text 显示 ID，Button 用于下载
             var text = item.GetComponentInChildren<TMP_Text>();
             var btn = item.GetComponentInChildren<Button>();
 
@@ -158,15 +172,12 @@ public class Panel_StellarNetLobby : UIPanelBase
 
             if (btn != null)
             {
-                string rId = replayId; // 闭包捕获
+                string rId = replayId;
                 btn.onClick.AddListener(() =>
                 {
                     if (!string.IsNullOrEmpty(_downloadingReplayId)) return;
                     _downloadingReplayId = rId;
-
-                    // 核心修改：调用 ClientReplayModule 的静态入口，接管缓存与断点续传逻辑
-                    StellarNet.Lite.Client.Modules.ClientReplayModule.RequestDownload(GameLauncher.NetManager.ClientApp, rId);
-
+                    StellarNet.Lite.Client.Modules.ClientReplayModule.RequestDownload(NetClient.App, rId);
                     text.text = $"{rId} (下载/加载中...)";
                 });
             }
@@ -185,7 +196,6 @@ public class Panel_StellarNetLobby : UIPanelBase
                 if (replayFile != null)
                 {
                     LogKit.Log("Panel_StellarNetLobby", "录像解析成功，准备进入回放沙盒");
-                    // 核心闭环：关闭大厅，携带数据打开回放面板
                     UIKit.OpenPanel<Panel_StellarNetReplay>(replayFile);
                     CloseSelf();
                 }
