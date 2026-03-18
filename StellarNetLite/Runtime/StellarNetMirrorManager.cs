@@ -17,6 +17,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
     {
         public Func<object, byte[]> SerializeFunc { get; private set; }
         public Func<byte[], Type, object> DeserializeFunc { get; private set; }
+
         private NetConfig _netConfig;
 
         public override void Awake()
@@ -26,8 +27,33 @@ namespace StellarNet.Lite.Shared.Infrastructure
             SerializeFunc = serializer.Serialize;
             DeserializeFunc = serializer.Deserialize;
 
-            _netConfig = NetConfigLoader.LoadServerConfigSync(ConfigRootPath.PersistentDataPath);
+            _netConfig = NetConfigLoader.LoadServerConfigSync(ConfigRootPath.StreamingAssets);
+
+            // 核心修复：将配置中的参数强制注入到 Mirror 底层
             this.maxConnections = _netConfig.MaxConnections;
+            this.networkAddress = _netConfig.Ip; // 客户端连接目标 IP
+
+            // 动态修改 Transport 端口 (兼容 Kcp, Telepathy 等主流传输层)
+            var transport = GetComponent<Transport>();
+            if (transport is PortTransport portTransport)
+            {
+                portTransport.Port = _netConfig.Port;
+                NetLogger.LogInfo("StellarNetManager", $"已将底层传输端口动态设置为: {_netConfig.Port}, 目标 IP: {_netConfig.Ip}");
+            }
+            else if (transport != null)
+            {
+                // 兼容某些未实现 PortTransport 接口的老版本组件，尝试反射注入
+                var portField = transport.GetType().GetField("port") ?? transport.GetType().GetField("Port");
+                if (portField != null)
+                {
+                    portField.SetValue(transport, _netConfig.Port);
+                    NetLogger.LogInfo("StellarNetManager", $"已通过反射将底层传输端口设置为: {_netConfig.Port}, 目标 IP: {_netConfig.Ip}");
+                }
+                else
+                {
+                    NetLogger.LogWarning("StellarNetManager", $"当前使用的 Transport ({transport.GetType().Name}) 无法自动设置端口，请在 Inspector 中手动配置。");
+                }
+            }
 
             NetMessageMapper.Initialize();
 
@@ -49,6 +75,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
         #region 服务端专属
 
         public ServerApp ServerApp { get; private set; }
+
         public static event Action OnServerStartedEvent;
         public static event Action OnServerStoppedEvent;
         public static event Action<int> OnServerClientConnectedEvent;
@@ -58,8 +85,10 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             base.OnStartServer();
             NetworkServer.tickRate = _netConfig.TickRate;
+
             ServerApp = new ServerApp(MirrorServerSend, SerializeFunc, _netConfig);
             AutoRegistry.RegisterServer(ServerApp, DeserializeFunc);
+
             NetworkServer.RegisterHandler<MirrorPacketMsg>(OnServerReceivePacket, false);
             NetLogger.LogInfo("StellarNetManager", $"服务端装配完毕，开始监听网络请求。TickRate: {NetworkServer.tickRate}");
             OnServerStartedEvent?.Invoke();
@@ -70,7 +99,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
             OnServerStoppedEvent?.Invoke();
             NetLogger.LogInfo("StellarNetManager", "服务端物理节点已停止运行");
 
-            // 核心修复 P0-3：强制生命周期闭环
             if (ServerApp != null)
             {
                 ServerApp.Dispose();
@@ -78,6 +106,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
 
             ServerRoomFactory.Clear();
+
             base.OnStopServer();
         }
 
@@ -133,6 +162,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public override void OnStartClient()
         {
             base.OnStartClient();
+
             if (ClientApp == null)
             {
                 ClientApp = new ClientApp(MirrorClientSend, SerializeFunc);
@@ -163,7 +193,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 _reconnectCoroutine = null;
             }
 
-            // 核心修复 P0-3：强制生命周期闭环
             if (ClientApp != null)
             {
                 ClientApp.Dispose();
@@ -210,6 +239,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 {
                     NetLogger.LogWarning("StellarNetManager", "物理连接意外断开，触发软挂起与自动重试机制");
                     ClientApp.SuspendConnection();
+
                     if (_reconnectCoroutine != null) StopCoroutine(_reconnectCoroutine);
                     _reconnectCoroutine = StartCoroutine(ReconnectionRoutine());
                 }
@@ -268,6 +298,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public void RestartReconnectionRoutine()
         {
             if (ClientApp == null || ClientApp.State != ClientAppState.ConnectionSuspended) return;
+
             ClientApp.Session.LastDisconnectRealtime = DateTime.UtcNow;
             if (_reconnectCoroutine != null) StopCoroutine(_reconnectCoroutine);
             _reconnectCoroutine = StartCoroutine(ReconnectionRoutine());

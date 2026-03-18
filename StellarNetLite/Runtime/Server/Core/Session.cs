@@ -12,11 +12,10 @@ namespace StellarNet.Lite.Server.Core
         public string CurrentRoomId { get; private set; }
         public string AuthorizedRoomId { get; private set; }
 
-        public bool IsOnline => ConnectionId >= 0;
+        // 核心修复：移除对 ConnectionId >= 0 的依赖，引入独立的 IsOnline 标识
+        public bool IsOnline { get; private set; }
 
-        // 核心修复 2：新增房间就绪状态。防止重连瞬间，客户端尚未装配完毕就被高频房间包轰炸
         public bool IsRoomReady { get; private set; }
-
         public DateTime LastOfflineTime { get; private set; }
         public uint LastReceivedSeq { get; private set; }
 
@@ -25,6 +24,7 @@ namespace StellarNet.Lite.Server.Core
             SessionId = sessionId;
             Uid = uid;
             ConnectionId = connectionId;
+            IsOnline = true; // 实例化时即为在线状态
             CurrentRoomId = string.Empty;
             AuthorizedRoomId = string.Empty;
             LastOfflineTime = DateTime.UtcNow;
@@ -35,6 +35,7 @@ namespace StellarNet.Lite.Server.Core
         public void UpdateConnection(int newConnectionId)
         {
             ConnectionId = newConnectionId;
+            IsOnline = true; // 更新连接时恢复在线状态
         }
 
         public void BindRoom(string roomId)
@@ -46,7 +47,7 @@ namespace StellarNet.Lite.Server.Core
             }
 
             CurrentRoomId = roomId;
-            IsRoomReady = true; // 正常加入房间时，直接就绪
+            IsRoomReady = true;
         }
 
         public void UnbindRoom()
@@ -67,9 +68,9 @@ namespace StellarNet.Lite.Server.Core
 
         public void MarkOffline()
         {
-            ConnectionId = -1;
+            IsOnline = false; // 显式标记离线
             LastOfflineTime = DateTime.UtcNow;
-            IsRoomReady = false; // 离线时立刻取消就绪状态
+            IsRoomReady = false;
         }
 
         public void SetRoomReady(bool ready)

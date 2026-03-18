@@ -56,6 +56,13 @@ namespace StellarNet.Lite.Server.Modules
 
             if (_accountToSession.TryGetValue(msg.AccountId, out var oldSession))
             {
+                // 核心修复：防御“自己顶自己”的幽灵包。如果当前会话就是已登录的会话，直接忽略重复请求
+                if (oldSession == session)
+                {
+                    NetLogger.LogWarning("ServerUserModule", "忽略重复的登录请求，防止自踢", "-", session.SessionId);
+                    return;
+                }
+
                 if (oldSession.IsOnline)
                 {
                     NetLogger.LogWarning("ServerUserModule", "账号在其他设备登录，踢出旧连接", oldSession.CurrentRoomId, oldSession.SessionId);
@@ -69,7 +76,6 @@ namespace StellarNet.Lite.Server.Modules
                 oldSession.ResetSeq(session.LastReceivedSeq);
 
                 bool hasRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) && _app.GetRoom(oldSession.CurrentRoomId) != null;
-
                 var reconnectRes = new S2C_LoginResult
                 {
                     Success = true,
@@ -77,7 +83,6 @@ namespace StellarNet.Lite.Server.Modules
                     HasReconnectRoom = hasRoom,
                     Reason = string.Empty
                 };
-
                 _app.SendMessageToSession(oldSession, reconnectRes);
                 NetLogger.LogInfo("ServerUserModule", "玩家断线重连(顶号)成功，Seq 状态已重置对齐", oldSession.CurrentRoomId, oldSession.SessionId);
                 return;
@@ -86,7 +91,6 @@ namespace StellarNet.Lite.Server.Modules
             _app.RemoveSession(session.SessionId);
             var authSession = new Session(session.SessionId, msg.AccountId, session.ConnectionId);
             authSession.ResetSeq(session.LastReceivedSeq);
-
             _accountToSession[msg.AccountId] = authSession;
             _app.RegisterSession(authSession);
 
@@ -97,7 +101,6 @@ namespace StellarNet.Lite.Server.Modules
                 HasReconnectRoom = false,
                 Reason = string.Empty
             };
-
             _app.SendMessageToSession(authSession, res);
             NetLogger.LogInfo("ServerUserModule", "玩家全新登录成功", "-", authSession.SessionId);
         }

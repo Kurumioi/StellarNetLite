@@ -23,6 +23,15 @@ public class GameLauncher : MonoSingleton<GameLauncher>
     public static StellarNetMirrorManager NetManager => Instance.netManager;
     public ENetMode netMode = ENetMode.None;
 
+    protected override void Awake()
+    {
+        base.Awake();
+        if (netMode == ENetMode.Client)
+        {
+            UIKit.Instance.Init();
+        }
+    }
+
     private void Start()
     {
         StellarNetMirrorManager.OnClientConnectedEvent += OnClientConnected;
@@ -39,8 +48,6 @@ public class GameLauncher : MonoSingleton<GameLauncher>
 
     private void OnClientConnected()
     {
-        UIKit.Instance.Init();
-
         // 核心修复 P0-3：初始化全局 UI 路由
         ClientUIRouter.Instance.Init();
 
