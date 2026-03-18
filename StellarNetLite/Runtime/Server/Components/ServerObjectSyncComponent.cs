@@ -7,16 +7,24 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Components
 {
+    /// <summary>
+    /// 服务端权威实体内存模型。
+    /// 职责：存储绝对正确的全量维度状态，作为重连快照与帧同步的唯一数据源。
+    /// </summary>
     public class ServerSyncEntity
     {
         public int NetId;
         public int PrefabHash;
         public string OwnerSessionId;
         public Vector3 Position;
+        public Vector3 Rotation;
         public Vector3 Velocity;
         public Vector3 Scale = Vector3.one;
         public int AnimStateHash;
         public float AnimNormalizedTime;
+        public float FloatParam1;
+        public float FloatParam2;
+        public float FloatParam3;
     }
 
     [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
@@ -25,14 +33,10 @@ namespace StellarNet.Lite.Server.Components
         private readonly ServerApp _app;
         private readonly Dictionary<int, ServerSyncEntity> _entities = new Dictionary<int, ServerSyncEntity>();
         private int _netIdCounter = 0;
-
         private const int SyncIntervalTicks = 3;
         private const int RecordIntervalTicks = 3;
 
-        // 核心修复 P1-4：真·0GC 数组复用
         private ObjectSyncState[] _syncStateBuffer = new ObjectSyncState[64];
-
-        // 预先 new 好的消息对象，每帧只修改它的字段，绝不重新 new
         private readonly S2C_ObjectSync _reusableSyncMsg = new S2C_ObjectSync();
 
         public ServerObjectSyncComponent(ServerApp app)
@@ -66,12 +70,20 @@ namespace StellarNet.Lite.Server.Components
                     PosX = entity.Position.x,
                     PosY = entity.Position.y,
                     PosZ = entity.Position.z,
+                    RotX = entity.Rotation.x,
+                    RotY = entity.Rotation.y,
+                    RotZ = entity.Rotation.z,
                     DirX = entity.Velocity.x,
                     DirY = entity.Velocity.y,
                     DirZ = entity.Velocity.z,
                     ScaleX = entity.Scale.x,
                     ScaleY = entity.Scale.y,
                     ScaleZ = entity.Scale.z,
+                    AnimStateHash = entity.AnimStateHash,
+                    AnimNormalizedTime = entity.AnimNormalizedTime,
+                    FloatParam1 = entity.FloatParam1,
+                    FloatParam2 = entity.FloatParam2,
+                    FloatParam3 = entity.FloatParam3,
                     OwnerSessionId = entity.OwnerSessionId
                 };
                 Room.SendMessageTo(session, spawnMsg, false);
@@ -87,12 +99,11 @@ namespace StellarNet.Lite.Server.Components
 
             if (!shouldSyncOnline && !shouldRecord) return;
 
-            // 动态扩容 Buffer
             if (_entities.Count > _syncStateBuffer.Length)
             {
                 int newSize = Mathf.NextPowerOfTwo(_entities.Count);
                 _syncStateBuffer = new ObjectSyncState[newSize];
-                _reusableSyncMsg.States = _syncStateBuffer; // 扩容后重新绑定引用
+                _reusableSyncMsg.States = _syncStateBuffer;
             }
 
             int index = 0;
@@ -107,6 +118,9 @@ namespace StellarNet.Lite.Server.Components
                     PosX = entity.Position.x,
                     PosY = entity.Position.y,
                     PosZ = entity.Position.z,
+                    RotX = entity.Rotation.x,
+                    RotY = entity.Rotation.y,
+                    RotZ = entity.Rotation.z,
                     VelX = entity.Velocity.x,
                     VelY = entity.Velocity.y,
                     VelZ = entity.Velocity.z,
@@ -115,19 +129,21 @@ namespace StellarNet.Lite.Server.Components
                     ScaleZ = entity.Scale.z,
                     AnimStateHash = entity.AnimStateHash,
                     AnimNormalizedTime = entity.AnimNormalizedTime,
+                    FloatParam1 = entity.FloatParam1,
+                    FloatParam2 = entity.FloatParam2,
+                    FloatParam3 = entity.FloatParam3,
                     ServerTime = currentServerTime
                 };
                 index++;
             }
 
-            // 核心修复 P1-4：直接复用消息对象，并通过 ValidCount 告诉底层序列化器只处理前 index 个元素
             _reusableSyncMsg.ValidCount = index;
             Room.BroadcastMessage(_reusableSyncMsg, shouldRecord);
         }
 
         #region ================= 权威业务 API =================
 
-        public ServerSyncEntity SpawnObject(int prefabHash, Vector3 position, Vector3 velocity, string ownerSessionId = "")
+        public ServerSyncEntity SpawnObject(int prefabHash, Vector3 position, Vector3 rotation, Vector3 velocity, string ownerSessionId = "")
         {
             _netIdCounter++;
             var entity = new ServerSyncEntity
@@ -135,6 +151,7 @@ namespace StellarNet.Lite.Server.Components
                 NetId = _netIdCounter,
                 PrefabHash = prefabHash,
                 Position = position,
+                Rotation = rotation,
                 Velocity = velocity,
                 OwnerSessionId = ownerSessionId ?? string.Empty
             };
@@ -148,16 +165,24 @@ namespace StellarNet.Lite.Server.Components
                 PosX = entity.Position.x,
                 PosY = entity.Position.y,
                 PosZ = entity.Position.z,
+                RotX = entity.Rotation.x,
+                RotY = entity.Rotation.y,
+                RotZ = entity.Rotation.z,
                 DirX = entity.Velocity.x,
                 DirY = entity.Velocity.y,
                 DirZ = entity.Velocity.z,
                 ScaleX = entity.Scale.x,
                 ScaleY = entity.Scale.y,
                 ScaleZ = entity.Scale.z,
+                AnimStateHash = entity.AnimStateHash,
+                AnimNormalizedTime = entity.AnimNormalizedTime,
+                FloatParam1 = entity.FloatParam1,
+                FloatParam2 = entity.FloatParam2,
+                FloatParam3 = entity.FloatParam3,
                 OwnerSessionId = entity.OwnerSessionId
             };
-
             Room.BroadcastMessage(spawnMsg, true);
+
             return entity;
         }
 

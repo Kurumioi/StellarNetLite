@@ -16,11 +16,16 @@ public class Panel_StellarNetReplay : UIPanelBase
     [SerializeField] private Button restartBtn;
     [SerializeField] private Button exitBtn;
 
-    [Header("倍速控制")] [SerializeField] private Button speed05Btn;
+    [Header("预设倍速控制")] [SerializeField] private Button speed05Btn;
     [SerializeField] private Button speed10Btn;
     [SerializeField] private Button speed20Btn;
     [SerializeField] private Button speed40Btn;
     [SerializeField] private TMP_Text currentSpeedText;
+
+    [Header("自定义倍速 (开发者/自由输入)")] [SerializeField]
+    private TMP_InputField customSpeedIpt;
+
+    [SerializeField] private Button applyCustomSpeedBtn;
 
     private ClientReplayPlayer _replayPlayer;
     private bool _isDraggingSlider = false;
@@ -37,6 +42,11 @@ public class Panel_StellarNetReplay : UIPanelBase
         speed20Btn.onClick.AddListener(() => SetSpeed(2.0f));
         speed40Btn.onClick.AddListener(() => SetSpeed(4.0f));
 
+        if (applyCustomSpeedBtn != null && customSpeedIpt != null)
+        {
+            applyCustomSpeedBtn.onClick.AddListener(OnApplyCustomSpeedBtn);
+        }
+
         progressSlider.onValueChanged.AddListener(OnSliderValueChanged);
     }
 
@@ -49,6 +59,7 @@ public class Panel_StellarNetReplay : UIPanelBase
         speed10Btn.onClick.RemoveAllListeners();
         speed20Btn.onClick.RemoveAllListeners();
         speed40Btn.onClick.RemoveAllListeners();
+        if (applyCustomSpeedBtn != null) applyCustomSpeedBtn.onClick.RemoveAllListeners();
         progressSlider.onValueChanged.RemoveAllListeners();
     }
 
@@ -107,11 +118,31 @@ public class Panel_StellarNetReplay : UIPanelBase
         UpdateUIState();
     }
 
-    private void SetSpeed(float speed)
+    /// <summary>
+    /// 核心接口：支持任意浮点数的倍速设置
+    /// </summary>
+    public void SetSpeed(float speed)
     {
         if (_replayPlayer == null) return;
         _replayPlayer.PlaybackSpeed = speed;
         currentSpeedText.text = $"当前倍速: {speed}x";
+    }
+
+    private void OnApplyCustomSpeedBtn()
+    {
+        if (customSpeedIpt == null) return;
+
+        if (float.TryParse(customSpeedIpt.text, out float speed))
+        {
+            // 限制一下合理的范围，防止输入负数或过大(如 10000)导致单帧 while 循环卡死主线程
+            speed = Mathf.Clamp(speed, 0.1f, 100f);
+            SetSpeed(speed);
+            customSpeedIpt.text = speed.ToString("F1");
+        }
+        else
+        {
+            LogKit.LogError("Panel_StellarNetReplay", "请输入合法的数字倍速");
+        }
     }
 
     private void OnSliderValueChanged(float value)
@@ -132,9 +163,7 @@ public class Panel_StellarNetReplay : UIPanelBase
             _replayPlayer.StopReplay();
             _replayPlayer = null;
         }
-
-        // 核心修复 P0-4：只负责关闭自己并停止回放，跳转大厅交由 Router 监听 Local_RoomLeft 处理
-        CloseSelf();
+        // 移除 CloseSelf()，将 UI 关闭的权力完全交给 ClientUIRouter 统一调度，防止冲突导致空场景
     }
 
     private void UpdateUIState()

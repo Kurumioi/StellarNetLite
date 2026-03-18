@@ -9,8 +9,7 @@ namespace StellarNet.Lite.Client.Components.Views
 {
     /// <summary>
     /// 全局网络实体生成视图 (View 层)
-    /// 职责：监听本地生成/销毁事件，根据 Hash 实例化预制体，并注入 NetTransformPresenter。
-    /// 架构优化：废弃 Resources.LoadAll，改为基于生成表的精准按需加载。
+    /// 核心重构：引入首帧旁路预测 (Bypass Interpolation) 机制，确保重连或中途加入时模型直接定格在正确状态，杜绝从原点飞出的穿模现象。
     /// </summary>
     public class ObjectSpawnerView : MonoBehaviour
     {
@@ -22,14 +21,15 @@ namespace StellarNet.Lite.Client.Components.Views
 
         public void Init(ClientRoom room)
         {
-            _room = room;
-            if (_room == null)
+            if (room == null)
             {
                 NetLogger.LogError("ObjectSpawnerView", "初始化失败: 传入的 ClientRoom 为空，无法建立事件监听。");
                 return;
             }
 
+            _room = room;
             _syncService = _room.GetComponent<ClientObjectSyncComponent>();
+
             if (_syncService == null)
             {
                 NetLogger.LogError("ObjectSpawnerView", "初始化失败: 无法在 Room 中找到 ClientObjectSyncComponent 服务。");
@@ -106,17 +106,14 @@ namespace StellarNet.Lite.Client.Components.Views
             GameObject prefab = GetOrLoadPrefab(evt.PrefabHash);
             if (prefab == null) return;
 
+            // 1. 提取绝对空间数据
             Vector3 spawnPos = new Vector3(evt.PosX, evt.PosY, evt.PosZ);
-            Quaternion spawnRot = Quaternion.identity;
-            Vector3 dir = new Vector3(evt.DirX, evt.DirY, evt.DirZ);
+            Quaternion spawnRot = Quaternion.Euler(evt.RotX, evt.RotY, evt.RotZ);
+            Vector3 spawnScale = new Vector3(evt.ScaleX, evt.ScaleY, evt.ScaleZ);
 
-            if (dir.sqrMagnitude > 0.01f)
-            {
-                spawnRot = Quaternion.LookRotation(dir);
-            }
-
+            // 2. 实例化并直接硬设 (Hard Set) 绝对坐标与旋转，剥夺平滑组件的首帧控制权
             GameObject instance = Instantiate(prefab, spawnPos, spawnRot);
-            instance.transform.localScale = new Vector3(evt.ScaleX, evt.ScaleY, evt.ScaleZ);
+            instance.transform.localScale = spawnScale;
 
             var presenter = instance.GetComponent<NetTransformPresenter>();
             if (presenter == null)
@@ -124,7 +121,16 @@ namespace StellarNet.Lite.Client.Components.Views
                 presenter = instance.AddComponent<NetTransformPresenter>();
             }
 
+            // 3. 初始化表现层组件
             presenter.Init(evt.NetId, _syncService);
+
+            // 4. 核心防御：强制注入首帧动画与 BlendTree 参数，确保重连瞬间动作定格对齐
+            presenter.HardSetInitialState(
+                spawnPos, spawnRot, spawnScale,
+                evt.AnimStateHash, evt.AnimNormalizedTime,
+                evt.FloatParam1, evt.FloatParam2, evt.FloatParam3
+            );
+
             _spawnedObjects.Add(evt.NetId, instance);
         }
 

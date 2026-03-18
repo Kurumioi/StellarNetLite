@@ -20,7 +20,6 @@ namespace StellarNet.Lite.Client.Core
         private float _tickAccumulator;
         private const float TickInterval = 1f / 60f;
 
-        // 用于记录上一次广播的倍速，防止每帧重复派发事件
         private float _lastReportedTimeScale = -1f;
 
         public ClientReplayPlayer(ClientApp app)
@@ -48,15 +47,13 @@ namespace StellarNet.Lite.Client.Core
             if (!_isPlaying) return;
             _isPlaying = false;
             _currentFile = null;
-            _app.LeaveRoom();
-
-            // 退出时重置全局倍速
+            // 正常退出回放，非静默，触发 Router 路由回大厅
+            _app.LeaveRoom(false);
             GlobalTypeNetEvent.Broadcast(new Local_ReplayTimeScaleChanged { TimeScale = 1f });
         }
 
         public void Update(float deltaTime)
         {
-            // 核心修复：实时计算当前真实倍速，并广播给所有表现层组件
             float currentTimeScale = IsPaused ? 0f : PlaybackSpeed;
             if (Mathf.Abs(_lastReportedTimeScale - currentTimeScale) > 0.001f)
             {
@@ -108,10 +105,12 @@ namespace StellarNet.Lite.Client.Core
         {
             if (_app.State == ClientAppState.ReplayRoom)
             {
-                _app.LeaveRoom();
+                // 核心修复：重播时销毁旧房间必须是静默的，绝不能触发 Router 切回大厅
+                _app.LeaveRoom(true);
             }
 
             _app.EnterReplayRoom(_currentFile.RoomId);
+
             bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, _currentFile.ComponentIds);
             if (!buildSuccess)
             {

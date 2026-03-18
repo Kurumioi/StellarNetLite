@@ -35,7 +35,6 @@ namespace StellarNet.Lite.Server.Modules
 
             string roomId = Guid.NewGuid().ToString("N").Substring(0, 8);
             var room = _app.CreateRoom(roomId);
-
             if (room == null)
             {
                 var failMsg = new S2C_CreateRoomResult { Success = false, Reason = "服务器内部错误" };
@@ -49,7 +48,6 @@ namespace StellarNet.Lite.Server.Modules
 
             int[] uniqueComponentIds = DeduplicateComponentIds(msg.ComponentIds);
             bool buildSuccess = ServerRoomFactory.BuildComponents(room, uniqueComponentIds);
-
             if (!buildSuccess)
             {
                 _app.DestroyRoom(roomId);
@@ -68,7 +66,6 @@ namespace StellarNet.Lite.Server.Modules
                 ComponentIds = uniqueComponentIds,
                 Reason = string.Empty
             };
-
             session.AuthorizeRoom(roomId);
             _app.SendMessageToSession(session, successMsg);
         }
@@ -120,7 +117,6 @@ namespace StellarNet.Lite.Server.Modules
                 ComponentIds = room.ComponentIds,
                 Reason = string.Empty
             };
-
             session.AuthorizeRoom(room.RoomId);
             _app.SendMessageToSession(session, successMsg);
         }
@@ -174,7 +170,14 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             string roomId = session.CurrentRoomId;
-            if (string.IsNullOrEmpty(roomId)) return;
+            if (string.IsNullOrEmpty(roomId))
+            {
+                // 核心修复：如果玩家请求离房时，服务端发现他已经不在房间里了（可能被僵尸清理踢出）
+                // 必须下发成功回执，让客户端的 UI 状态机能够正常跃迁回大厅，杜绝静默卡死。
+                var fallbackMsg = new S2C_LeaveRoomResult { Success = true };
+                _app.SendMessageToSession(session, fallbackMsg);
+                return;
+            }
 
             Room room = _app.GetRoom(roomId);
             if (room != null)

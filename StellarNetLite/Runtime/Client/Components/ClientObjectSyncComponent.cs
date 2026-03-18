@@ -8,15 +8,24 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Client.Components
 {
+    /// <summary>
+    /// 客户端预测数据结构。
+    /// 职责：为 View 层提供包含时间补偿与全量参数的推演结果。
+    /// </summary>
     public struct PredictedSyncData
     {
         public Vector3 Position;
+        public Vector3 Rotation;
         public Vector3 Velocity;
         public Vector3 Scale;
         public int AnimStateHash;
         public float AnimNormalizedTime;
+        public float FloatParam1;
+        public float FloatParam2;
+        public float FloatParam3;
         public float TimeSinceLastSync;
         public float PlaybackSpeed;
+        public float ServerTimeDelta;
     }
 
     [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
@@ -27,11 +36,16 @@ namespace StellarNet.Lite.Client.Components
         private class SyncEntityData
         {
             public Vector3 RawPos;
+            public Vector3 RawRot;
             public Vector3 RawVel;
             public Vector3 RawScale;
             public int AnimStateHash;
             public float AnimNormalizedTime;
+            public float FloatParam1;
+            public float FloatParam2;
+            public float FloatParam3;
             public float LocalReceiveTime;
+            public float ServerTime;
         }
 
         private readonly Dictionary<int, SyncEntityData> _entities = new Dictionary<int, SyncEntityData>();
@@ -69,19 +83,30 @@ namespace StellarNet.Lite.Client.Components
             }
 
             data.RawPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            data.RawRot = new Vector3(msg.RotX, msg.RotY, msg.RotZ);
             data.RawVel = new Vector3(msg.DirX, msg.DirY, msg.DirZ);
             data.RawScale = new Vector3(msg.ScaleX, msg.ScaleY, msg.ScaleZ);
-            data.AnimStateHash = 0;
-            data.AnimNormalizedTime = 0f;
+            data.AnimStateHash = msg.AnimStateHash;
+            data.AnimNormalizedTime = msg.AnimNormalizedTime;
+            data.FloatParam1 = msg.FloatParam1;
+            data.FloatParam2 = msg.FloatParam2;
+            data.FloatParam3 = msg.FloatParam3;
             data.LocalReceiveTime = Time.realtimeSinceStartup;
+            data.ServerTime = 0f;
 
             var spawnEvent = new Local_ObjectSpawned
             {
                 NetId = msg.NetId,
                 PrefabHash = msg.PrefabHash,
                 PosX = msg.PosX, PosY = msg.PosY, PosZ = msg.PosZ,
+                RotX = msg.RotX, RotY = msg.RotY, RotZ = msg.RotZ,
                 DirX = msg.DirX, DirY = msg.DirY, DirZ = msg.DirZ,
                 ScaleX = msg.ScaleX, ScaleY = msg.ScaleY, ScaleZ = msg.ScaleZ,
+                AnimStateHash = msg.AnimStateHash,
+                AnimNormalizedTime = msg.AnimNormalizedTime,
+                FloatParam1 = msg.FloatParam1,
+                FloatParam2 = msg.FloatParam2,
+                FloatParam3 = msg.FloatParam3,
                 OwnerSessionId = msg.OwnerSessionId
             };
             Room.NetEventSystem.Broadcast(spawnEvent);
@@ -91,6 +116,7 @@ namespace StellarNet.Lite.Client.Components
         public void OnS2C_ObjectDestroy(S2C_ObjectDestroy msg)
         {
             if (msg == null) return;
+
             if (_entities.Remove(msg.NetId))
             {
                 var destroyEvent = new Local_ObjectDestroyed { NetId = msg.NetId };
@@ -104,9 +130,8 @@ namespace StellarNet.Lite.Client.Components
             if (msg == null || msg.States == null) return;
 
             float currentLocalTime = Time.realtimeSinceStartup;
-
-            // 核心修复 P1-4：只遍历到 ValidCount，忽略数组尾部的脏数据
             int count = Mathf.Min(msg.ValidCount, msg.States.Length);
+
             for (int i = 0; i < count; i++)
             {
                 var state = msg.States[i];
@@ -115,6 +140,10 @@ namespace StellarNet.Lite.Client.Components
                     data.RawPos.x = state.PosX;
                     data.RawPos.y = state.PosY;
                     data.RawPos.z = state.PosZ;
+
+                    data.RawRot.x = state.RotX;
+                    data.RawRot.y = state.RotY;
+                    data.RawRot.z = state.RotZ;
 
                     data.RawVel.x = state.VelX;
                     data.RawVel.y = state.VelY;
@@ -126,6 +155,12 @@ namespace StellarNet.Lite.Client.Components
 
                     data.AnimStateHash = state.AnimStateHash;
                     data.AnimNormalizedTime = state.AnimNormalizedTime;
+
+                    data.FloatParam1 = state.FloatParam1;
+                    data.FloatParam2 = state.FloatParam2;
+                    data.FloatParam3 = state.FloatParam3;
+
+                    data.ServerTime = state.ServerTime;
                     data.LocalReceiveTime = currentLocalTime;
                 }
             }
@@ -146,27 +181,39 @@ namespace StellarNet.Lite.Client.Components
                 result = new PredictedSyncData
                 {
                     Position = data.RawPos,
+                    Rotation = data.RawRot,
                     Velocity = data.RawVel,
                     Scale = data.RawScale,
                     AnimStateHash = data.AnimStateHash,
                     AnimNormalizedTime = data.AnimNormalizedTime,
+                    FloatParam1 = data.FloatParam1,
+                    FloatParam2 = data.FloatParam2,
+                    FloatParam3 = data.FloatParam3,
                     TimeSinceLastSync = 0f,
-                    PlaybackSpeed = _replayTimeScale
+                    PlaybackSpeed = _replayTimeScale,
+                    ServerTimeDelta = 0f
                 };
                 return true;
             }
 
             Vector3 predictedPos = data.RawPos + (data.RawVel * timeSinceLastPacket);
+
             result = new PredictedSyncData
             {
                 Position = predictedPos,
+                Rotation = data.RawRot,
                 Velocity = data.RawVel,
                 Scale = data.RawScale,
                 AnimStateHash = data.AnimStateHash,
                 AnimNormalizedTime = data.AnimNormalizedTime,
+                FloatParam1 = data.FloatParam1,
+                FloatParam2 = data.FloatParam2,
+                FloatParam3 = data.FloatParam3,
                 TimeSinceLastSync = timeSinceLastPacket,
-                PlaybackSpeed = 1f
+                PlaybackSpeed = 1f,
+                ServerTimeDelta = timeSinceLastPacket
             };
+
             return true;
         }
     }

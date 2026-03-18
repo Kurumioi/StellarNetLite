@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Server.Infrastructure;
+using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Server.Core
 {
@@ -18,13 +19,14 @@ namespace StellarNet.Lite.Server.Core
         public string RoomId { get; }
         public RoomConfigModel Config { get; } = new RoomConfigModel();
         public string RoomName => Config.RoomName;
-
         public RoomDispatcher Dispatcher { get; }
+
         public bool IsRecording { get; private set; }
         public int CurrentTick { get; private set; }
         public DateTime CreateTime { get; }
         public DateTime EmptySince { get; private set; }
         public int[] ComponentIds { get; private set; }
+
         public int MemberCount => _members.Count;
         public RoomState State { get; private set; } = RoomState.Waiting;
         public ReplayFile LastReplay { get; private set; }
@@ -37,7 +39,7 @@ namespace StellarNet.Lite.Server.Core
 
         private readonly Action<int, Packet> _sendToConnection;
         private readonly Func<object, byte[]> _serializeFunc;
-        private readonly NetConfig _netConfig; // 核心修复：引入全局配置，用于准确控制录像滚动清理
+        private readonly NetConfig _netConfig;
 
         private const int MaxReplayFrames = 108000;
         private int _finishedTickCount = 0;
@@ -49,6 +51,7 @@ namespace StellarNet.Lite.Server.Core
             _sendToConnection = sendToConnection;
             _serializeFunc = serializeFunc;
             _netConfig = config ?? new NetConfig();
+
             CreateTime = DateTime.UtcNow;
             EmptySince = DateTime.UtcNow;
             CurrentTick = 0;
@@ -137,7 +140,6 @@ namespace StellarNet.Lite.Server.Core
         public void NotifyMemberOffline(Session session)
         {
             if (session == null || !_members.ContainsKey(session.SessionId)) return;
-
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnMemberOffline(session);
@@ -164,7 +166,6 @@ namespace StellarNet.Lite.Server.Core
         public void TriggerReconnectSnapshot(Session session)
         {
             if (session == null || !_members.ContainsKey(session.SessionId)) return;
-
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnSendSnapshot(session);
@@ -195,7 +196,6 @@ namespace StellarNet.Lite.Server.Core
             if (IsRecording)
             {
                 LastReplay = StopRecordAndSave();
-                // 核心修复：使用真实的全局配置保存录像，确保 MaxReplayFiles 限制生效
                 ServerReplayStorage.SaveReplay(LastReplay, _netConfig);
             }
 
@@ -322,12 +322,18 @@ namespace StellarNet.Lite.Server.Core
             if (State == RoomState.Finished)
             {
                 _finishedTickCount++;
-                if (_finishedTickCount > 300 && _members.Count > 0)
+
+                // 核心修复：将 300 帧 (5秒) 延长至 18000 帧 (5分钟，假设 60TickRate)
+                // 给予玩家充足的时间查看结算面板，同时保留兜底的防内存泄漏机制
+                if (_finishedTickCount > 18000 && _members.Count > 0)
                 {
-                    NetLogger.LogWarning("Room", $"僵尸清理: 结算已超时，强制清空残留的 {_members.Count} 名玩家", RoomId);
+                    NetLogger.LogWarning("Room", $"僵尸清理: 结算已超时(5分钟)，强制清空残留的 {_members.Count} 名玩家", RoomId);
                     var sessionsToKick = new System.Collections.Generic.List<Session>(_members.Values);
                     foreach (var s in sessionsToKick)
                     {
+                        // 核心防御：踢出玩家前，必须主动下发离房成功协议，防止客户端 UI 状态机死锁
+                        var kickMsg = new S2C_LeaveRoomResult { Success = true };
+                        SendMessageTo(s, kickMsg);
                         RemoveMember(s);
                     }
                 }
@@ -355,6 +361,7 @@ namespace StellarNet.Lite.Server.Core
             }
 
             _members.Clear();
+
             Dispatcher.Clear();
         }
     }
