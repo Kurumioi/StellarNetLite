@@ -7,7 +7,6 @@ namespace StellarNet.Lite.Shared.Core
     /// </summary>
     public struct Packet
     {
-        // 核心新增：序列号，用于底层防重放与幂等拦截
         public uint Seq;
         public int MsgId;
         public NetScope Scope;
@@ -58,6 +57,9 @@ namespace StellarNet.Lite.Shared.Core
     public sealed class ReplayFile
     {
         public string ReplayId;
+
+        // 核心新增：录像展示名称
+        public string DisplayName;
         public string RoomId;
         public int[] ComponentIds;
         public List<ReplayFrame> Frames = new List<ReplayFrame>();

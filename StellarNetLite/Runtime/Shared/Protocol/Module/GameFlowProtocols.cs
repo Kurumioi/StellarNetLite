@@ -22,5 +22,8 @@ namespace StellarNet.Lite.Shared.Protocol
     public sealed class S2C_GameEnded
     {
         public string WinnerSessionId;
+
+        // 核心新增：将刚刚落盘的录像 ID 下发给客户端，供房主重命名使用
+        public string ReplayId;
     }
 }

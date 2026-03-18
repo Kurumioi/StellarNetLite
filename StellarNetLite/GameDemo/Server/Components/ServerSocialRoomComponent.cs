@@ -17,12 +17,9 @@ namespace StellarNet.Lite.Game.Server.Components
         private ServerObjectSyncComponent _syncService;
 
         private readonly Dictionary<string, int> _sessionToNetId = new Dictionary<string, int>();
-
-        // 核心修复 1：记录每个实体动作的结束时间，用于自动切回 Idle
         private readonly Dictionary<int, float> _actionEndTimes = new Dictionary<int, float>();
 
         private const int PlayerPrefabHash = NetPrefabConsts.NetPrefabs_SocialPlayer;
-
         private static readonly int AnimHash_Idle = Animator.StringToHash("Idle");
         private static readonly int AnimHash_Walk = Animator.StringToHash("Walk");
         private static readonly int AnimHash_Wave = Animator.StringToHash("Wave");
@@ -45,6 +42,7 @@ namespace StellarNet.Lite.Game.Server.Components
         public override void OnGameStart()
         {
             if (_syncService == null) return;
+
             _sessionToNetId.Clear();
             _actionEndTimes.Clear();
 
@@ -57,6 +55,7 @@ namespace StellarNet.Lite.Game.Server.Components
         public override void OnMemberJoined(Session session)
         {
             if (session == null) return;
+
             if (Room.State == RoomState.Playing)
             {
                 SpawnPlayerForSession(session);
@@ -66,6 +65,7 @@ namespace StellarNet.Lite.Game.Server.Components
         public override void OnMemberLeft(Session session)
         {
             if (session == null) return;
+
             if (_sessionToNetId.TryGetValue(session.SessionId, out int netId))
             {
                 _syncService?.DestroyObject(netId);
@@ -95,7 +95,8 @@ namespace StellarNet.Lite.Game.Server.Components
             Vector2 randomCircle = UnityEngine.Random.insideUnitCircle * 3f;
             Vector3 spawnPos = new Vector3(randomCircle.x, 0, randomCircle.y);
 
-            var syncEntity = _syncService.SpawnObject(PlayerPrefabHash, spawnPos, Vector3.zero, Vector3.zero, session.SessionId);
+            // 核心修改：显式声明该实体需要同步 Transform 和 Animator
+            var syncEntity = _syncService.SpawnObject(PlayerPrefabHash, EntitySyncMask.All, spawnPos, Vector3.zero, Vector3.zero, session.SessionId);
             syncEntity.AnimStateHash = AnimHash_Idle;
             syncEntity.AnimNormalizedTime = 0f;
 
@@ -118,7 +119,6 @@ namespace StellarNet.Lite.Game.Server.Components
                 {
                     playerSync.Position += playerSync.Velocity * deltaTime;
 
-                    // 只要在移动，强制打断任何动作，切为 Walk
                     if (playerSync.AnimStateHash != AnimHash_Walk)
                     {
                         playerSync.AnimStateHash = AnimHash_Walk;
@@ -127,16 +127,13 @@ namespace StellarNet.Lite.Game.Server.Components
                 }
                 else
                 {
-                    // 核心修复 2：停止移动时的状态机流转
                     if (playerSync.AnimStateHash == AnimHash_Walk)
                     {
-                        // 从走路停下，立刻切回 Idle
                         playerSync.AnimStateHash = AnimHash_Idle;
                         playerSync.AnimNormalizedTime = 0f;
                     }
                     else if (playerSync.AnimStateHash == AnimHash_Wave || playerSync.AnimStateHash == AnimHash_Dance)
                     {
-                        // 如果正在播动作，检查是否达到动作时长，超时则自动切回 Idle
                         if (_actionEndTimes.TryGetValue(playerSync.NetId, out float endTime) && currentTime > endTime)
                         {
                             playerSync.AnimStateHash = AnimHash_Idle;
@@ -152,8 +149,8 @@ namespace StellarNet.Lite.Game.Server.Components
         {
             if (session == null || msg == null) return;
             if (Room.State != RoomState.Playing || _syncService == null) return;
-            if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId)) return;
 
+            if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId)) return;
             var playerSync = _syncService.GetEntity(netId);
             if (playerSync == null) return;
 
@@ -173,8 +170,8 @@ namespace StellarNet.Lite.Game.Server.Components
         {
             if (session == null || msg == null) return;
             if (Room.State != RoomState.Playing || _syncService == null) return;
-            if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId)) return;
 
+            if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId)) return;
             var playerSync = _syncService.GetEntity(netId);
             if (playerSync == null) return;
 
@@ -184,14 +181,12 @@ namespace StellarNet.Lite.Game.Server.Components
             {
                 playerSync.AnimStateHash = AnimHash_Wave;
                 playerSync.AnimNormalizedTime = 0f;
-                // 假设挥手动作长 2.5 秒
                 _actionEndTimes[netId] = Time.realtimeSinceStartup + 2.5f;
             }
             else if (msg.ActionId == 2)
             {
                 playerSync.AnimStateHash = AnimHash_Dance;
                 playerSync.AnimNormalizedTime = 0f;
-                // 假设跳舞动作长 4.0 秒
                 _actionEndTimes[netId] = Time.realtimeSinceStartup + 4.0f;
             }
         }
@@ -201,6 +196,7 @@ namespace StellarNet.Lite.Game.Server.Components
         {
             if (session == null || msg == null || string.IsNullOrEmpty(msg.Content)) return;
             if (Room.State != RoomState.Playing) return;
+
             if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId)) return;
 
             string safeContent = msg.Content.Length > 30 ? msg.Content.Substring(0, 30) + "..." : msg.Content;

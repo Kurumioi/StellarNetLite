@@ -15,11 +15,14 @@ namespace StellarNet.Lite.Server.Components
     {
         public int NetId;
         public int PrefabHash;
+        public byte Mask;
         public string OwnerSessionId;
+
         public Vector3 Position;
         public Vector3 Rotation;
         public Vector3 Velocity;
         public Vector3 Scale = Vector3.one;
+
         public int AnimStateHash;
         public float AnimNormalizedTime;
         public float FloatParam1;
@@ -33,6 +36,7 @@ namespace StellarNet.Lite.Server.Components
         private readonly ServerApp _app;
         private readonly Dictionary<int, ServerSyncEntity> _entities = new Dictionary<int, ServerSyncEntity>();
         private int _netIdCounter = 0;
+
         private const int SyncIntervalTicks = 3;
         private const int RecordIntervalTicks = 3;
 
@@ -67,6 +71,7 @@ namespace StellarNet.Lite.Server.Components
                 {
                     NetId = entity.NetId,
                     PrefabHash = entity.PrefabHash,
+                    Mask = entity.Mask,
                     PosX = entity.Position.x,
                     PosY = entity.Position.y,
                     PosZ = entity.Position.z,
@@ -115,6 +120,7 @@ namespace StellarNet.Lite.Server.Components
                 _syncStateBuffer[index] = new ObjectSyncState
                 {
                     NetId = entity.NetId,
+                    Mask = entity.Mask,
                     PosX = entity.Position.x,
                     PosY = entity.Position.y,
                     PosZ = entity.Position.z,
@@ -143,13 +149,14 @@ namespace StellarNet.Lite.Server.Components
 
         #region ================= 权威业务 API =================
 
-        public ServerSyncEntity SpawnObject(int prefabHash, Vector3 position, Vector3 rotation, Vector3 velocity, string ownerSessionId = "")
+        public ServerSyncEntity SpawnObject(int prefabHash, EntitySyncMask mask, Vector3 position, Vector3 rotation, Vector3 velocity, string ownerSessionId = "")
         {
             _netIdCounter++;
             var entity = new ServerSyncEntity
             {
                 NetId = _netIdCounter,
                 PrefabHash = prefabHash,
+                Mask = (byte)mask,
                 Position = position,
                 Rotation = rotation,
                 Velocity = velocity,
@@ -162,6 +169,7 @@ namespace StellarNet.Lite.Server.Components
             {
                 NetId = entity.NetId,
                 PrefabHash = entity.PrefabHash,
+                Mask = entity.Mask,
                 PosX = entity.Position.x,
                 PosY = entity.Position.y,
                 PosZ = entity.Position.z,
@@ -181,6 +189,7 @@ namespace StellarNet.Lite.Server.Components
                 FloatParam3 = entity.FloatParam3,
                 OwnerSessionId = entity.OwnerSessionId
             };
+
             Room.BroadcastMessage(spawnMsg, true);
 
             return entity;

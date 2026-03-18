@@ -20,13 +20,11 @@ namespace StellarNet.Lite.Server.Core
         public RoomConfigModel Config { get; } = new RoomConfigModel();
         public string RoomName => Config.RoomName;
         public RoomDispatcher Dispatcher { get; }
-
         public bool IsRecording { get; private set; }
         public int CurrentTick { get; private set; }
         public DateTime CreateTime { get; }
         public DateTime EmptySince { get; private set; }
         public int[] ComponentIds { get; private set; }
-
         public int MemberCount => _members.Count;
         public RoomState State { get; private set; } = RoomState.Waiting;
         public ReplayFile LastReplay { get; private set; }
@@ -43,6 +41,7 @@ namespace StellarNet.Lite.Server.Core
 
         private const int MaxReplayFrames = 108000;
         private int _finishedTickCount = 0;
+        private int _recordStartTick = 0;
 
         public Room(string roomId, Action<int, Packet> sendToConnection, Func<object, byte[]> serializeFunc, NetConfig config)
         {
@@ -51,7 +50,6 @@ namespace StellarNet.Lite.Server.Core
             _sendToConnection = sendToConnection;
             _serializeFunc = serializeFunc;
             _netConfig = config ?? new NetConfig();
-
             CreateTime = DateTime.UtcNow;
             EmptySince = DateTime.UtcNow;
             CurrentTick = 0;
@@ -175,7 +173,6 @@ namespace StellarNet.Lite.Server.Core
         public void StartGame()
         {
             if (State != RoomState.Waiting) return;
-
             State = RoomState.Playing;
             LastReplay = null;
             StartRecord();
@@ -186,16 +183,18 @@ namespace StellarNet.Lite.Server.Core
             }
         }
 
-        public void EndGame()
+        // 核心修改：接收房主指定的录像名称
+        public void EndGame(string replayDisplayName = "")
         {
             if (State != RoomState.Playing) return;
-
             State = RoomState.Finished;
             _finishedTickCount = 0;
 
             if (IsRecording)
             {
-                LastReplay = StopRecordAndSave();
+                // 兜底逻辑：如果房主未命名，默认使用房间名称
+                string finalName = string.IsNullOrEmpty(replayDisplayName) ? Config.RoomName : replayDisplayName;
+                LastReplay = StopRecordAndSave(finalName);
                 ServerReplayStorage.SaveReplay(LastReplay, _netConfig);
             }
 
@@ -281,7 +280,8 @@ namespace StellarNet.Lite.Server.Core
                     Buffer.BlockCopy(packet.Payload, 0, payloadCopy, 0, packet.Payload.Length);
                 }
 
-                _recorder.Add(new ReplayFrame(CurrentTick, packet.MsgId, payloadCopy, RoomId));
+                int relativeTick = CurrentTick - _recordStartTick;
+                _recorder.Add(new ReplayFrame(relativeTick, packet.MsgId, payloadCopy, RoomId));
             }
             else
             {
@@ -294,14 +294,17 @@ namespace StellarNet.Lite.Server.Core
         {
             IsRecording = true;
             _recorder.Clear();
+            _recordStartTick = CurrentTick;
         }
 
-        public ReplayFile StopRecordAndSave()
+        // 核心修改：接收 DisplayName 并写入 ReplayFile
+        public ReplayFile StopRecordAndSave(string displayName)
         {
             IsRecording = false;
             var replayFile = new ReplayFile
             {
                 ReplayId = Guid.NewGuid().ToString("N"),
+                DisplayName = displayName,
                 RoomId = this.RoomId,
                 ComponentIds = this.ComponentIds,
                 Frames = new List<ReplayFrame>(_recorder)
@@ -322,16 +325,12 @@ namespace StellarNet.Lite.Server.Core
             if (State == RoomState.Finished)
             {
                 _finishedTickCount++;
-
-                // 核心修复：将 300 帧 (5秒) 延长至 18000 帧 (5分钟，假设 60TickRate)
-                // 给予玩家充足的时间查看结算面板，同时保留兜底的防内存泄漏机制
                 if (_finishedTickCount > 18000 && _members.Count > 0)
                 {
                     NetLogger.LogWarning("Room", $"僵尸清理: 结算已超时(5分钟)，强制清空残留的 {_members.Count} 名玩家", RoomId);
                     var sessionsToKick = new System.Collections.Generic.List<Session>(_members.Values);
                     foreach (var s in sessionsToKick)
                     {
-                        // 核心防御：踢出玩家前，必须主动下发离房成功协议，防止客户端 UI 状态机死锁
                         var kickMsg = new S2C_LeaveRoomResult { Success = true };
                         SendMessageTo(s, kickMsg);
                         RemoveMember(s);
@@ -342,7 +341,6 @@ namespace StellarNet.Lite.Server.Core
 
         public void Destroy()
         {
-            // 核心修复：如果房间在游戏中被意外销毁（如全员退空），必须先触发结算以保存录像
             if (State == RoomState.Playing)
             {
                 EndGame();

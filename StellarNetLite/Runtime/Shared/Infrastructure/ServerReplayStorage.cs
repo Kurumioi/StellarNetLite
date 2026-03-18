@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using UnityEngine;
 using Newtonsoft.Json;
@@ -10,7 +11,7 @@ namespace StellarNet.Lite.Server.Infrastructure
 {
     /// <summary>
     /// 服务端录像存储服务。
-    /// 职责：负责录像文件的序列化落地，并严格执行滚动淘汰（Rolling File Appender）策略，防止磁盘打满。
+    /// 核心重构：引入 UrlSafe Base64 文件名编码，实现 0 I/O 的元数据读取。
     /// </summary>
     public static class ServerReplayStorage
     {
@@ -20,13 +21,13 @@ namespace StellarNet.Lite.Server.Infrastructure
         {
             if (replay == null || config == null)
             {
-                NetLogger.LogError("[ServerReplayStorage] ",$" 保存失败: 传入的录像文件或配置为空");
+                NetLogger.LogError("[ServerReplayStorage] ", $" 保存失败: 传入的录像文件或配置为空");
                 return;
             }
 
             if (string.IsNullOrEmpty(replay.ReplayId))
             {
-                NetLogger.LogError("[ServerReplayStorage] ",$" 保存失败: ReplayId 为空");
+                NetLogger.LogError("[ServerReplayStorage] ", $" 保存失败: ReplayId 为空");
                 return;
             }
 
@@ -40,21 +41,32 @@ namespace StellarNet.Lite.Server.Infrastructure
                     Directory.CreateDirectory(folderPath);
                 }
 
-                string fileName = $"{replay.ReplayId}.json";
+                // 核心重构：对 DisplayName 进行 UrlSafe Base64 编码，防止破坏文件系统
+                string displayName = string.IsNullOrEmpty(replay.DisplayName) ? "未命名录像" : replay.DisplayName;
+                string base64Name = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(displayName));
+                // 替换标准 Base64 中的特殊字符，使其变为 UrlSafe
+                string safeBase64Name = base64Name.Replace('+', '-').Replace('/', '_');
+
+                // 物理文件名格式：{ReplayId}@{SafeBase64Name}.replay
+                string fileName = $"{replay.ReplayId}@{safeBase64Name}.replay";
                 string fullPath = Path.Combine(folderPath, fileName).Replace("\\", "/");
 
                 string json = JsonConvert.SerializeObject(replay, Formatting.None);
-                File.WriteAllText(fullPath, json);
+                byte[] jsonBytes = System.Text.Encoding.UTF8.GetBytes(json);
 
-                NetLogger.LogInfo($"[ServerReplayStorage] ",$" 录像保存成功: {fileName}, 帧数: {replay.Frames.Count}");
+                using (FileStream fs = new FileStream(fullPath, FileMode.Create))
+                using (GZipStream gz = new GZipStream(fs, CompressionMode.Compress))
+                {
+                    gz.Write(jsonBytes, 0, jsonBytes.Length);
+                }
 
-                // 核心防御：保存成功后，立即触发滚动清理逻辑
+                NetLogger.LogInfo($"[ServerReplayStorage] ", $" 录像压缩保存成功: {fileName}, 帧数: {replay.Frames.Count}");
+
                 EnforceRollingLimit(folderPath, config.MaxReplayFiles);
             }
             catch (Exception e)
             {
-                // 允许的 Try-Catch：底层 I/O 异常不可控，必须捕获防止主线程崩溃
-                NetLogger.LogError($"[ServerReplayStorage] ",$" 录像保存异常: {e.Message}");
+                NetLogger.LogError($"[ServerReplayStorage] ", $" 录像保存异常: {e.Message}");
             }
         }
 
@@ -65,26 +77,23 @@ namespace StellarNet.Lite.Server.Infrastructure
             try
             {
                 var dirInfo = new DirectoryInfo(folderPath);
-                var files = dirInfo.GetFiles("*.json");
+                var files = dirInfo.GetFiles("*.replay");
 
                 if (files.Length <= maxFiles)
                 {
                     return;
                 }
 
-                // 按创建时间降序排列（最新的在前）
                 var sortedFiles = files.OrderByDescending(f => f.CreationTimeUtc).ToList();
-
-                // 剔除超出阈值的旧文件
                 for (int i = maxFiles; i < sortedFiles.Count; i++)
                 {
                     sortedFiles[i].Delete();
-                    NetLogger.LogInfo($"[ServerReplayStorage] ",$" 滚动清理: 已删除过期录像文件 {sortedFiles[i].Name}");
+                    NetLogger.LogInfo($"[ServerReplayStorage] ", $" 滚动清理: 已删除过期录像文件 {sortedFiles[i].Name}");
                 }
             }
             catch (Exception e)
             {
-                NetLogger.LogError($"[ServerReplayStorage] ",$" 滚动清理异常: {e.Message}");
+                NetLogger.LogError($"[ServerReplayStorage] ", $" 滚动清理异常: {e.Message}");
             }
         }
     }

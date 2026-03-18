@@ -42,8 +42,6 @@ public class Panel_StellarNetLobby : UIPanelBase
 
         GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse).UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList).UnRegisterWhenGameObjectDestroyed(gameObject);
-
-        // 核心修复 P0-4：移除对 S2C_DownloadReplayResult 的监听，大厅不再负责打开回放面板，全权交由 Router
     }
 
     private void OnDestroy()
@@ -115,26 +113,32 @@ public class Panel_StellarNetLobby : UIPanelBase
         if (replayListContent == null || replayItemPrefab == null) return;
         replayListContent.ClearChildren();
 
-        if (msg.ReplayIds == null || msg.ReplayIds.Length == 0) return;
+        if (msg.Replays == null || msg.Replays.Length == 0) return;
 
-        foreach (var replayId in msg.ReplayIds)
+        foreach (var replay in msg.Replays)
         {
             var item = Instantiate(replayItemPrefab, replayListContent);
             item.Show();
+
             var text = item.GetComponentInChildren<TMP_Text>();
             var btn = item.GetComponentInChildren<Button>();
 
-            if (text != null) text.text = replayId;
+            if (text != null)
+            {
+                // 修复：渲染可读的 DisplayName 和时间戳
+                DateTime dt = DateTimeOffset.FromUnixTimeSeconds(replay.Timestamp).LocalDateTime;
+                text.text = $"[{dt:MM-dd HH:mm}] {replay.DisplayName}";
+            }
 
             if (btn != null)
             {
-                string rId = replayId;
+                string rId = replay.ReplayId;
                 btn.onClick.AddListener(() =>
                 {
                     if (!string.IsNullOrEmpty(_downloadingReplayId)) return;
                     _downloadingReplayId = rId;
                     StellarNet.Lite.Client.Modules.ClientReplayModule.RequestDownload(NetClient.App, rId);
-                    text.text = $"{rId} (下载/加载中...)";
+                    if (text != null) text.text = $"{replay.DisplayName} (下载/加载中...)";
                 });
             }
         }

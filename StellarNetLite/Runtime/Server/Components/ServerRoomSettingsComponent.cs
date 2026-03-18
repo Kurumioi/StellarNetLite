@@ -91,6 +91,7 @@ namespace StellarNet.Lite.Server.Components
                 if (memberSession != null)
                 {
                     if (string.IsNullOrEmpty(fallbackSessionId)) fallbackSessionId = kvp.Key;
+
                     if (memberSession.IsOnline)
                     {
                         _ownerSessionId = kvp.Key;
@@ -165,10 +166,9 @@ namespace StellarNet.Lite.Server.Components
         public void OnC2S_SetReady(Session session, C2S_SetReady msg)
         {
             if (session == null || msg == null) return;
-
             if (!_readyStates.ContainsKey(session.SessionId)) return;
-            _readyStates[session.SessionId] = msg.IsReady;
 
+            _readyStates[session.SessionId] = msg.IsReady;
             var notify = new S2C_MemberReadyChanged { SessionId = session.SessionId, IsReady = msg.IsReady };
             Room.BroadcastMessage(notify);
         }
@@ -186,7 +186,6 @@ namespace StellarNet.Lite.Server.Components
             }
 
             Room.StartGame();
-
             var notify = new S2C_GameStarted { StartUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
             Room.BroadcastMessage(notify);
         }
@@ -194,16 +193,21 @@ namespace StellarNet.Lite.Server.Components
         [NetHandler]
         public void OnC2S_EndGame(Session session, C2S_EndGame msg)
         {
-            if (session == null) return;
+            if (session == null || msg == null) return;
             if (session.SessionId != _ownerSessionId) return;
             if (Room.State != RoomState.Playing) return;
 
-            // 核心修复：必须先广播 GameEnded，再调用 Room.EndGame()。
-            // 否则 Room.EndGame() 会立刻停止录制，导致这个结束包无法被录入 Replay 中！
-            var notify = new S2C_GameEnded { WinnerSessionId = "房主强制中止" };
-            Room.BroadcastMessage(notify);
-
+            // 核心修复：必须先调用 EndGame 触发落盘，才能获取到 LastReplay.ReplayId
             Room.EndGame();
+
+            string rId = Room.LastReplay != null ? Room.LastReplay.ReplayId : string.Empty;
+
+            var notify = new S2C_GameEnded
+            {
+                WinnerSessionId = "房主强制中止",
+                ReplayId = rId
+            };
+            Room.BroadcastMessage(notify);
         }
     }
 }

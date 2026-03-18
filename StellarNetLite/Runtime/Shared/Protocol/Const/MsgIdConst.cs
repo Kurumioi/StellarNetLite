@@ -38,6 +38,7 @@ namespace StellarNet.Lite.Shared.Protocol
         public const int S2C_DownloadReplayStart = 604;
         public const int S2C_DownloadReplayChunk = 605;
         public const int C2S_DownloadReplayChunkAck = 606;
+        public const int C2S_RenameReplay = 607;
         public const int S2C_ObjectSpawn = 1100;
         public const int S2C_ObjectDestroy = 1101;
         public const int S2C_ObjectSync = 1102;

@@ -2,6 +2,13 @@
 
 namespace StellarNet.Lite.Shared.Protocol
 {
+    public sealed class ReplayBriefInfo
+    {
+        public string ReplayId;
+        public string DisplayName;
+        public long Timestamp;
+    }
+
     [NetMsg(600, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_GetReplayList
     {
@@ -10,19 +17,16 @@ namespace StellarNet.Lite.Shared.Protocol
     [NetMsg(601, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_ReplayList
     {
-        public string[] ReplayIds;
+        public ReplayBriefInfo[] Replays;
     }
 
     [NetMsg(602, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_DownloadReplay
     {
         public string ReplayId;
-
-        // 断点续传的起始偏移量
         public int StartOffset;
     }
 
-    // 保留原有的 Result，但改为仅在客户端内部组装完毕后抛出的本地/表现层事件
     [NetMsg(603, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_DownloadReplayResult
     {
@@ -32,17 +36,12 @@ namespace StellarNet.Lite.Shared.Protocol
         public string Reason;
     }
 
-    // ================= 流式下载分块协议 =================
-
     [NetMsg(604, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_DownloadReplayStart
     {
         public bool Success;
         public string ReplayId;
-
         public int TotalBytes;
-
-        // 核心新增：服务端实际接受的偏移量，用于客户端校验脏数据
         public int AcceptedOffset;
         public string Reason;
     }
@@ -58,5 +57,13 @@ namespace StellarNet.Lite.Shared.Protocol
     public sealed class C2S_DownloadReplayChunkAck
     {
         public string ReplayId;
+    }
+
+    // 核心新增：独立的重命名协议
+    [NetMsg(607, NetScope.Global, NetDir.C2S)]
+    public sealed class C2S_RenameReplay
+    {
+        public string ReplayId;
+        public string NewName;
     }
 }

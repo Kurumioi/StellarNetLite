@@ -9,7 +9,7 @@ namespace StellarNet.Lite.Client.Components.Views
 {
     /// <summary>
     /// 全局网络实体生成视图 (View 层)
-    /// 核心重构：引入首帧旁路预测 (Bypass Interpolation) 机制，确保重连或中途加入时模型直接定格在正确状态，杜绝从原点飞出的穿模现象。
+    /// 核心重构：引入组件化装配逻辑。根据服务端下发的 Mask，按需挂载 NetTransformView 和 NetAnimatorView。
     /// </summary>
     public class ObjectSpawnerView : MonoBehaviour
     {
@@ -106,30 +106,32 @@ namespace StellarNet.Lite.Client.Components.Views
             GameObject prefab = GetOrLoadPrefab(evt.PrefabHash);
             if (prefab == null) return;
 
-            // 1. 提取绝对空间数据
             Vector3 spawnPos = new Vector3(evt.PosX, evt.PosY, evt.PosZ);
             Quaternion spawnRot = Quaternion.Euler(evt.RotX, evt.RotY, evt.RotZ);
             Vector3 spawnScale = new Vector3(evt.ScaleX, evt.ScaleY, evt.ScaleZ);
 
-            // 2. 实例化并直接硬设 (Hard Set) 绝对坐标与旋转，剥夺平滑组件的首帧控制权
             GameObject instance = Instantiate(prefab, spawnPos, spawnRot);
             instance.transform.localScale = spawnScale;
 
-            var presenter = instance.GetComponent<NetTransformPresenter>();
-            if (presenter == null)
+            // 1. 挂载并初始化基础身份标识
+            var identity = instance.GetComponent<NetIdentity>();
+            if (identity == null) identity = instance.AddComponent<NetIdentity>();
+            identity.Init(evt.NetId, _syncService);
+
+            // 2. 根据 Mask 按需挂载并初始化表现组件
+            if ((evt.Mask & (byte)EntitySyncMask.Transform) != 0)
             {
-                presenter = instance.AddComponent<NetTransformPresenter>();
+                var transView = instance.GetComponent<NetTransformView>();
+                if (transView == null) transView = instance.AddComponent<NetTransformView>();
+                transView.HardSetInitialState(spawnPos, spawnRot, spawnScale);
             }
 
-            // 3. 初始化表现层组件
-            presenter.Init(evt.NetId, _syncService);
-
-            // 4. 核心防御：强制注入首帧动画与 BlendTree 参数，确保重连瞬间动作定格对齐
-            presenter.HardSetInitialState(
-                spawnPos, spawnRot, spawnScale,
-                evt.AnimStateHash, evt.AnimNormalizedTime,
-                evt.FloatParam1, evt.FloatParam2, evt.FloatParam3
-            );
+            if ((evt.Mask & (byte)EntitySyncMask.Animator) != 0)
+            {
+                var animView = instance.GetComponent<NetAnimatorView>();
+                if (animView == null) animView = instance.AddComponent<NetAnimatorView>();
+                animView.HardSetInitialState(evt.AnimStateHash, evt.AnimNormalizedTime, evt.FloatParam1, evt.FloatParam2, evt.FloatParam3);
+            }
 
             _spawnedObjects.Add(evt.NetId, instance);
         }

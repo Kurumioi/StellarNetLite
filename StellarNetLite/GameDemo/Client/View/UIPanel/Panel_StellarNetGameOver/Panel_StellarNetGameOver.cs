@@ -1,5 +1,6 @@
 ﻿using Cysharp.Threading.Tasks;
 using StellarFramework.UI;
+using StellarNet.Lite.Client.Components;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Shared.Protocol;
 using TMPro;
@@ -8,14 +9,20 @@ using UnityEngine.UI;
 
 /// <summary>
 /// 核心修复：对局结算态 UI 抽象。
-/// 业务调整：遵循“一局一会”原则，结算确认后直接请求离开房间，由 Router 统一接管并路由回大厅。
+/// 请在 Unity 编辑器中，为本预制体添加一个 TMP_InputField 并挂载到 renameIpt 字段上。
 /// </summary>
 public class Panel_StellarNetGameOver : UIPanelBase
 {
     [SerializeField] private TMP_Text resultText;
-
-    // 隐藏或移除原有的 returnRoomBtn，统一使用一个确认离开按钮
     [SerializeField] private Button leaveRoomBtn;
+
+    [Header("录像重命名 (仅房主可见)")] [SerializeField]
+    private GameObject renameGroup;
+
+    [SerializeField] private TMP_InputField renameIpt;
+
+    private string _currentReplayId;
+    private bool _isOwner;
 
     public override void OnInit()
     {
@@ -32,25 +39,60 @@ public class Panel_StellarNetGameOver : UIPanelBase
     {
         await base.OnOpen(uiData);
 
+        _currentReplayId = string.Empty;
+        _isOwner = false;
+
+        // 判断当前玩家是否为房主
+        var settingsComp = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
+        if (settingsComp != null && settingsComp.Members.TryGetValue(NetClient.Session.SessionId, out var myInfo))
+        {
+            _isOwner = myInfo.IsOwner;
+        }
+
         if (uiData is S2C_GameEnded msg)
         {
             resultText.text = $"对局结束\n<size=30>结算信息: {msg.WinnerSessionId}</size>";
+            _currentReplayId = msg.ReplayId;
         }
         else
         {
             resultText.text = "对局结束";
         }
+
+        // 仅房主且存在录像 ID 时，显示重命名输入框
+        if (_isOwner && !string.IsNullOrEmpty(_currentReplayId))
+        {
+            if (renameGroup != null) renameGroup.SetActive(true);
+            // 默认填入房间名
+            if (renameIpt != null && settingsComp != null)
+            {
+                renameIpt.text = settingsComp.RoomName;
+            }
+        }
+        else
+        {
+            if (renameGroup != null) renameGroup.SetActive(false);
+        }
     }
 
     private void OnLeaveRoomBtn()
     {
-        // 核心修复：点击确认/离开时，直接向服务端请求离房。
-        // 架构说明：这里不需要手动关闭 Panel 或打开大厅 UI。
-        // 服务端处理完毕下发 S2C_LeaveRoomResult 后，ClientRoomModule 会调用 App.LeaveRoom()，
-        // 进而抛出 Local_RoomLeft 事件，ClientUIRouter 监听到该事件后，会自动执行全局 UI 清理并打开大厅。
-        NetClient.Send(new C2S_LeaveRoom());
+        // 如果是房主，在离开前先发送重命名请求
+        if (_isOwner && !string.IsNullOrEmpty(_currentReplayId) && renameIpt != null)
+        {
+            string newName = renameIpt.text.Trim();
+            if (!string.IsNullOrEmpty(newName))
+            {
+                NetClient.Send(new C2S_RenameReplay
+                {
+                    ReplayId = _currentReplayId,
+                    NewName = newName
+                });
+            }
+        }
 
-        // 为了防止玩家重复点击，可以先将按钮置灰
+        // 发送离房请求，交由 Router 统一接管跳转
+        NetClient.Send(new C2S_LeaveRoom());
         leaveRoomBtn.interactable = false;
     }
 }

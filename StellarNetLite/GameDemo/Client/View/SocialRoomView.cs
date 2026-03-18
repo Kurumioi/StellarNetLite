@@ -10,15 +10,14 @@ namespace StellarNet.Lite.Game.Client.Views
 {
     /// <summary>
     /// 交友房间纯表现视图 (View 层)
-    /// 核心修复 P1-2：彻底剥离网络发送，所有意图调用 Controller。
     /// </summary>
     public class SocialRoomView : MonoBehaviour
     {
         private ClientRoom _boundRoom;
         private ClientObjectSyncComponent _syncService;
-        private SocialRoomInputController _controller; // 注入 Controller
-
+        private SocialRoomInputController _controller;
         private readonly List<IUnRegister> _roomEventTokens = new List<IUnRegister>();
+
         private bool _isSuspended = false;
         private string _chatInputText = string.Empty;
 
@@ -30,6 +29,7 @@ namespace StellarNet.Lite.Game.Client.Views
 
         private readonly Dictionary<int, BubbleData> _activeBubbles = new Dictionary<int, BubbleData>();
         private readonly List<int> _expiredBubbleKeys = new List<int>();
+
         private Camera _mainCamera;
 
         private void Start()
@@ -106,10 +106,6 @@ namespace StellarNet.Lite.Game.Client.Views
         {
             _activeBubbles.Clear();
             _chatInputText = string.Empty;
-
-            // 核心修复 P1-2：View 层不再负责发送离房协议。
-            // 离房协议应该由统一的对局结算面板 (GameOverPanel) 上的按钮触发，
-            // 这里仅做表现层的清理。
         }
 
         private void OnGUI()
@@ -118,6 +114,7 @@ namespace StellarNet.Lite.Game.Client.Views
 
             var settingsComp = _boundRoom.GetComponent<ClientRoomSettingsComponent>();
             bool isPlaying = NetClient.State == ClientAppState.ReplayRoom || (settingsComp != null && settingsComp.IsGameStarted);
+
             if (!isPlaying) return;
 
             DrawBubbles();
@@ -137,11 +134,13 @@ namespace StellarNet.Lite.Game.Client.Views
         private void DrawBubbles()
         {
             if (_syncService == null || _mainCamera == null) return;
+
             GUIStyle bubbleStyle = new GUIStyle(GUI.skin.box) { fontSize = 14, alignment = TextAnchor.MiddleCenter, wordWrap = true };
 
             foreach (var kvp in _activeBubbles)
             {
-                if (_syncService.TryGetPredictedData(kvp.Key, out var syncData))
+                // 核心修复：适配新的 API TryGetTransformData
+                if (_syncService.TryGetTransformData(kvp.Key, out var syncData))
                 {
                     Vector3 worldPos = syncData.Position + Vector3.up * 2.2f;
                     Vector3 screenPos = _mainCamera.WorldToScreenPoint(worldPos);
@@ -173,7 +172,6 @@ namespace StellarNet.Lite.Game.Client.Views
             {
                 if (!string.IsNullOrEmpty(_chatInputText) && _controller != null)
                 {
-                    // 核心修复 P1-2：意图转交 Controller
                     _controller.SendChatBubble(_chatInputText);
                     _chatInputText = string.Empty;
                     GUI.FocusControl(null);
@@ -196,7 +194,6 @@ namespace StellarNet.Lite.Game.Client.Views
             GUI.color = Color.red;
             if (GUI.Button(new Rect(Screen.width - 120, 20, 100, 40), "结束交友 (F12)"))
             {
-                // 核心修复 P1-2：意图转交 Controller
                 if (_controller != null) _controller.RequestEndGame();
             }
 

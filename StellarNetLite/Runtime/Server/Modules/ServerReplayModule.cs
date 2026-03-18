@@ -40,18 +40,47 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
-            string[] replayIds = new string[0];
+            var replyList = new List<ReplayBriefInfo>();
 
             if (Directory.Exists(folderPath))
             {
                 try
                 {
-                    var files = new DirectoryInfo(folderPath).GetFiles("*.json")
+                    var files = new DirectoryInfo(folderPath).GetFiles("*.replay")
                         .OrderByDescending(f => f.CreationTimeUtc)
                         .Take(10)
                         .ToArray();
 
-                    replayIds = files.Select(f => Path.GetFileNameWithoutExtension(f.Name)).ToArray();
+                    foreach (var f in files)
+                    {
+                        string nameWithoutExt = Path.GetFileNameWithoutExtension(f.Name);
+                        var parts = nameWithoutExt.Split('@');
+
+                        string rId = parts[0];
+                        string dName = rId;
+
+                        if (parts.Length > 1)
+                        {
+                            try
+                            {
+                                string b64 = parts[1].Replace('-', '+').Replace('_', '/');
+                                int mod4 = b64.Length % 4;
+                                if (mod4 > 0) b64 += new string('=', 4 - mod4);
+                                dName = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(b64));
+                            }
+                            catch
+                            {
+                                dName = "名称解析失败";
+                            }
+                        }
+
+                        replyList.Add(new ReplayBriefInfo
+                        {
+                            ReplayId = rId,
+                            DisplayName = dName,
+                            Timestamp = new DateTimeOffset(f.CreationTimeUtc).ToUnixTimeSeconds()
+                        });
+                    }
                 }
                 catch (Exception e)
                 {
@@ -59,31 +88,70 @@ namespace StellarNet.Lite.Server.Modules
                 }
             }
 
-            var res = new S2C_ReplayList { ReplayIds = replayIds };
+            var res = new S2C_ReplayList { Replays = replyList.ToArray() };
             _app.SendMessageToSession(session, res);
+        }
+
+        [NetHandler]
+        public void OnC2S_RenameReplay(Session session, C2S_RenameReplay msg)
+        {
+            if (session == null || msg == null || string.IsNullOrEmpty(msg.ReplayId)) return;
+
+            string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
+            if (!Directory.Exists(folderPath)) return;
+
+            try
+            {
+                var files = new DirectoryInfo(folderPath).GetFiles($"{msg.ReplayId}@*.replay");
+                if (files.Length == 0)
+                {
+                    files = new DirectoryInfo(folderPath).GetFiles($"{msg.ReplayId}.replay");
+                }
+
+                if (files.Length > 0)
+                {
+                    // 核心防御：时间窗口熔断。仅允许在录像生成后的 5 分钟内进行重命名，防止恶意玩家抓包篡改历史录像
+                    if ((DateTime.UtcNow - files[0].CreationTimeUtc).TotalMinutes > 5)
+                    {
+                        NetLogger.LogWarning("ServerReplayModule", $"重命名拦截: 录像 {msg.ReplayId} 已超过5分钟修改保护期", "-", session.SessionId);
+                        return;
+                    }
+
+                    string oldPath = files[0].FullName;
+                    string newName = string.IsNullOrEmpty(msg.NewName) ? "未命名录像" : msg.NewName;
+
+                    string base64Name = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(newName));
+                    string safeBase64Name = base64Name.Replace('+', '-').Replace('/', '_');
+
+                    string newPath = Path.Combine(folderPath, $"{msg.ReplayId}@{safeBase64Name}.replay").Replace("\\", "/");
+
+                    File.Move(oldPath, newPath);
+                    NetLogger.LogInfo("ServerReplayModule", $"录像重命名成功: {msg.ReplayId} -> {newName}", "-", session.SessionId);
+                }
+            }
+            catch (Exception e)
+            {
+                NetLogger.LogError("ServerReplayModule", $"重命名录像异常: {e.Message}", "-", session.SessionId);
+            }
         }
 
         [NetHandler]
         public void OnC2S_DownloadReplay(Session session, C2S_DownloadReplay msg)
         {
-            if (session == null || msg == null)
-            {
-                NetLogger.LogError("ServerReplayModule", "收到非法请求: Session 或 Msg 为空");
-                return;
-            }
-
-            if (string.IsNullOrEmpty(msg.ReplayId))
-            {
-                NetLogger.LogError("ServerReplayModule", "收到非法请求: ReplayId 为空", "-", session.SessionId);
-                return;
-            }
+            if (session == null || msg == null) return;
+            if (string.IsNullOrEmpty(msg.ReplayId)) return;
 
             CleanupDeadTasks();
 
             string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
-            string fullPath = Path.Combine(folderPath, $"{msg.ReplayId}.json").Replace("\\", "/");
 
-            if (!File.Exists(fullPath))
+            var files = new DirectoryInfo(folderPath).GetFiles($"{msg.ReplayId}@*.replay");
+            if (files.Length == 0)
+            {
+                files = new DirectoryInfo(folderPath).GetFiles($"{msg.ReplayId}.replay");
+            }
+
+            if (files.Length == 0)
             {
                 NetLogger.LogWarning("ServerReplayModule", $"请求的录像文件不存在: {msg.ReplayId}", "-", session.SessionId);
                 var notFoundRes = new S2C_DownloadReplayStart
@@ -98,9 +166,10 @@ namespace StellarNet.Lite.Server.Modules
 
             try
             {
+                string fullPath = files[0].FullName;
                 byte[] fileData = File.ReadAllBytes(fullPath);
-                int startOffset = msg.StartOffset;
 
+                int startOffset = msg.StartOffset;
                 if (startOffset < 0 || startOffset > fileData.Length)
                 {
                     startOffset = 0;
@@ -125,8 +194,6 @@ namespace StellarNet.Lite.Server.Modules
                 };
 
                 _app.SendMessageToSession(session, startMsg);
-                NetLogger.LogInfo("ServerReplayModule", $"开始流式下发录像 {msg.ReplayId}, 总大小: {fileData.Length} bytes, 起始偏移: {startOffset} bytes", "-", session.SessionId);
-
                 SendNextChunk(session, task);
             }
             catch (Exception e)
@@ -140,11 +207,7 @@ namespace StellarNet.Lite.Server.Modules
         [NetHandler]
         public void OnC2S_DownloadReplayChunkAck(Session session, C2S_DownloadReplayChunkAck msg)
         {
-            if (session == null || msg == null || string.IsNullOrEmpty(msg.ReplayId))
-            {
-                NetLogger.LogError("ServerReplayModule", "收到非法请求: Session 或 ReplayId 为空");
-                return;
-            }
+            if (session == null || msg == null || string.IsNullOrEmpty(msg.ReplayId)) return;
 
             if (_downloadTasks.TryGetValue(session.SessionId, out var task) && task.ReplayId == msg.ReplayId)
             {
@@ -158,7 +221,6 @@ namespace StellarNet.Lite.Server.Modules
             if (remaining <= 0)
             {
                 _downloadTasks.Remove(session.SessionId);
-                NetLogger.LogInfo("ServerReplayModule", $"录像 {task.ReplayId} 流式下发完成", "-", session.SessionId);
                 return;
             }
 
