@@ -7,7 +7,7 @@ using StellarNet.Lite.Client.Core.Events;
 
 namespace StellarNet.Lite.Client.Modules
 {
-    [GlobalModule("ClientUserModule", "客户端用户模块")]
+    [ClientModule("ClientUserModule", "客户端用户模块")]
     public sealed class ClientUserModule
     {
         private readonly ClientApp _app;
@@ -20,12 +20,16 @@ namespace StellarNet.Lite.Client.Modules
         [NetHandler]
         public void OnS2C_LoginResult(S2C_LoginResult msg)
         {
-            if (msg == null) return;
+            if (msg == null)
+            {
+                NetLogger.LogError("ClientUserModule", "收到非法同步包: Msg 为空");
+                return;
+            }
 
             if (msg.Success)
             {
                 _app.Session.OnLoginSuccess(msg.SessionId, "UID_PLACEHOLDER");
-                NetLogger.LogInfo($"[ClientUserModule]", $"登录成功, SessionId: {msg.SessionId}");
+                NetLogger.LogInfo("ClientUserModule", $"登录成功, SessionId: {msg.SessionId}");
 
                 if (msg.HasReconnectRoom)
                 {
@@ -62,7 +66,12 @@ namespace StellarNet.Lite.Client.Modules
         [NetHandler]
         public void OnS2C_ReconnectResult(S2C_ReconnectResult msg)
         {
-            if (msg == null) return;
+            if (msg == null)
+            {
+                NetLogger.LogError("ClientUserModule", "收到非法同步包: Msg 为空");
+                return;
+            }
+
             if (_app.State == ClientAppState.ReplayRoom) return;
 
             if (msg.Success)
@@ -71,15 +80,14 @@ namespace StellarNet.Lite.Client.Modules
                 bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, msg.ComponentIds);
                 if (!buildSuccess)
                 {
-                    NetLogger.LogError($"[ClientUserModule]", $"重连房间 {msg.RoomId} 本地装配失败，已强制销毁本地实例并终止重连握手");
+                    NetLogger.LogError("ClientUserModule", $"重连房间 {msg.RoomId} 本地装配失败，已强制销毁本地实例并终止重连握手");
                     _app.LeaveRoom();
                     return;
                 }
 
-                // 核心修复：重连装配完毕后，同步抛出房间进入事件
                 GlobalTypeNetEvent.Broadcast(new Local_RoomEntered { Room = _app.CurrentRoom });
+                NetLogger.LogInfo("ClientUserModule", $"重连房间 {msg.RoomId} 本地装配完毕，准备发送就绪握手");
 
-                NetLogger.LogInfo($"[ClientUserModule]", $"重连房间 {msg.RoomId} 本地装配完毕，准备发送就绪握手");
                 var readyMsg = new C2S_ReconnectReady();
                 _app.SendMessage(readyMsg);
             }
@@ -103,7 +111,11 @@ namespace StellarNet.Lite.Client.Modules
         [NetHandler]
         public void OnS2C_KickOut(S2C_KickOut msg)
         {
-            if (msg == null) return;
+            if (msg == null)
+            {
+                NetLogger.LogError("ClientUserModule", "收到非法同步包: Msg 为空");
+                return;
+            }
 
             if (_app.State == ClientAppState.OnlineRoom || _app.State == ClientAppState.ConnectionSuspended)
             {

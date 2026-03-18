@@ -1,4 +1,5 @@
 ﻿#if UNITY_EDITOR
+using System;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -41,6 +42,7 @@ namespace StellarNet.Lite.Editor
 
             GUILayout.Space(10);
             EditorGUILayout.BeginVertical("box");
+
             _currentConfig.Ip = EditorGUILayout.TextField("服务器 IP:", _currentConfig.Ip);
             int port = EditorGUILayout.IntField("端口 (Port):", _currentConfig.Port);
             _currentConfig.Port = (ushort)Mathf.Clamp(port, 0, 65535);
@@ -49,15 +51,11 @@ namespace StellarNet.Lite.Editor
 
             GUILayout.Space(5);
             EditorGUILayout.LabelField("生产环境防御配置 (GC & 熔断)", EditorStyles.boldLabel);
-            _currentConfig.MaxRoomLifetimeHours =
-                EditorGUILayout.IntField("房间最大存活(小时):", _currentConfig.MaxRoomLifetimeHours);
+            _currentConfig.MaxRoomLifetimeHours = EditorGUILayout.IntField("房间最大存活(小时):", _currentConfig.MaxRoomLifetimeHours);
             _currentConfig.MaxReplayFiles = EditorGUILayout.IntField("最大录像保留数:", _currentConfig.MaxReplayFiles);
-            _currentConfig.OfflineTimeoutLobbyMinutes =
-                EditorGUILayout.IntField("大厅离线GC(分钟):", _currentConfig.OfflineTimeoutLobbyMinutes);
-            _currentConfig.OfflineTimeoutRoomMinutes =
-                EditorGUILayout.IntField("房间离线GC(分钟):", _currentConfig.OfflineTimeoutRoomMinutes);
-            _currentConfig.EmptyRoomTimeoutMinutes =
-                EditorGUILayout.IntField("空房间熔断(分钟):", _currentConfig.EmptyRoomTimeoutMinutes);
+            _currentConfig.OfflineTimeoutLobbyMinutes = EditorGUILayout.IntField("大厅离线GC(分钟):", _currentConfig.OfflineTimeoutLobbyMinutes);
+            _currentConfig.OfflineTimeoutRoomMinutes = EditorGUILayout.IntField("房间离线GC(分钟):", _currentConfig.OfflineTimeoutRoomMinutes);
+            _currentConfig.EmptyRoomTimeoutMinutes = EditorGUILayout.IntField("空房间熔断(分钟):", _currentConfig.EmptyRoomTimeoutMinutes);
 
             GUILayout.Space(5);
             EditorGUILayout.LabelField("版本控制策略", EditorStyles.boldLabel);
@@ -88,7 +86,12 @@ namespace StellarNet.Lite.Editor
 
         private void SaveToCurrentRoot()
         {
-            if (_currentConfig == null) return;
+            // 核心修复 P1-1：移除大 try-catch，按节点拆分校验，提供精准错误日志
+            if (_currentConfig == null)
+            {
+                NetLogger.LogError("NetConfigEditorWindow", "保存失败: 当前配置对象为空");
+                return;
+            }
 
             string basePath = _targetRoot == ConfigRootPath.StreamingAssets
                 ? Application.streamingAssetsPath
@@ -97,22 +100,33 @@ namespace StellarNet.Lite.Editor
             string folderPath = Path.Combine(basePath, NetConfigLoader.ConfigFolderName).Replace("\\", "/");
             string fullPath = Path.Combine(folderPath, NetConfigLoader.ConfigFileName).Replace("\\", "/");
 
-            try
+            if (!Directory.Exists(folderPath))
             {
-                if (!Directory.Exists(folderPath))
+                try
                 {
                     Directory.CreateDirectory(folderPath);
                 }
+                catch (Exception e)
+                {
+                    NetLogger.LogError("NetConfigEditorWindow", $"创建目录失败: {folderPath} | 异常: {e.Message}");
+                    return;
+                }
+            }
 
-                string json = JsonConvert.SerializeObject(_currentConfig, Formatting.Indented);
-                File.WriteAllText(fullPath, json);
-                AssetDatabase.Refresh();
-                NetLogger.LogInfo($"[NetConfigEditor]",$" 配置保存成功! 路径: {fullPath}");
-            }
-            catch (System.Exception e)
+            string json = JsonConvert.SerializeObject(_currentConfig, Formatting.Indented);
+
+            try
             {
-                NetLogger.LogError($"[NetConfigEditor]",$" 保存配置失败: {e.Message}");
+                File.WriteAllText(fullPath, json);
             }
+            catch (Exception e)
+            {
+                NetLogger.LogError("NetConfigEditorWindow", $"写入配置文件失败: {fullPath} | 异常: {e.Message}");
+                return;
+            }
+
+            AssetDatabase.Refresh();
+            NetLogger.LogInfo("NetConfigEditorWindow", $"配置保存成功! 路径: {fullPath}");
         }
 
         private void OpenFolderInExplorer()
@@ -122,10 +136,17 @@ namespace StellarNet.Lite.Editor
                 : Application.persistentDataPath;
 
             string folderPath = Path.Combine(basePath, NetConfigLoader.ConfigFolderName).Replace("\\", "/");
-
             if (!Directory.Exists(folderPath))
             {
-                Directory.CreateDirectory(folderPath);
+                try
+                {
+                    Directory.CreateDirectory(folderPath);
+                }
+                catch (Exception e)
+                {
+                    NetLogger.LogError("NetConfigEditorWindow", $"无法打开目录，创建目录失败: {e.Message}");
+                    return;
+                }
             }
 
             EditorUtility.RevealInFinder(folderPath);

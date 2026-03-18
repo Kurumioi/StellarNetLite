@@ -13,7 +13,6 @@ public class Panel_StellarNetLogin : UIPanelBase
 {
     [SerializeField] private TMP_InputField accountIpt;
     [SerializeField] private Button loginBtn;
-
     [SerializeField] private Transform reconnectGroupTrans;
     [SerializeField] private Button reconnectBtn;
     [SerializeField] private Button reconnectCancelBtn;
@@ -21,10 +20,9 @@ public class Panel_StellarNetLogin : UIPanelBase
     public override void OnInit()
     {
         base.OnInit();
-
         if (NetClient.App == null)
         {
-            LogKit.LogError("[Panel_StellarNetLogin]", "OnInit 失败: NetClient 尚未初始化");
+            LogKit.LogError("Panel_StellarNetLogin", "OnInit 失败: NetClient 尚未初始化");
             return;
         }
 
@@ -32,21 +30,15 @@ public class Panel_StellarNetLogin : UIPanelBase
         reconnectBtn.onClick.AddListener(OnReconnectBtnClick);
         reconnectCancelBtn.onClick.AddListener(OnReconnectCancelBtnClick);
 
-        GlobalTypeNetEvent.Register<S2C_LoginResult>(OnS2C_LoginResult)
-            .UnRegisterWhenGameObjectDestroyed(gameObject);
-        GlobalTypeNetEvent.Register<S2C_ReconnectResult>(OnS2C_ReconnectResult)
-            .UnRegisterWhenGameObjectDestroyed(gameObject);
+        GlobalTypeNetEvent.Register<S2C_LoginResult>(OnS2C_LoginResult).UnRegisterWhenGameObjectDestroyed(gameObject);
 
-        // 核心修复：断线重连也必须等待本地装配完毕事件
-        GlobalTypeNetEvent.Register<Local_RoomEntered>(OnRoomEntered)
-            .UnRegisterWhenGameObjectDestroyed(gameObject);
+        // 核心修复 P0-3：移除此处对 Local_RoomEntered 的监听，统一交由 ClientUIRouter 处理跳转
     }
 
     public override async UniTask OnOpen(object uiData = null)
     {
         await base.OnOpen(uiData);
         reconnectGroupTrans.gameObject.SetActive(false);
-
         loginBtn.interactable = true;
         reconnectBtn.interactable = true;
         reconnectCancelBtn.interactable = true;
@@ -59,16 +51,6 @@ public class Panel_StellarNetLogin : UIPanelBase
         reconnectCancelBtn.onClick.RemoveAllListeners();
     }
 
-    private void OnRoomEntered(Local_RoomEntered evt)
-    {
-        if (NetClient.State == ClientAppState.OnlineRoom)
-        {
-            LogKit.Log("[Panel_StellarNetLogin]", "重连房间装配完毕，准备进入房间面板");
-            UIKit.OpenPanel<Panel_StellarNetRoom>();
-            CloseSelf();
-        }
-    }
-
     #region 玩家交互请求 (C2S)
 
     private void OnLoginBtnClick()
@@ -76,12 +58,11 @@ public class Panel_StellarNetLogin : UIPanelBase
         var accountId = accountIpt.text;
         if (string.IsNullOrEmpty(accountId))
         {
-            LogKit.LogError("[Panel_StellarNetLogin]", "登录失败: 账号不能为空");
+            LogKit.LogError("Panel_StellarNetLogin", "登录失败: 账号不能为空");
             return;
         }
 
         loginBtn.interactable = false;
-
         var msg = new C2S_Login()
         {
             AccountId = accountId,
@@ -94,24 +75,14 @@ public class Panel_StellarNetLogin : UIPanelBase
     {
         reconnectBtn.interactable = false;
         reconnectCancelBtn.interactable = false;
-
-        var msg = new C2S_ConfirmReconnect()
-        {
-            Accept = true
-        };
-        NetClient.Send(msg);
+        NetClient.Send(new C2S_ConfirmReconnect() { Accept = true });
     }
 
     private void OnReconnectCancelBtnClick()
     {
         reconnectBtn.interactable = false;
         reconnectCancelBtn.interactable = false;
-
-        var msg = new C2S_ConfirmReconnect()
-        {
-            Accept = false
-        };
-        NetClient.Send(msg);
+        NetClient.Send(new C2S_ConfirmReconnect() { Accept = false });
     }
 
     #endregion
@@ -123,45 +94,16 @@ public class Panel_StellarNetLogin : UIPanelBase
         if (!msg.Success)
         {
             loginBtn.interactable = true;
-            LogKit.LogError("[Panel_StellarNetLogin]", $"登录失败: {msg.Reason}");
+            LogKit.LogError("Panel_StellarNetLogin", $"登录失败: {msg.Reason}");
             return;
         }
 
         if (msg.HasReconnectRoom)
         {
             reconnectGroupTrans.gameObject.SetActive(true);
-            LogKit.Log("[Panel_StellarNetLogin]", $"登录成功: {msg.SessionId}，请选择是否重连房间");
+            LogKit.Log("Panel_StellarNetLogin", $"登录成功: {msg.SessionId}，请选择是否重连房间");
         }
-        else
-        {
-            EnterLobby();
-        }
-    }
-
-    private void OnS2C_ReconnectResult(S2C_ReconnectResult msg)
-    {
-        // 核心修复：仅处理失败分支，成功跳转交由 Local_RoomEntered 统一处理
-        if (!msg.Success)
-        {
-            LogKit.Log("[Panel_StellarNetLogin]", $"重连中止: {msg.Reason}，准备进入大厅");
-            EnterLobby();
-        }
-    }
-
-    #endregion
-
-    #region 内部跳转逻辑
-
-    private void EnterLobby()
-    {
-        var uidata = new Panel_StellarNetLobbyData
-        {
-            uid = NetClient.Session.SessionId
-        };
-        UIKit.OpenPanel<Panel_StellarNetLobby>(uidata);
-        LogKit.Log("[Panel_StellarNetLogin]", $"成功进入大厅: {NetClient.Session.SessionId}");
-
-        CloseSelf();
+        // 成功且无重连的跳转逻辑已移交 ClientUIRouter
     }
 
     #endregion

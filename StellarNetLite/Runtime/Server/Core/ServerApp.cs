@@ -9,11 +9,10 @@ namespace StellarNet.Lite.Server.Core
     public sealed class ServerApp
     {
         public GlobalDispatcher GlobalDispatcher { get; } = new GlobalDispatcher();
-
         public IReadOnlyDictionary<string, Room> Rooms => _rooms;
         public IReadOnlyDictionary<string, Session> Sessions => _sessions;
-
         public NetConfig Config { get; }
+
         public Action<int, Packet> NetworkSender { get; }
         public Func<object, byte[]> SerializeFunc { get; }
 
@@ -24,6 +23,8 @@ namespace StellarNet.Lite.Server.Core
         private readonly List<string> _gcRoomCache = new List<string>();
         private readonly List<string> _gcSessionCache = new List<string>();
 
+        private bool _isDisposed = false;
+
         public ServerApp(Action<int, Packet> networkSender, Func<object, byte[]> serializeFunc, NetConfig config)
         {
             NetworkSender = networkSender;
@@ -31,13 +32,29 @@ namespace StellarNet.Lite.Server.Core
             Config = config;
         }
 
+        public void Dispose()
+        {
+            if (_isDisposed) return;
+            _isDisposed = true;
+
+            NetLogger.LogWarning("ServerApp", "执行 ServerApp 深度销毁与资源回收");
+            foreach (var kvp in _rooms)
+            {
+                kvp.Value.Destroy();
+            }
+
+            _rooms.Clear();
+            _sessions.Clear();
+            _connectionToSession.Clear();
+            GlobalDispatcher.Clear();
+        }
+
         public void Tick()
         {
-            if (Config == null) return;
+            if (_isDisposed || Config == null) return;
 
             _gcRoomCache.Clear();
             _gcSessionCache.Clear();
-
             DateTime now = DateTime.UtcNow;
 
             foreach (var kvp in _rooms)
@@ -59,9 +76,8 @@ namespace StellarNet.Lite.Server.Core
 
             for (int i = 0; i < _gcRoomCache.Count; i++)
             {
-                string roomId = _gcRoomCache[i];
-                NetLogger.LogWarning($"[ServerApp]", $"触发房间 GC: 销毁房间 {roomId} (可能因超时或长期空置)");
-                DestroyRoom(roomId);
+                NetLogger.LogWarning("ServerApp", $"触发房间 GC: 销毁房间 {_gcRoomCache[i]}");
+                DestroyRoom(_gcRoomCache[i]);
             }
 
             foreach (var kvp in _sessions)
@@ -91,32 +107,30 @@ namespace StellarNet.Lite.Server.Core
                     if (!string.IsNullOrEmpty(session.CurrentRoomId))
                     {
                         var room = GetRoom(session.CurrentRoomId);
-                        if (room != null)
-                        {
-                            room.RemoveMember(session);
-                        }
+                        if (room != null) room.RemoveMember(session);
                     }
 
                     RemoveSession(sessionId);
-                    NetLogger.LogWarning($"[ServerApp]", $"触发 Session GC: 彻底回收长期离线会话 {sessionId}");
+                    NetLogger.LogWarning("ServerApp", $"触发 Session GC: 回收离线会话 {sessionId}");
                 }
             }
         }
 
         public void OnReceivePacket(int connectionId, Packet packet)
         {
+            if (_isDisposed) return;
+
             Session session = TryGetSessionByConnectionId(connectionId);
             if (session == null)
             {
                 session = new Session(Guid.NewGuid().ToString("N"), "UNAUTH", connectionId);
                 RegisterSession(session);
-                NetLogger.LogInfo($"[ServerApp]", $"接收到新连接，已分配匿名会话: {session.SessionId}");
+                NetLogger.LogInfo("ServerApp", $"接收到新连接，已分配匿名会话", "-", session.SessionId);
             }
 
             if (packet.Seq > 0 && !session.TryConsumeSeq(packet.Seq))
             {
-                NetLogger.LogWarning(
-                    $"[ServerApp]", $"防重放拦截: 丢弃重复包 MsgId {packet.MsgId}, Seq {packet.Seq}, 当前记录 Seq {session.LastReceivedSeq}");
+                NetLogger.LogWarning("ServerApp", $"防重放拦截: 丢弃重复包 MsgId {packet.MsgId}, Seq {packet.Seq}", "-", session.SessionId);
                 return;
             }
 
@@ -128,14 +142,13 @@ namespace StellarNet.Lite.Server.Core
             {
                 if (string.IsNullOrEmpty(packet.RoomId) || packet.RoomId != session.CurrentRoomId)
                 {
-                    NetLogger.LogError(
-                        $"[ServerApp]", $"路由阻断: 房间上下文不匹配。Packet.RoomId: {packet.RoomId}, Session.RoomId: {session.CurrentRoomId}");
+                    NetLogger.LogError("ServerApp", $"路由阻断: 房间上下文不匹配。Packet: {packet.RoomId}, Session: {session.CurrentRoomId}", "-", session.SessionId);
                     return;
                 }
 
                 if (!_rooms.TryGetValue(packet.RoomId, out var room))
                 {
-                    NetLogger.LogError($"[ServerApp]", $"路由阻断: 目标房间不存在，RoomId: {packet.RoomId}");
+                    NetLogger.LogError("ServerApp", $"路由阻断: 目标房间不存在", packet.RoomId, session.SessionId);
                     return;
                 }
 
@@ -145,17 +158,22 @@ namespace StellarNet.Lite.Server.Core
 
         public void SendMessageToSession<T>(Session session, T msg) where T : class
         {
-            if (session == null || !session.IsOnline || msg == null) return;
+            if (_isDisposed) return;
+            if (session == null || !session.IsOnline || msg == null)
+            {
+                NetLogger.LogError("ServerApp", "发送失败: 参数存在空值或离线", "-", session?.SessionId);
+                return;
+            }
 
             if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta))
             {
-                NetLogger.LogError($"[ServerApp]", $"发送失败: 未找到类型 {typeof(T).Name} 的网络元数据");
+                NetLogger.LogError("ServerApp", $"发送失败: 未找到类型 {typeof(T).Name} 的网络元数据", "-", session.SessionId);
                 return;
             }
 
             if (meta.Dir != NetDir.S2C)
             {
-                NetLogger.LogError($"[ServerApp]", $"发送阻断: 协议 {meta.Id} 的方向为 {meta.Dir}，服务端只能发送 S2C 协议");
+                NetLogger.LogError("ServerApp", $"发送阻断: 协议 {meta.Id} 的方向为 {meta.Dir}，服务端只能发送 S2C", "-", session.SessionId);
                 return;
             }
 
@@ -168,10 +186,9 @@ namespace StellarNet.Lite.Server.Core
 
         public Room CreateRoom(string roomId)
         {
-            if (string.IsNullOrEmpty(roomId)) return null;
+            if (_isDisposed || string.IsNullOrEmpty(roomId)) return null;
             if (_rooms.ContainsKey(roomId)) return null;
 
-            // 核心修复：将 ServerApp 的 Config 传入 Room，确保录像保存时能读到正确的 MaxReplayFiles 限制
             var room = new Room(roomId, SendPacketToConnection, SerializeFunc, Config);
             _rooms[roomId] = room;
             return room;
@@ -179,8 +196,7 @@ namespace StellarNet.Lite.Server.Core
 
         public void DestroyRoom(string roomId)
         {
-            if (string.IsNullOrEmpty(roomId)) return;
-
+            if (_isDisposed || string.IsNullOrEmpty(roomId)) return;
             if (_rooms.TryGetValue(roomId, out var room))
             {
                 room.Destroy();
@@ -190,14 +206,14 @@ namespace StellarNet.Lite.Server.Core
 
         public Room GetRoom(string roomId)
         {
-            if (string.IsNullOrEmpty(roomId)) return null;
+            if (_isDisposed || string.IsNullOrEmpty(roomId)) return null;
             _rooms.TryGetValue(roomId, out var room);
             return room;
         }
 
         public void RegisterSession(Session session)
         {
-            if (session == null) return;
+            if (_isDisposed || session == null) return;
             _sessions[session.SessionId] = session;
             if (session.ConnectionId >= 0)
             {
@@ -207,8 +223,7 @@ namespace StellarNet.Lite.Server.Core
 
         public void RemoveSession(string sessionId)
         {
-            if (string.IsNullOrEmpty(sessionId)) return;
-
+            if (_isDisposed || string.IsNullOrEmpty(sessionId)) return;
             if (_sessions.TryGetValue(sessionId, out var session))
             {
                 _sessions.Remove(sessionId);
@@ -221,12 +236,11 @@ namespace StellarNet.Lite.Server.Core
 
         public void BindConnection(Session session, int connectionId)
         {
-            if (session == null) return;
+            if (_isDisposed || session == null) return;
 
             if (_connectionToSession.TryGetValue(connectionId, out var oldSession) && oldSession != session)
             {
-                NetLogger.LogWarning(
-                    $"[ServerApp]", $"物理连接顶号: ConnectionId {connectionId} 原属 Session {oldSession.SessionId}，现被 {session.SessionId} 抢占");
+                NetLogger.LogWarning("ServerApp", $"物理连接顶号: ConnId {connectionId} 原属 {oldSession.SessionId}，现被抢占", "-", session.SessionId);
                 oldSession.MarkOffline();
             }
 
@@ -236,6 +250,7 @@ namespace StellarNet.Lite.Server.Core
             }
 
             session.UpdateConnection(connectionId);
+
             if (connectionId >= 0)
             {
                 _connectionToSession[connectionId] = session;
@@ -249,7 +264,7 @@ namespace StellarNet.Lite.Server.Core
 
         public void UnbindConnection(Session session)
         {
-            if (session == null) return;
+            if (_isDisposed || session == null) return;
 
             if (session.ConnectionId >= 0)
             {
@@ -265,12 +280,14 @@ namespace StellarNet.Lite.Server.Core
 
         internal Session TryGetSessionByConnectionId(int connectionId)
         {
+            if (_isDisposed) return null;
             _connectionToSession.TryGetValue(connectionId, out var session);
             return session;
         }
 
         private void SendPacketToConnection(int connectionId, Packet packet)
         {
+            if (_isDisposed) return;
             NetworkSender?.Invoke(connectionId, packet);
         }
     }

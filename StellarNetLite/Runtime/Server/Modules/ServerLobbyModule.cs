@@ -1,13 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
-using UnityEngine;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Server.Core;
+using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Modules
 {
-    [GlobalModule("ServerLobbyModule", "大厅信息模块")]
+    [ServerModule("ServerLobbyModule", "大厅信息模块")]
     public sealed class ServerLobbyModule
     {
         private readonly ServerApp _app;
@@ -20,7 +20,11 @@ namespace StellarNet.Lite.Server.Modules
         [NetHandler]
         public void OnC2S_GetRoomList(Session session, C2S_GetRoomList msg)
         {
-            if (session == null) return;
+            if (session == null)
+            {
+                NetLogger.LogError("ServerLobbyModule", "收到非法请求: Session 为空");
+                return;
+            }
 
             var roomsDict = _app.Rooms;
             var roomList = new List<RoomBriefInfo>();

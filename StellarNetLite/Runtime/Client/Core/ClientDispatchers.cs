@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
-using UnityEngine;
 
 namespace StellarNet.Lite.Client.Core
 {
@@ -14,11 +13,10 @@ namespace StellarNet.Lite.Client.Core
         {
             if (handler == null)
             {
-                NetLogger.LogError($"[ClientGlobalDispatcher]",$"  注册失败: 传入的 handler 为空，MsgId: {msgId}");
+                NetLogger.LogError("ClientGlobalDispatcher", $"注册失败: 传入的 handler 为空，MsgId: {msgId}");
                 return;
             }
 
-            // 核心架构升级：支持多播委托。允许多个独立模块监听同一个全局协议
             if (_handlers.TryGetValue(msgId, out var existingHandler))
             {
                 _handlers[msgId] = existingHandler + handler;
@@ -37,8 +35,14 @@ namespace StellarNet.Lite.Client.Core
             }
             else
             {
-                NetLogger.LogWarning($"[ClientGlobalDispatcher] ",$" 未找到 MsgId {packet.MsgId} 的处理函数，消息已忽略");
+                NetLogger.LogWarning("ClientGlobalDispatcher", $"未找到 MsgId {packet.MsgId} 的处理函数，消息已忽略");
             }
+        }
+
+        // 核心修复 P0-4：补充 Clear 机制
+        public void Clear()
+        {
+            _handlers.Clear();
         }
     }
 
@@ -56,11 +60,10 @@ namespace StellarNet.Lite.Client.Core
         {
             if (handler == null)
             {
-                NetLogger.LogError($"[ClientRoomDispatcher]",$"  注册失败: 传入的 handler 为空，RoomId: {_roomId}, MsgId: {msgId}");
+                NetLogger.LogError("ClientRoomDispatcher", $"注册失败: 传入的 handler 为空，RoomId: {_roomId}, MsgId: {msgId}");
                 return;
             }
 
-            // 核心架构升级：支持多播委托。允许多个 RoomComponent 监听同一个房间协议
             if (_handlers.TryGetValue(msgId, out var existingHandler))
             {
                 _handlers[msgId] = existingHandler + handler;
@@ -79,7 +82,7 @@ namespace StellarNet.Lite.Client.Core
             }
             else
             {
-                NetLogger.LogWarning($"[ClientRoomDispatcher]",$"  未找到 MsgId {packet.MsgId} 的处理函数，RoomId: {_roomId}，消息已忽略");
+                NetLogger.LogWarning("ClientRoomDispatcher", $"未找到 MsgId {packet.MsgId} 的处理函数，RoomId: {_roomId}，消息已忽略");
             }
         }
 

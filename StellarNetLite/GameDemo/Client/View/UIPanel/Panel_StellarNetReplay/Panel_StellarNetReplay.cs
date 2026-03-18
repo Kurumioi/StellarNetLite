@@ -37,7 +37,6 @@ public class Panel_StellarNetReplay : UIPanelBase
         speed20Btn.onClick.AddListener(() => SetSpeed(2.0f));
         speed40Btn.onClick.AddListener(() => SetSpeed(4.0f));
 
-        // 监听进度条拖拽，实现 Seek 功能
         progressSlider.onValueChanged.AddListener(OnSliderValueChanged);
     }
 
@@ -59,7 +58,6 @@ public class Panel_StellarNetReplay : UIPanelBase
 
         if (uiData is ReplayFile replayFile)
         {
-            // 核心修复：使用 NetClient.App 替代长链式调用
             _replayPlayer = new ClientReplayPlayer(NetClient.App);
             _replayPlayer.StartReplay(replayFile);
 
@@ -79,10 +77,8 @@ public class Panel_StellarNetReplay : UIPanelBase
     {
         if (_replayPlayer == null) return;
 
-        // 驱动沙盒时间轴
         _replayPlayer.Update(Time.deltaTime);
 
-        // 更新进度条表现 (如果玩家正在拖拽，则不覆盖进度条的值)
         if (!_isDraggingSlider)
         {
             progressSlider.value = _replayPlayer.CurrentTick;
@@ -90,14 +86,11 @@ public class Panel_StellarNetReplay : UIPanelBase
 
         progressText.text = $"进度: {_replayPlayer.CurrentTick} / {_replayPlayer.GetTotalTicks()}";
 
-        // 如果播放完毕自动暂停，刷新按钮文本
         if (playPauseBtnText.text == "暂停" && _replayPlayer.IsPaused)
         {
             UpdateUIState();
         }
     }
-
-    #region UI 交互逻辑
 
     private void OnPlayPauseBtn()
     {
@@ -124,8 +117,6 @@ public class Panel_StellarNetReplay : UIPanelBase
     private void OnSliderValueChanged(float value)
     {
         if (_replayPlayer == null) return;
-
-        // 判断是否是玩家主动产生的较大跨度拖拽
         if (Mathf.Abs(value - _replayPlayer.CurrentTick) > 1f)
         {
             _isDraggingSlider = true;
@@ -142,8 +133,7 @@ public class Panel_StellarNetReplay : UIPanelBase
             _replayPlayer = null;
         }
 
-        // 退出回放，回归大厅闭环
-        UIKit.OpenPanel<Panel_StellarNetLobby>();
+        // 核心修复 P0-4：只负责关闭自己并停止回放，跳转大厅交由 Router 监听 Local_RoomLeft 处理
         CloseSelf();
     }
 
@@ -152,6 +142,4 @@ public class Panel_StellarNetReplay : UIPanelBase
         if (_replayPlayer == null) return;
         playPauseBtnText.text = _replayPlayer.IsPaused ? "播放" : "暂停";
     }
-
-    #endregion
 }

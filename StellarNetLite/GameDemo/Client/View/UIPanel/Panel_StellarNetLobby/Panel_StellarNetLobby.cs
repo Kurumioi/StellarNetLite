@@ -1,12 +1,9 @@
 ﻿using System;
 using Cysharp.Threading.Tasks;
-using Newtonsoft.Json;
 using StellarFramework;
 using StellarFramework.UI;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
-using StellarNet.Lite.Shared.Core;
-using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.Protocol;
 using TMPro;
 using UnityEngine;
@@ -28,7 +25,7 @@ public class Panel_StellarNetLobby : UIPanelBase
     [SerializeField] private Transform roomListContent;
     [SerializeField] private GameObject roomItemPrefab;
 
-    [Header("录像列表 (新增)")] [SerializeField] private Button refreshReplayBtn;
+    [Header("录像列表")] [SerializeField] private Button refreshReplayBtn;
     [SerializeField] private Transform replayListContent;
     [SerializeField] private GameObject replayItemPrefab;
 
@@ -41,22 +38,12 @@ public class Panel_StellarNetLobby : UIPanelBase
         logoutBtn.onClick.AddListener(OnLogoutBtn);
         refreshRoomListBtn.onClick.AddListener(OnRefreshRoomListBtn);
         createRoomBtn.onClick.AddListener(OnCreateRoomBtn);
+        if (refreshReplayBtn != null) refreshReplayBtn.onClick.AddListener(OnRefreshReplayBtn);
 
-        if (refreshReplayBtn != null)
-        {
-            refreshReplayBtn.onClick.AddListener(OnRefreshReplayBtn);
-        }
+        GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse).UnRegisterWhenGameObjectDestroyed(gameObject);
+        GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList).UnRegisterWhenGameObjectDestroyed(gameObject);
 
-        GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse)
-            .UnRegisterWhenGameObjectDestroyed(gameObject);
-        GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList)
-            .UnRegisterWhenGameObjectDestroyed(gameObject);
-        GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnS2C_DownloadReplayResult)
-            .UnRegisterWhenGameObjectDestroyed(gameObject);
-
-        // 核心修复：大厅统一监听本地房间进入事件，确保装配完毕后再切 UI
-        GlobalTypeNetEvent.Register<Local_RoomEntered>(OnRoomEntered)
-            .UnRegisterWhenGameObjectDestroyed(gameObject);
+        // 核心修复 P0-4：移除对 S2C_DownloadReplayResult 的监听，大厅不再负责打开回放面板，全权交由 Router
     }
 
     private void OnDestroy()
@@ -79,20 +66,6 @@ public class Panel_StellarNetLobby : UIPanelBase
         _downloadingReplayId = string.Empty;
     }
 
-    private void OnRoomEntered(Local_RoomEntered evt)
-    {
-        // 确保只有在线模式才跳转房间 UI（排除回放沙盒触发的事件）
-        if (NetClient.State == ClientAppState.OnlineRoom)
-        {
-            LogKit.Log("Panel_StellarNetLobby", "检测到房间装配完毕，执行 UI 路由跳转");
-            UIKit.ClosePanel<Panel_SetRoomConfig>();
-            UIKit.OpenPanel<Panel_StellarNetRoom>();
-            CloseSelf();
-        }
-    }
-
-    #region 按钮交互
-
     private void OnLogoutBtn()
     {
         GameLauncher.NetManager.StopClient();
@@ -100,9 +73,7 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     private void OnRefreshRoomListBtn()
     {
-        var msg = new C2S_GetRoomList();
-        NetClient.Send(msg);
-        LogKit.Log("Panel_StellarNetLobby", "请求房间列表");
+        NetClient.Send(new C2S_GetRoomList());
     }
 
     private void OnCreateRoomBtn()
@@ -112,24 +83,15 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     private void OnRefreshReplayBtn()
     {
-        var msg = new C2S_GetReplayList();
-        NetClient.Send(msg);
-        LogKit.Log("Panel_StellarNetLobby", "请求录像列表");
+        NetClient.Send(new C2S_GetReplayList());
     }
-
-    #endregion
-
-    #region 网络事件 - 房间
 
     private void OnS2C_RoomListResponse(S2C_RoomListResponse msg)
     {
-        var roomList = msg.Rooms;
-        LogKit.Log("Panel_StellarNetLobby", $"收到房间列表 {roomList.Length} 个房间");
         roomListContent.ClearChildren();
-
-        for (int i = 0; i < roomList.Length; i++)
+        for (int i = 0; i < msg.Rooms.Length; i++)
         {
-            var room = roomList[i];
+            var room = msg.Rooms[i];
             var roomItem = Instantiate(roomItemPrefab, roomListContent);
             roomItem.Show();
             roomItem.GetComponent<Panel_StellarNetLobby_RoomItem>()
@@ -139,20 +101,14 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     private string GetRoomStateByInt(int stateId)
     {
-        string returnValue = null;
         switch (stateId)
         {
-            case 0: returnValue = "等待中"; break;
-            case 1: returnValue = "游戏中"; break;
-            case 2: returnValue = "已结束"; break;
+            case 0: return "等待中";
+            case 1: return "游戏中";
+            case 2: return "已结束";
+            default: return "未知";
         }
-
-        return returnValue;
     }
-
-    #endregion
-
-    #region 网络事件 - 回放
 
     private void OnS2C_ReplayList(S2C_ReplayList msg)
     {
@@ -183,34 +139,4 @@ public class Panel_StellarNetLobby : UIPanelBase
             }
         }
     }
-
-    private void OnS2C_DownloadReplayResult(S2C_DownloadReplayResult msg)
-    {
-        _downloadingReplayId = string.Empty;
-
-        if (msg.Success && !string.IsNullOrEmpty(msg.ReplayFileData))
-        {
-            try
-            {
-                var replayFile = JsonConvert.DeserializeObject<ReplayFile>(msg.ReplayFileData);
-                if (replayFile != null)
-                {
-                    LogKit.Log("Panel_StellarNetLobby", "录像解析成功，准备进入回放沙盒");
-                    UIKit.OpenPanel<Panel_StellarNetReplay>(replayFile);
-                    CloseSelf();
-                }
-            }
-            catch (Exception e)
-            {
-                LogKit.LogError("Panel_StellarNetLobby", $"录像解析异常: {e.Message}");
-                GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = "录像文件损坏或解析失败" });
-            }
-        }
-        else
-        {
-            GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"录像下载失败: {msg.Reason}" });
-        }
-    }
-
-    #endregion
 }

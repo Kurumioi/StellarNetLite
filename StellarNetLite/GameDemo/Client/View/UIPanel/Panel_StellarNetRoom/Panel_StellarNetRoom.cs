@@ -19,8 +19,10 @@ public class Panel_StellarNetRoom : UIPanelBase
     [SerializeField] private Transform playerListItemPrefab;
 
     [SerializeField] private Button readyBtn;
+
     [SerializeField] private Button startGameBtn;
-    [SerializeField] private Button gameOverBtn;
+
+    // 核心修复：移除废弃的 gameOverBtn 绑定，因为结束逻辑由房主在 SocialRoomView 按 F12 触发
     [SerializeField] private Button leaveBtn;
 
     private Dictionary<string, Panel_StellarNetRoom_MemberInfoItem> _memberInfoDict = new Dictionary<string, Panel_StellarNetRoom_MemberInfoItem>();
@@ -30,7 +32,6 @@ public class Panel_StellarNetRoom : UIPanelBase
         base.OnInit();
         readyBtn.onClick.AddListener(OnReadyBtn);
         startGameBtn.onClick.AddListener(OnStartGameBtn);
-        gameOverBtn.onClick.AddListener(OnGameOverBtn);
         leaveBtn.onClick.AddListener(OnLeaveBtn);
     }
 
@@ -38,15 +39,12 @@ public class Panel_StellarNetRoom : UIPanelBase
     {
         readyBtn.onClick.RemoveAllListeners();
         startGameBtn.onClick.RemoveAllListeners();
-        gameOverBtn.onClick.RemoveAllListeners();
         leaveBtn.onClick.RemoveAllListeners();
     }
 
     public override async UniTask OnOpen(object uiData = null)
     {
         await base.OnOpen(uiData);
-
-        GlobalTypeNetEvent.Register<S2C_LeaveRoomResult>(OnS2C_LeaveRoomResult).UnRegisterWhenMonoDisable(this);
 
         if (NetClient.CurrentRoom != null)
         {
@@ -58,7 +56,6 @@ public class Panel_StellarNetRoom : UIPanelBase
         }
 
         uidText.text = NetClient.Session?.Uid ?? "Unknown";
-
         var settingCom = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
         if (settingCom == null) return;
 
@@ -101,15 +98,6 @@ public class Panel_StellarNetRoom : UIPanelBase
         }
     }
 
-    private void OnS2C_LeaveRoomResult(S2C_LeaveRoomResult msg)
-    {
-        if (msg.Success)
-        {
-            CloseSelf();
-            UIKit.OpenPanel<Panel_StellarNetLobby>();
-        }
-    }
-
     private void OnReadyBtn()
     {
         var settingsComp = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
@@ -138,12 +126,7 @@ public class Panel_StellarNetRoom : UIPanelBase
         }
 
         if (settingsComp.IsGameStarted) return;
-
         NetClient.Send(new C2S_StartGame { });
-    }
-
-    private void OnGameOverBtn()
-    {
     }
 
     private void OnLeaveBtn()
@@ -168,7 +151,6 @@ public class Panel_StellarNetRoom : UIPanelBase
     private void OnS2C_MemberJoined(S2C_MemberJoined msg)
     {
         if (_memberInfoDict.ContainsKey(msg.Member.SessionId)) return;
-
         var item = Instantiate(playerListItemPrefab, playerListContent);
         item.Show();
         var itemCom = item.GetComponent<Panel_StellarNetRoom_MemberInfoItem>();

@@ -15,8 +15,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
 {
     public class StellarNetMirrorManager : NetworkManager
     {
-        #region 全局配置与基础设施
-
         public Func<object, byte[]> SerializeFunc { get; private set; }
         public Func<byte[], Type, object> DeserializeFunc { get; private set; }
         private NetConfig _netConfig;
@@ -34,9 +32,10 @@ namespace StellarNet.Lite.Shared.Infrastructure
             NetMessageMapper.Initialize();
 
             ServerRoomFactory.ComponentBinder = (comp, dispatcher) =>
-                AutoBinder.BindServerComponent(comp, dispatcher, DeserializeFunc);
+                AutoRegistry.BindServerComponent(comp, dispatcher, DeserializeFunc);
+
             ClientRoomFactory.ComponentBinder = (comp, dispatcher) =>
-                AutoBinder.BindClientComponent(comp, dispatcher, DeserializeFunc);
+                AutoRegistry.BindClientComponent(comp, dispatcher, DeserializeFunc);
         }
 
         private void FixedUpdate()
@@ -47,9 +46,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
         }
 
-        #endregion
-
-        #region 服务端专属 (状态、事件与逻辑)
+        #region 服务端专属
 
         public ServerApp ServerApp { get; private set; }
         public static event Action OnServerStartedEvent;
@@ -64,8 +61,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
             ServerApp = new ServerApp(MirrorServerSend, SerializeFunc, _netConfig);
             AutoRegistry.RegisterServer(ServerApp, DeserializeFunc);
             NetworkServer.RegisterHandler<MirrorPacketMsg>(OnServerReceivePacket, false);
-
-            NetLogger.LogInfo("StellarNetManager", $"服务端装配完毕，开始监听网络请求。TickRate: {NetworkServer.tickRate}, MaxConn: {this.maxConnections}");
+            NetLogger.LogInfo("StellarNetManager", $"服务端装配完毕，开始监听网络请求。TickRate: {NetworkServer.tickRate}");
             OnServerStartedEvent?.Invoke();
         }
 
@@ -73,6 +69,15 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             OnServerStoppedEvent?.Invoke();
             NetLogger.LogInfo("StellarNetManager", "服务端物理节点已停止运行");
+
+            // 核心修复 P0-3：强制生命周期闭环
+            if (ServerApp != null)
+            {
+                ServerApp.Dispose();
+                ServerApp = null;
+            }
+
+            ServerRoomFactory.Clear();
             base.OnStopServer();
         }
 
@@ -109,12 +114,12 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         private void OnServerReceivePacket(NetworkConnectionToClient conn, MirrorPacketMsg msg)
         {
-            ServerApp.OnReceivePacket(conn.connectionId, msg.ToPacket());
+            ServerApp?.OnReceivePacket(conn.connectionId, msg.ToPacket());
         }
 
         #endregion
 
-        #region 客户端专属 (状态、事件与逻辑)
+        #region 客户端专属
 
         public ClientApp ClientApp { get; private set; }
         public ClientNetworkMonitor NetworkMonitor { get; private set; }
@@ -131,7 +136,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
             if (ClientApp == null)
             {
                 ClientApp = new ClientApp(MirrorClientSend, SerializeFunc);
-                // 核心注入：初始化全局门面
                 NetClient.Initialize(ClientApp);
                 AutoRegistry.RegisterClient(ClientApp, DeserializeFunc);
                 NetworkClient.RegisterHandler<MirrorPacketMsg>(OnClientReceivePacket, false);
@@ -152,11 +156,22 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             OnClientStoppedEvent?.Invoke();
             NetLogger.LogInfo("StellarNetManager", "客户端物理节点已停止运行");
+
             if (_reconnectCoroutine != null)
             {
                 StopCoroutine(_reconnectCoroutine);
                 _reconnectCoroutine = null;
             }
+
+            // 核心修复 P0-3：强制生命周期闭环
+            if (ClientApp != null)
+            {
+                ClientApp.Dispose();
+                ClientApp = null;
+                NetClient.Initialize(null);
+            }
+
+            ClientRoomFactory.Clear();
 
             base.OnStopClient();
         }
@@ -269,7 +284,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
         private void OnClientReceivePacket(MirrorPacketMsg msg)
         {
             NetworkMonitor?.OnPacketReceived();
-            ClientApp.OnReceivePacket(msg.ToPacket());
+            ClientApp?.OnReceivePacket(msg.ToPacket());
         }
 
         #endregion

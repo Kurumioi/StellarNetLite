@@ -38,7 +38,6 @@ namespace StellarNet.Lite.Shared.Core
         }
     }
 
-    // 房间业务组件元数据特性，增加 DisplayName 用于客户端展示
     [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
     public sealed class RoomComponentAttribute : Attribute
     {
@@ -53,15 +52,28 @@ namespace StellarNet.Lite.Shared.Core
             DisplayName = string.IsNullOrEmpty(displayName) ? name : displayName;
         }
     }
+    
 
-    // 全局业务模块元数据特性，无须 ID，仅用于自动装配与展示
     [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
-    public sealed class GlobalModuleAttribute : Attribute
+    public sealed class ServerModuleAttribute : Attribute
     {
         public string Name { get; }
         public string DisplayName { get; }
 
-        public GlobalModuleAttribute(string name, string displayName = "")
+        public ServerModuleAttribute(string name, string displayName = "")
+        {
+            Name = name;
+            DisplayName = string.IsNullOrEmpty(displayName) ? name : displayName;
+        }
+    }
+
+    [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
+    public sealed class ClientModuleAttribute : Attribute
+    {
+        public string Name { get; }
+        public string DisplayName { get; }
+
+        public ClientModuleAttribute(string name, string displayName = "")
         {
             Name = name;
             DisplayName = string.IsNullOrEmpty(displayName) ? name : displayName;

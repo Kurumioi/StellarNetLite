@@ -18,15 +18,11 @@ namespace StellarNet.Lite.Server.Modules
         public int CurrentOffset;
     }
 
-    [GlobalModule("ServerReplayModule", "录像下载与分发模块")]
+    [ServerModule("ServerReplayModule", "录像下载与分发模块")]
     public sealed class ServerReplayModule
     {
         private readonly ServerApp _app;
-
-        // 核心：每块 64KB，远低于 Mirror 300KB 的限制，绝对安全
         private const int ChunkSize = 64 * 1024;
-
-        // 维护每个玩家的下载进度：SessionId -> Task
         private readonly Dictionary<string, ReplayDownloadTask> _downloadTasks = new Dictionary<string, ReplayDownloadTask>();
 
         public ServerReplayModule(ServerApp app)
@@ -37,7 +33,12 @@ namespace StellarNet.Lite.Server.Modules
         [NetHandler]
         public void OnC2S_GetReplayList(Session session, C2S_GetReplayList msg)
         {
-            if (session == null) return;
+            if (session == null)
+            {
+                NetLogger.LogError("ServerReplayModule", "收到非法请求: Session 为空");
+                return;
+            }
+
             string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
             string[] replayIds = new string[0];
 
@@ -49,6 +50,7 @@ namespace StellarNet.Lite.Server.Modules
                         .OrderByDescending(f => f.CreationTimeUtc)
                         .Take(10)
                         .ToArray();
+
                     replayIds = files.Select(f => Path.GetFileNameWithoutExtension(f.Name)).ToArray();
                 }
                 catch (Exception e)
@@ -64,9 +66,18 @@ namespace StellarNet.Lite.Server.Modules
         [NetHandler]
         public void OnC2S_DownloadReplay(Session session, C2S_DownloadReplay msg)
         {
-            if (session == null || string.IsNullOrEmpty(msg.ReplayId)) return;
+            if (session == null || msg == null)
+            {
+                NetLogger.LogError("ServerReplayModule", "收到非法请求: Session 或 Msg 为空");
+                return;
+            }
 
-            // 1. 清理死任务，防止玩家断线导致内存泄漏
+            if (string.IsNullOrEmpty(msg.ReplayId))
+            {
+                NetLogger.LogError("ServerReplayModule", "收到非法请求: ReplayId 为空", "-", session.SessionId);
+                return;
+            }
+
             CleanupDeadTasks();
 
             string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
@@ -87,14 +98,12 @@ namespace StellarNet.Lite.Server.Modules
 
             try
             {
-                // 一次性读入内存（几十MB内直接读 byte[] 性能最好）
                 byte[] fileData = File.ReadAllBytes(fullPath);
-
-                // 核心：处理断点续传的偏移量
                 int startOffset = msg.StartOffset;
+
                 if (startOffset < 0 || startOffset > fileData.Length)
                 {
-                    startOffset = 0; // 如果偏移量非法，强制从头开始
+                    startOffset = 0;
                 }
 
                 var task = new ReplayDownloadTask
@@ -103,6 +112,7 @@ namespace StellarNet.Lite.Server.Modules
                     FileData = fileData,
                     CurrentOffset = startOffset
                 };
+
                 _downloadTasks[session.SessionId] = task;
 
                 var startMsg = new S2C_DownloadReplayStart
@@ -110,14 +120,13 @@ namespace StellarNet.Lite.Server.Modules
                     Success = true,
                     ReplayId = msg.ReplayId,
                     TotalBytes = fileData.Length,
-                    AcceptedOffset = startOffset, // 核心新增：告诉客户端实际接受的偏移量
+                    AcceptedOffset = startOffset,
                     Reason = string.Empty
                 };
-                _app.SendMessageToSession(session, startMsg);
 
+                _app.SendMessageToSession(session, startMsg);
                 NetLogger.LogInfo("ServerReplayModule", $"开始流式下发录像 {msg.ReplayId}, 总大小: {fileData.Length} bytes, 起始偏移: {startOffset} bytes", "-", session.SessionId);
 
-                // 立刻发送第一个 Chunk
                 SendNextChunk(session, task);
             }
             catch (Exception e)
@@ -131,9 +140,12 @@ namespace StellarNet.Lite.Server.Modules
         [NetHandler]
         public void OnC2S_DownloadReplayChunkAck(Session session, C2S_DownloadReplayChunkAck msg)
         {
-            if (session == null || string.IsNullOrEmpty(msg.ReplayId)) return;
+            if (session == null || msg == null || string.IsNullOrEmpty(msg.ReplayId))
+            {
+                NetLogger.LogError("ServerReplayModule", "收到非法请求: Session 或 ReplayId 为空");
+                return;
+            }
 
-            // 收到客户端的确认后，继续发送下一块
             if (_downloadTasks.TryGetValue(session.SessionId, out var task) && task.ReplayId == msg.ReplayId)
             {
                 SendNextChunk(session, task);
@@ -145,7 +157,6 @@ namespace StellarNet.Lite.Server.Modules
             int remaining = task.FileData.Length - task.CurrentOffset;
             if (remaining <= 0)
             {
-                // 传输完成
                 _downloadTasks.Remove(session.SessionId);
                 NetLogger.LogInfo("ServerReplayModule", $"录像 {task.ReplayId} 流式下发完成", "-", session.SessionId);
                 return;
@@ -154,7 +165,6 @@ namespace StellarNet.Lite.Server.Modules
             int size = Math.Min(ChunkSize, remaining);
             byte[] chunk = new byte[size];
             Buffer.BlockCopy(task.FileData, task.CurrentOffset, chunk, 0, size);
-
             task.CurrentOffset += size;
 
             var chunkMsg = new S2C_DownloadReplayChunk
@@ -162,6 +172,7 @@ namespace StellarNet.Lite.Server.Modules
                 ReplayId = task.ReplayId,
                 ChunkData = chunk
             };
+
             _app.SendMessageToSession(session, chunkMsg);
         }
 

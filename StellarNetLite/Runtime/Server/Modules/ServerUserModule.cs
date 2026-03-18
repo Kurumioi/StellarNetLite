@@ -4,11 +4,10 @@ using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Server.Core;
 using StellarNet.Lite.Shared.Infrastructure;
-using UnityEngine;
 
 namespace StellarNet.Lite.Server.Modules
 {
-    [GlobalModule("ServerUserModule", "用户鉴权与登录模块")]
+    [ServerModule("ServerUserModule", "用户鉴权与登录模块")]
     public sealed class ServerUserModule
     {
         private readonly ServerApp _app;
@@ -24,7 +23,7 @@ namespace StellarNet.Lite.Server.Modules
         {
             if (session == null || msg == null || string.IsNullOrEmpty(msg.AccountId))
             {
-                NetLogger.LogError("ServerUserModule", $"登录失败: 参数非法", "-", session?.SessionId);
+                NetLogger.LogError("ServerUserModule", "登录失败: 参数非法", "-", session?.SessionId);
                 return;
             }
 
@@ -41,20 +40,16 @@ namespace StellarNet.Lite.Server.Modules
             {
                 if (clientVer < minVer)
                 {
-                    NetLogger.LogWarning("ServerUserModule",
-                        $"登录拦截: 客户端版本 {msg.ClientVersion} 低于最低要求 {_app.Config.MinClientVersion}", "-", session.SessionId);
-                    var rejectRes = new S2C_LoginResult
-                        { Success = false, Reason = $"客户端版本过旧，请在Unity中更新至 {_app.Config.MinClientVersion} 或以上版本" };
+                    NetLogger.LogWarning("ServerUserModule", $"登录拦截: 客户端版本 {msg.ClientVersion} 低于最低要求 {_app.Config.MinClientVersion}", "-", session.SessionId);
+                    var rejectRes = new S2C_LoginResult { Success = false, Reason = $"客户端版本过旧，请在Unity中更新至 {_app.Config.MinClientVersion} 或以上版本" };
                     _app.SendMessageToSession(session, rejectRes);
                     return;
                 }
             }
             else if (msg.ClientVersion != _app.Config.MinClientVersion)
             {
-                NetLogger.LogWarning("ServerUserModule",
-                    $"登录拦截: 客户端版本 {msg.ClientVersion} 不匹配要求 {_app.Config.MinClientVersion}", "-", session.SessionId);
-                var rejectRes = new S2C_LoginResult
-                    { Success = false, Reason = $"客户端版本不匹配，请更新至 {_app.Config.MinClientVersion}" };
+                NetLogger.LogWarning("ServerUserModule", $"登录拦截: 客户端版本 {msg.ClientVersion} 不匹配要求 {_app.Config.MinClientVersion}", "-", session.SessionId);
+                var rejectRes = new S2C_LoginResult { Success = false, Reason = $"客户端版本不匹配，请更新至 {_app.Config.MinClientVersion}" };
                 _app.SendMessageToSession(session, rejectRes);
                 return;
             }
@@ -63,8 +58,7 @@ namespace StellarNet.Lite.Server.Modules
             {
                 if (oldSession.IsOnline)
                 {
-                    NetLogger.LogWarning("ServerUserModule", $"账号在其他设备登录，踢出旧连接", oldSession.CurrentRoomId,
-                        oldSession.SessionId);
+                    NetLogger.LogWarning("ServerUserModule", "账号在其他设备登录，踢出旧连接", oldSession.CurrentRoomId, oldSession.SessionId);
                     var kickMsg = new S2C_KickOut { Reason = "账号在其他设备登录" };
                     _app.SendMessageToSession(oldSession, kickMsg);
                     _app.UnbindConnection(oldSession);
@@ -74,8 +68,7 @@ namespace StellarNet.Lite.Server.Modules
                 _app.BindConnection(oldSession, session.ConnectionId);
                 oldSession.ResetSeq(session.LastReceivedSeq);
 
-                bool hasRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) &&
-                               _app.GetRoom(oldSession.CurrentRoomId) != null;
+                bool hasRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) && _app.GetRoom(oldSession.CurrentRoomId) != null;
 
                 var reconnectRes = new S2C_LoginResult
                 {
@@ -86,14 +79,14 @@ namespace StellarNet.Lite.Server.Modules
                 };
 
                 _app.SendMessageToSession(oldSession, reconnectRes);
-                NetLogger.LogInfo("ServerUserModule", $"玩家断线重连(顶号)成功，Seq 状态已重置对齐", oldSession.CurrentRoomId,
-                    oldSession.SessionId);
+                NetLogger.LogInfo("ServerUserModule", "玩家断线重连(顶号)成功，Seq 状态已重置对齐", oldSession.CurrentRoomId, oldSession.SessionId);
                 return;
             }
 
             _app.RemoveSession(session.SessionId);
             var authSession = new Session(session.SessionId, msg.AccountId, session.ConnectionId);
             authSession.ResetSeq(session.LastReceivedSeq);
+
             _accountToSession[msg.AccountId] = authSession;
             _app.RegisterSession(authSession);
 
@@ -106,13 +99,17 @@ namespace StellarNet.Lite.Server.Modules
             };
 
             _app.SendMessageToSession(authSession, res);
-            NetLogger.LogInfo("ServerUserModule", $"玩家全新登录成功", "-", authSession.SessionId);
+            NetLogger.LogInfo("ServerUserModule", "玩家全新登录成功", "-", authSession.SessionId);
         }
 
         [NetHandler]
         public void OnC2S_ConfirmReconnect(Session session, C2S_ConfirmReconnect msg)
         {
-            if (session == null || msg == null) return;
+            if (session == null || msg == null)
+            {
+                NetLogger.LogError("ServerUserModule", "收到非法请求: Session 或 Msg 为空");
+                return;
+            }
 
             string roomId = session.CurrentRoomId;
             Room room = string.IsNullOrEmpty(roomId) ? null : _app.GetRoom(roomId);
@@ -145,14 +142,17 @@ namespace StellarNet.Lite.Server.Modules
                 ComponentIds = room.ComponentIds,
                 Reason = string.Empty
             };
-
             _app.SendMessageToSession(session, successRes);
         }
 
         [NetHandler]
         public void OnC2S_ReconnectReady(Session session, C2S_ReconnectReady msg)
         {
-            if (session == null || msg == null) return;
+            if (session == null || msg == null)
+            {
+                NetLogger.LogError("ServerUserModule", "收到非法请求: Session 或 Msg 为空");
+                return;
+            }
 
             string roomId = session.CurrentRoomId;
             if (string.IsNullOrEmpty(roomId))
@@ -168,7 +168,6 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            // 核心修复 2：客户端装配完毕，正式标记为就绪，开始接收房间广播
             session.SetRoomReady(true);
             room.TriggerReconnectSnapshot(session);
             NetLogger.LogInfo("ServerUserModule", "客户端装配就绪，已下发房间全量快照", roomId, session.SessionId);

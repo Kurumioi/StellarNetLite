@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
-using UnityEngine;
 
 namespace StellarNet.Lite.Server.Core
 {
@@ -15,11 +14,10 @@ namespace StellarNet.Lite.Server.Core
         {
             if (handler == null)
             {
-                NetLogger.LogError($"[GlobalDispatcher] ",$" 注册失败: 传入的 handler 为空，MsgId: {msgId}");
+                NetLogger.LogError("GlobalDispatcher", $"注册失败: 传入的 handler 为空，MsgId: {msgId}");
                 return;
             }
 
-            // 核心架构升级：支持多播委托
             if (_handlers.TryGetValue(msgId, out var existingHandler))
             {
                 _handlers[msgId] = existingHandler + handler;
@@ -34,7 +32,7 @@ namespace StellarNet.Lite.Server.Core
         {
             if (session == null)
             {
-                NetLogger.LogError($"[GlobalDispatcher]",$"  分发失败: session 为空");
+                NetLogger.LogError("GlobalDispatcher", "分发失败: session 为空");
                 return;
             }
 
@@ -44,8 +42,14 @@ namespace StellarNet.Lite.Server.Core
             }
             else
             {
-                NetLogger.LogWarning($"[GlobalDispatcher]",$"  未找到 MsgId {packet.MsgId} 的处理函数");
+                NetLogger.LogWarning("GlobalDispatcher", $"未找到 MsgId {packet.MsgId} 的处理函数");
             }
+        }
+
+        // 核心修复 P0-4：补充 Clear 机制
+        public void Clear()
+        {
+            _handlers.Clear();
         }
     }
 
@@ -65,11 +69,10 @@ namespace StellarNet.Lite.Server.Core
         {
             if (handler == null)
             {
-                NetLogger.LogError($"[RoomDispatcher]",$"  注册失败: 传入的 handler 为空，RoomId: {_roomId}, MsgId: {msgId}");
+                NetLogger.LogError("RoomDispatcher", $"注册失败: 传入的 handler 为空，RoomId: {_roomId}, MsgId: {msgId}");
                 return;
             }
 
-            // 核心架构升级：支持多播委托
             if (_handlers.TryGetValue(msgId, out var existingHandler))
             {
                 _handlers[msgId] = existingHandler + handler;
@@ -84,7 +87,7 @@ namespace StellarNet.Lite.Server.Core
         {
             if (session == null)
             {
-                NetLogger.LogError($"[RoomDispatcher]",$"  分发失败: session 为空，RoomId: {_roomId}");
+                NetLogger.LogError("RoomDispatcher", $"分发失败: session 为空，RoomId: {_roomId}");
                 return;
             }
 
@@ -94,7 +97,7 @@ namespace StellarNet.Lite.Server.Core
             }
             else
             {
-                NetLogger.LogWarning($"[RoomDispatcher]",$"  未找到 MsgId {packet.MsgId} 的处理函数，RoomId: {_roomId}");
+                NetLogger.LogWarning("RoomDispatcher", $"未找到 MsgId {packet.MsgId} 的处理函数，RoomId: {_roomId}");
             }
         }
 
