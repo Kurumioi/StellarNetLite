@@ -21,22 +21,22 @@ namespace StellarNet.Lite.Client.Core
         public ClientRoom CurrentRoom { get; private set; }
         public ClientAppState State { get; private set; } = ClientAppState.InLobby;
 
-        public Action<Packet> NetworkSender { get; }
-        public Func<object, byte[]> SerializeFunc { get; }
-
+        private readonly INetworkTransport _transport;
+        private readonly INetSerializer _serializer;
         private uint _sendSeq = 0;
         private bool _isDisposed = false;
 
-        public ClientApp(Action<Packet> networkSender, Func<object, byte[]> serializeFunc)
+        public ClientApp(INetworkTransport transport, INetSerializer serializer)
         {
-            NetworkSender = networkSender;
-            SerializeFunc = serializeFunc;
+            _transport = transport;
+            _serializer = serializer;
         }
 
         public void Dispose()
         {
             if (_isDisposed) return;
             _isDisposed = true;
+
             NetLogger.LogWarning("ClientApp", "执行 ClientApp 深度销毁与资源回收");
 
             if (CurrentRoom != null)
@@ -127,7 +127,6 @@ namespace StellarNet.Lite.Client.Core
             }
         }
 
-        // 核心修复：引入 silent 参数，支持静默销毁房间而不触发全局 UI 跳转
         public void LeaveRoom(bool silent = false)
         {
             if (_isDisposed) return;
@@ -148,6 +147,7 @@ namespace StellarNet.Lite.Client.Core
             if (_isDisposed || State != ClientAppState.OnlineRoom) return;
 
             NetLogger.LogWarning("ClientApp", "触发软清理: 销毁当前房间实例，进入挂起态");
+
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
@@ -165,6 +165,7 @@ namespace StellarNet.Lite.Client.Core
             if (_isDisposed) return;
 
             NetLogger.LogWarning("ClientApp", "触发硬清理: 彻底清空会话与房间状态");
+
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
@@ -181,7 +182,6 @@ namespace StellarNet.Lite.Client.Core
             if (_isDisposed || msg == null) return;
 
             if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta)) return;
-
             if (meta.Dir != NetDir.C2S) return;
 
             if (State == ClientAppState.ReplayRoom) return;
@@ -199,11 +199,21 @@ namespace StellarNet.Lite.Client.Core
             if (meta.Scope == NetScope.Room && (State != ClientAppState.OnlineRoom || CurrentRoom == null)) return;
 
             _sendSeq++;
-            byte[] payload = SerializeFunc(msg);
-            string roomId = meta.Scope == NetScope.Room ? CurrentRoom.RoomId : string.Empty;
-            var packet = new Packet(_sendSeq, meta.Id, meta.Scope, roomId, payload);
 
-            NetworkSender?.Invoke(packet);
+            // 核心修复：将 Buffer 提升至 128KB
+            byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(131072);
+            try
+            {
+                int length = _serializer.Serialize(msg, buffer);
+                string roomId = meta.Scope == NetScope.Room ? CurrentRoom.RoomId : string.Empty;
+                var packet = new Packet(_sendSeq, meta.Id, meta.Scope, roomId, buffer, length);
+
+                _transport?.SendToServer(packet);
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
     }
 }

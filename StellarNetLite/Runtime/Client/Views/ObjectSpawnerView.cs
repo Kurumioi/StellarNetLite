@@ -9,13 +9,11 @@ namespace StellarNet.Lite.Client.Components.Views
 {
     /// <summary>
     /// 全局网络实体生成视图 (View 层)
-    /// 核心重构：引入组件化装配逻辑。根据服务端下发的 Mask，按需挂载 NetTransformView 和 NetAnimatorView。
     /// </summary>
     public class ObjectSpawnerView : MonoBehaviour
     {
         private ClientRoom _room;
         private ClientObjectSyncComponent _syncService;
-
         private readonly Dictionary<int, GameObject> _prefabMap = new Dictionary<int, GameObject>();
         private readonly Dictionary<int, GameObject> _spawnedObjects = new Dictionary<int, GameObject>();
 
@@ -29,7 +27,6 @@ namespace StellarNet.Lite.Client.Components.Views
 
             _room = room;
             _syncService = _room.GetComponent<ClientObjectSyncComponent>();
-
             if (_syncService == null)
             {
                 NetLogger.LogError("ObjectSpawnerView", "初始化失败: 无法在 Room 中找到 ClientObjectSyncComponent 服务。");
@@ -38,7 +35,6 @@ namespace StellarNet.Lite.Client.Components.Views
 
             _room.NetEventSystem.Register<Local_ObjectSpawned>(OnLocalObjectSpawned);
             _room.NetEventSystem.Register<Local_ObjectDestroyed>(OnLocalObjectDestroyed);
-
             NetLogger.LogInfo("ObjectSpawnerView", "网络实体生成视图初始化完毕，开始监听实体生命周期。");
         }
 
@@ -65,6 +61,13 @@ namespace StellarNet.Lite.Client.Components.Views
         {
             Clear();
             _prefabMap.Clear();
+        }
+
+        // 核心修复：暴露表现层实体，供 SocialRoomView 获取真实的平滑插值坐标
+        public GameObject GetSpawnedObject(int netId)
+        {
+            _spawnedObjects.TryGetValue(netId, out GameObject obj);
+            return obj;
         }
 
         private GameObject GetOrLoadPrefab(int prefabHash)
@@ -113,12 +116,10 @@ namespace StellarNet.Lite.Client.Components.Views
             GameObject instance = Instantiate(prefab, spawnPos, spawnRot);
             instance.transform.localScale = spawnScale;
 
-            // 1. 挂载并初始化基础身份标识
             var identity = instance.GetComponent<NetIdentity>();
             if (identity == null) identity = instance.AddComponent<NetIdentity>();
             identity.Init(evt.NetId, _syncService);
 
-            // 2. 根据 Mask 按需挂载并初始化表现组件
             if ((evt.Mask & (byte)EntitySyncMask.Transform) != 0)
             {
                 var transView = instance.GetComponent<NetTransformView>();

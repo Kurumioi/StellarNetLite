@@ -38,7 +38,7 @@ public class Panel_StellarNetGameOver : UIPanelBase
     public override async UniTask OnOpen(object uiData = null)
     {
         await base.OnOpen(uiData);
-
+        leaveRoomBtn.interactable = true;
         _currentReplayId = string.Empty;
         _isOwner = false;
 

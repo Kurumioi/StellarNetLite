@@ -55,11 +55,14 @@ public class Panel_StellarNetReplay : UIPanelBase
         playPauseBtn.onClick.RemoveAllListeners();
         restartBtn.onClick.RemoveAllListeners();
         exitBtn.onClick.RemoveAllListeners();
+
         speed05Btn.onClick.RemoveAllListeners();
         speed10Btn.onClick.RemoveAllListeners();
         speed20Btn.onClick.RemoveAllListeners();
         speed40Btn.onClick.RemoveAllListeners();
+
         if (applyCustomSpeedBtn != null) applyCustomSpeedBtn.onClick.RemoveAllListeners();
+
         progressSlider.onValueChanged.RemoveAllListeners();
     }
 
@@ -67,21 +70,30 @@ public class Panel_StellarNetReplay : UIPanelBase
     {
         await base.OnOpen(uiData);
 
-        if (uiData is ReplayFile replayFile)
+        if (uiData is string filePath)
         {
             _replayPlayer = new ClientReplayPlayer(NetClient.App);
-            _replayPlayer.StartReplay(replayFile);
+            _replayPlayer.StartReplay(filePath);
 
             progressSlider.minValue = 0;
             progressSlider.maxValue = _replayPlayer.GetTotalTicks();
+
             SetSpeed(1.0f);
             UpdateUIState();
         }
         else
         {
-            LogKit.LogError("Panel_StellarNetReplay", "打开回放面板失败：未传入合法的 ReplayFile 数据");
+            LogKit.LogError("Panel_StellarNetReplay", "打开回放面板失败：未传入合法的录像文件路径");
             CloseSelf();
         }
+    }
+
+    private string FormatTime(int ticks)
+    {
+        int totalSeconds = ticks / 60;
+        int minutes = totalSeconds / 60;
+        int seconds = totalSeconds % 60;
+        return $"{minutes:D2}:{seconds:D2}";
     }
 
     private void Update()
@@ -95,7 +107,8 @@ public class Panel_StellarNetReplay : UIPanelBase
             progressSlider.value = _replayPlayer.CurrentTick;
         }
 
-        progressText.text = $"进度: {_replayPlayer.CurrentTick} / {_replayPlayer.GetTotalTicks()}";
+        int displayTick = Mathf.Min(_replayPlayer.CurrentTick, _replayPlayer.GetTotalTicks());
+        progressText.text = $"进度: {FormatTime(displayTick)} / {FormatTime(_replayPlayer.GetTotalTicks())}";
 
         if (playPauseBtnText.text == "暂停" && _replayPlayer.IsPaused)
         {
@@ -118,9 +131,6 @@ public class Panel_StellarNetReplay : UIPanelBase
         UpdateUIState();
     }
 
-    /// <summary>
-    /// 核心接口：支持任意浮点数的倍速设置
-    /// </summary>
     public void SetSpeed(float speed)
     {
         if (_replayPlayer == null) return;
@@ -134,7 +144,6 @@ public class Panel_StellarNetReplay : UIPanelBase
 
         if (float.TryParse(customSpeedIpt.text, out float speed))
         {
-            // 限制一下合理的范围，防止输入负数或过大(如 10000)导致单帧 while 循环卡死主线程
             speed = Mathf.Clamp(speed, 0.1f, 100f);
             SetSpeed(speed);
             customSpeedIpt.text = speed.ToString("F1");
@@ -148,6 +157,7 @@ public class Panel_StellarNetReplay : UIPanelBase
     private void OnSliderValueChanged(float value)
     {
         if (_replayPlayer == null) return;
+
         if (Mathf.Abs(value - _replayPlayer.CurrentTick) > 1f)
         {
             _isDraggingSlider = true;
@@ -163,7 +173,9 @@ public class Panel_StellarNetReplay : UIPanelBase
             _replayPlayer.StopReplay();
             _replayPlayer = null;
         }
-        // 移除 CloseSelf()，将 UI 关闭的权力完全交给 ClientUIRouter 统一调度，防止冲突导致空场景
+
+        // 修复：必须主动关闭自身面板，防止底层网络房间已销毁但 UI 残留拦截射线
+        CloseSelf();
     }
 
     private void UpdateUIState()

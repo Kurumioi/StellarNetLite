@@ -25,8 +25,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public int OfflineTimeoutLobbyMinutes = 5;
         public int OfflineTimeoutRoomMinutes = 60;
         public int EmptyRoomTimeoutMinutes = 5;
-
-        //最低允许的客户端版本号，用于阻断过旧版本的连接
         public string MinClientVersion = "0.0.1";
     }
 
@@ -40,7 +38,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
             string basePath = rootPath == ConfigRootPath.StreamingAssets
                 ? Application.streamingAssetsPath
                 : Application.persistentDataPath;
-
             string fullPath = Path.Combine(basePath, ConfigFolderName, ConfigFileName).Replace("\\", "/");
             string jsonContent = string.Empty;
 
@@ -61,28 +58,33 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 }
 
                 if (string.IsNullOrEmpty(jsonContent)) return new NetConfig();
-
                 var config = JsonConvert.DeserializeObject<NetConfig>(jsonContent);
                 return config ?? new NetConfig();
             }
             catch (Exception e)
             {
-                NetLogger.LogError($"[NetConfigLoader]",$"  读取配置异常: {e.Message}");
+                NetLogger.LogError($"[NetConfigLoader]", $"读取配置异常: {e.Message}");
                 return new NetConfig();
             }
         }
 
         public static NetConfig LoadServerConfigSync(ConfigRootPath rootPath)
         {
+            // 核心修复 P0-3：拦截 Android 平台对 StreamingAssets 的同步读取，防止 IO 崩溃
+            if (rootPath == ConfigRootPath.StreamingAssets && Application.platform == RuntimePlatform.Android)
+            {
+                NetLogger.LogWarning("[NetConfigLoader]", "Android 平台禁止同步读取 StreamingAssets，已返回默认配置。请在外部使用 LoadAsync 异步加载并覆盖。");
+                return new NetConfig();
+            }
+
             string basePath = rootPath == ConfigRootPath.StreamingAssets
                 ? Application.streamingAssetsPath
                 : Application.persistentDataPath;
-
             string fullPath = Path.Combine(basePath, ConfigFolderName, ConfigFileName).Replace("\\", "/");
 
             if (!File.Exists(fullPath))
             {
-                NetLogger.LogWarning($"[NetConfigLoader]",$"  未找到配置文件 {fullPath}，将使用默认配置启动服务器。");
+                NetLogger.LogWarning($"[NetConfigLoader]", $"未找到配置文件 {fullPath}，将使用默认配置启动服务器。");
                 return new NetConfig();
             }
 
@@ -94,7 +96,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
             catch (Exception e)
             {
-                NetLogger.LogError($"[NetConfigLoader] ",$" 服务端同步读取配置异常: {e.Message}");
+                NetLogger.LogError($"[NetConfigLoader]", $"服务端同步读取配置异常: {e.Message}");
                 return new NetConfig();
             }
         }

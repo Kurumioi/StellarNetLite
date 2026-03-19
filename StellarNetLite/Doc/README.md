@@ -1,6 +1,6 @@
 ﻿# StellarNet Lite
 > 一个面向 Unity 中小型多人联机项目的轻量级房间网络框架  
-> 核心理念：**服务端权威、协议事件驱动、房间组件化、回放沙盒化、0反射自动装配**
+> 核心理念：**服务端权威、协议事件驱动、房间组件化、流式回放沙盒、0反射自动装配**
 
 ---
 
@@ -12,14 +12,15 @@
 - 需要长期维护的多人联机玩法
 
 **承载规模预估 (单服节点)**：
-基于 Unity 主线程 Tick 与 JSON 序列化的当前架构，单服理论承载约为 **100~300 CCU**。单房间支持 **4~16 人**（高频空间/动画同步，如交友房间）或 **50+ 人**（低频状态同步，如棋牌/回合制）。若需扩展至万人规模，需自行引入网关层与多节点调度。
+基于 Unity 主线程 Tick、**0GC ArrayPool 内存池**与**二进制/JSON混合序列化**的当前架构，单服理论承载约为 **100~300 CCU**。单房间支持 **4~16 人**（高频空间/动画同步，如交友房间）或 **50+ 人**（低频状态同步，如棋牌/回合制）。若需扩展至万人规模，需自行引入网关层与多节点调度。
 
 它不追求“黑盒自动同步”，而是强调：
 - **数据流转清晰可追踪**
 - **服务端绝对权威**
 - **客户端表现与业务彻底解耦 (MSV架构)**
 - **按房间组件横向扩展玩法**
-- **支持回放、重连、GC、配置化等生产级基础能力**
+- **支持流式回放、断线重连、GC、配置化等生产级基础能力**
+- **传输层彻底解耦 (INetworkTransport)，可无缝切换 Mirror/KCP/LiteNetLib**
 
 如果你正在开发这类项目：
 - 房间交友 / 社交元宇宙
@@ -43,8 +44,8 @@
 框架拒绝黑盒自动同步，所有状态变化都必须通过清晰协议流转：
 客户端请求 -> 服务端校验 -> 服务端修改状态 -> 服务端同步 -> 客户端刷新表现
 
-### 3. 强类型发送器统一发包
-业务层不再手拼 `Packet`，统一通过强类型入口发送：
+### 3. 强类型发送器与 0GC 发包
+业务层不再手拼 `Packet`，统一通过强类型入口发送。底层采用 `System.Buffers.ArrayPool` 实现零分配发包：
 - `NetClient.Send<T>()`
 - `ServerApp.SendMessageToSession<T>()`
 - `Room.BroadcastMessage<T>()`
@@ -52,15 +53,15 @@
 
 ### 4. 房间组件化与 0 反射自动装配 (Auto Registry)
 每个房间玩法都可以拆成独立 `Room Component`。
-只需为类打上 `[RoomComponent]` 或 `[GlobalModule]` 特性，点击编辑器菜单，框架会自动生成装配代码，彻底消灭硬编码注册。
+只需为类打上 `[RoomComponent]` 或 `[GlobalModule]` 特性，点击编辑器菜单，框架会自动生成装配代码，彻底消灭硬编码注册与运行时反射开销。
 核心收益是：> **新增一个玩法，优先横向加一个组件，绝对不需要修改核心网络管理类，完美符合开闭原则（OCP）。**
 
 ### 5. 客户端 Service / View 解耦
 客户端房间组件只负责接收网络同步并抛出事件。View 层只负责监听协议事件并刷新 UI。
 通过 `GlobalTypeNetEvent` 和 `Room.NetEventSystem` 实现 0GC 协议对象直抛。
 
-### 6. 回放沙盒模式
-内置 `ReplayRoom` 概念。回放是客户端本地重建出来的独立沙盒房间，自动隔离真实在线房间消息，保证状态纯净。支持 GZip 压缩与 UrlSafe Base64 零 I/O 读取。
+### 6. 流式回放沙盒模式
+内置 `ReplayRoom` 概念。回放是客户端本地重建出来的独立沙盒房间，自动隔离真实在线房间消息。底层采用 `FileStream` 分块下载与断点续传，结合 `GZipStream` 直接物理落盘，彻底杜绝大文件导致的 OOM (内存溢出)。
 
 ### 7. 断线重连与状态恢复
 框架支持：登录态恢复、房间重连确认、客户端先装配组件再接收快照、服务端按房间上下文定向恢复。
@@ -77,7 +78,6 @@
 ---
 
 ## 目录结构
-
 ```text
 Assets/StellarNetLite/
 ├── Runtime/
@@ -88,7 +88,7 @@ Assets/StellarNetLite/
 │   │   └── Binders/       (AutoRegistry 自动生成目录)
 │   ├── Server/
 │   ├── Client/
-│   └── StellarNetMirrorManager.cs
+│   └── StellarNetMirrorManager.cs (默认传输层实现)
 ├── Editor/
 │   ├── LiteProtocolScanner.cs
 │   ├── NetPrefabScanner.cs
@@ -102,7 +102,7 @@ Assets/StellarNetLite/
 ## 快速开始
 
 ### 1. 获取项目
-确保工程内已安装 Mirror 与 Newtonsoft.Json。
+确保工程内已安装 Mirror (作为默认底层) 与 Newtonsoft.Json。
 
 ### 2. 打开示例场景
 运行带有 `GameLauncher` 和 `StellarNetMirrorManager` 的测试场景。UI 路由由 `ClientUIRouter` 全局接管。
@@ -133,9 +133,9 @@ Assets/StellarNetLite/
 ---
 
 ## 文档入口
-
 建议阅读顺序：
 1. `README.md`
 2. `Docs/StellarNet Literal 功能说明文档.md`
 3. `Docs/StellarNet Lite 开发者使用手册 v1.0.md`
 4. `Docs/StellarNet Lite 快速接入指南.md`
+5. `Docs/StellarNet Lite 实体同步与业务开发指南.md`

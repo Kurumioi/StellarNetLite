@@ -1,9 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using Newtonsoft.Json;
+using System.Linq;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
-using UnityEngine;
 
 namespace StellarNet.Lite.Server.Core
 {
@@ -12,10 +11,10 @@ namespace StellarNet.Lite.Server.Core
         public GlobalDispatcher GlobalDispatcher { get; } = new GlobalDispatcher();
         public IReadOnlyDictionary<string, Room> Rooms => _rooms;
         public IReadOnlyDictionary<string, Session> Sessions => _sessions;
-
         public NetConfig Config { get; }
-        public Action<int, Packet> NetworkSender { get; }
-        public Func<object, byte[]> SerializeFunc { get; }
+
+        private readonly INetworkTransport _transport;
+        private readonly INetSerializer _serializer;
 
         private readonly Dictionary<string, Session> _sessions = new Dictionary<string, Session>();
         private readonly Dictionary<int, Session> _connectionToSession = new Dictionary<int, Session>();
@@ -26,10 +25,10 @@ namespace StellarNet.Lite.Server.Core
 
         private bool _isDisposed = false;
 
-        public ServerApp(Action<int, Packet> networkSender, Func<object, byte[]> serializeFunc, NetConfig config)
+        public ServerApp(INetworkTransport transport, INetSerializer serializer, NetConfig config)
         {
-            NetworkSender = networkSender;
-            SerializeFunc = serializeFunc;
+            _transport = transport;
+            _serializer = serializer;
             Config = config;
         }
 
@@ -37,6 +36,7 @@ namespace StellarNet.Lite.Server.Core
         {
             if (_isDisposed) return;
             _isDisposed = true;
+
             NetLogger.LogWarning("ServerApp", "执行 ServerApp 深度销毁与资源回收");
 
             foreach (var kvp in _rooms)
@@ -56,12 +56,12 @@ namespace StellarNet.Lite.Server.Core
 
             _gcRoomCache.Clear();
             _gcSessionCache.Clear();
-
             DateTime now = DateTime.UtcNow;
 
-            foreach (var kvp in _rooms)
+            var activeRooms = _rooms.Values.ToList();
+            for (int i = 0; i < activeRooms.Count; i++)
             {
-                var room = kvp.Value;
+                var room = activeRooms[i];
                 room.Tick();
 
                 if ((now - room.CreateTime).TotalHours >= Config.MaxRoomLifetimeHours)
@@ -82,9 +82,10 @@ namespace StellarNet.Lite.Server.Core
                 DestroyRoom(_gcRoomCache[i]);
             }
 
-            foreach (var kvp in _sessions)
+            var activeSessions = _sessions.Values.ToList();
+            for (int i = 0; i < activeSessions.Count; i++)
             {
-                var session = kvp.Value;
+                var session = activeSessions[i];
                 if (!session.IsOnline)
                 {
                     double offlineMinutes = (now - session.LastOfflineTime).TotalMinutes;
@@ -161,14 +162,9 @@ namespace StellarNet.Lite.Server.Core
         public void SendMessageToSession<T>(Session session, T msg) where T : class
         {
             if (_isDisposed) return;
-
             if (session == null || !session.IsOnline || msg == null)
             {
-                NetLogger.LogError("ServerApp", "发送失败: 参数存在空值或离线" +
-                                                $" Session: {session == null}" +
-                                                $" Message: {JsonConvert.SerializeObject(msg)}" +
-                                                $" IsOnline: {session?.IsOnline}",
-                    "-", session?.SessionId);
+                NetLogger.LogError("ServerApp", "发送失败: 参数存在空值或离线", "-", session?.SessionId);
                 return;
             }
 
@@ -184,11 +180,19 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            byte[] payload = SerializeFunc(msg);
-            string roomId = meta.Scope == NetScope.Room ? session.CurrentRoomId : string.Empty;
-            var packet = new Packet(0, meta.Id, meta.Scope, roomId, payload);
-
-            NetworkSender?.Invoke(session.ConnectionId, packet);
+            // 核心修复：将 Buffer 提升至 128KB，完美容纳 64KB 的录像分块数据
+            byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(131072);
+            try
+            {
+                int length = _serializer.Serialize(msg, buffer);
+                string roomId = meta.Scope == NetScope.Room ? session.CurrentRoomId : string.Empty;
+                var packet = new Packet(0, meta.Id, meta.Scope, roomId, buffer, length);
+                _transport?.SendToClient(session.ConnectionId, packet);
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
 
         public Room CreateRoom(string roomId)
@@ -196,7 +200,7 @@ namespace StellarNet.Lite.Server.Core
             if (_isDisposed || string.IsNullOrEmpty(roomId)) return null;
             if (_rooms.ContainsKey(roomId)) return null;
 
-            var room = new Room(roomId, SendPacketToConnection, SerializeFunc, Config);
+            var room = new Room(roomId, _transport, _serializer, Config);
             _rooms[roomId] = room;
             return room;
         }
@@ -222,8 +226,6 @@ namespace StellarNet.Lite.Server.Core
         {
             if (_isDisposed || session == null) return;
             _sessions[session.SessionId] = session;
-
-            // 核心修复：依赖 IsOnline 而非 ConnectionId >= 0
             if (session.IsOnline)
             {
                 _connectionToSession[session.ConnectionId] = session;
@@ -236,7 +238,6 @@ namespace StellarNet.Lite.Server.Core
             if (_sessions.TryGetValue(sessionId, out var session))
             {
                 _sessions.Remove(sessionId);
-                // 核心修复：直接移除字典映射，无需判断 ConnectionId 是否大于 0
                 _connectionToSession.Remove(session.ConnectionId);
             }
         }
@@ -251,12 +252,9 @@ namespace StellarNet.Lite.Server.Core
                 oldSession.MarkOffline();
             }
 
-            // 核心修复：先从字典中移除旧的 ConnectionId 映射
             _connectionToSession.Remove(session.ConnectionId);
-
             session.UpdateConnection(connectionId);
 
-            // 核心修复：依赖 IsOnline 而非 ConnectionId >= 0
             if (session.IsOnline)
             {
                 _connectionToSession[connectionId] = session;
@@ -271,8 +269,6 @@ namespace StellarNet.Lite.Server.Core
         public void UnbindConnection(Session session)
         {
             if (_isDisposed || session == null) return;
-
-            // 核心修复：依赖 IsOnline 而非 ConnectionId >= 0
             if (session.IsOnline)
             {
                 _connectionToSession.Remove(session.ConnectionId);
@@ -290,12 +286,6 @@ namespace StellarNet.Lite.Server.Core
             if (_isDisposed) return null;
             _connectionToSession.TryGetValue(connectionId, out var session);
             return session;
-        }
-
-        private void SendPacketToConnection(int connectionId, Packet packet)
-        {
-            if (_isDisposed) return;
-            NetworkSender?.Invoke(connectionId, packet);
         }
     }
 }

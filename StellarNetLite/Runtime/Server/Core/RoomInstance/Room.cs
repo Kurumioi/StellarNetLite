@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Server.Infrastructure;
-using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Server.Core
 {
@@ -20,6 +19,7 @@ namespace StellarNet.Lite.Server.Core
         public RoomConfigModel Config { get; } = new RoomConfigModel();
         public string RoomName => Config.RoomName;
         public RoomDispatcher Dispatcher { get; }
+
         public bool IsRecording { get; private set; }
         public int CurrentTick { get; private set; }
         public DateTime CreateTime { get; }
@@ -27,28 +27,28 @@ namespace StellarNet.Lite.Server.Core
         public int[] ComponentIds { get; private set; }
         public int MemberCount => _members.Count;
         public RoomState State { get; private set; } = RoomState.Waiting;
-        public ReplayFile LastReplay { get; private set; }
+
+        public string LastReplayId { get; private set; }
 
         private readonly Dictionary<string, Session> _members = new Dictionary<string, Session>();
         public IReadOnlyDictionary<string, Session> Members => _members;
 
         private readonly List<RoomComponent> _components = new List<RoomComponent>();
-        private readonly List<ReplayFrame> _recorder = new List<ReplayFrame>();
+        private readonly List<ITickableComponent> _tickableComponents = new List<ITickableComponent>();
 
-        private readonly Action<int, Packet> _sendToConnection;
-        private readonly Func<object, byte[]> _serializeFunc;
+        private readonly INetworkTransport _transport;
+        private readonly INetSerializer _serializer;
         private readonly NetConfig _netConfig;
 
-        private const int MaxReplayFrames = 108000;
         private int _finishedTickCount = 0;
         private int _recordStartTick = 0;
 
-        public Room(string roomId, Action<int, Packet> sendToConnection, Func<object, byte[]> serializeFunc, NetConfig config)
+        public Room(string roomId, INetworkTransport transport, INetSerializer serializer, NetConfig config)
         {
             RoomId = roomId;
             Dispatcher = new RoomDispatcher(roomId);
-            _sendToConnection = sendToConnection;
-            _serializeFunc = serializeFunc;
+            _transport = transport;
+            _serializer = serializer;
             _netConfig = config ?? new NetConfig();
             CreateTime = DateTime.UtcNow;
             EmptySince = DateTime.UtcNow;
@@ -67,6 +67,10 @@ namespace StellarNet.Lite.Server.Core
             if (component == null) return;
             component.Room = this;
             _components.Add(component);
+            if (component is ITickableComponent tickable)
+            {
+                _tickableComponents.Add(tickable);
+            }
         }
 
         public T GetComponent<T>() where T : RoomComponent
@@ -173,8 +177,9 @@ namespace StellarNet.Lite.Server.Core
         public void StartGame()
         {
             if (State != RoomState.Waiting) return;
+
             State = RoomState.Playing;
-            LastReplay = null;
+            LastReplayId = string.Empty;
             StartRecord();
 
             for (int i = 0; i < _components.Count; i++)
@@ -183,19 +188,17 @@ namespace StellarNet.Lite.Server.Core
             }
         }
 
-        // 核心修改：接收房主指定的录像名称
         public void EndGame(string replayDisplayName = "")
         {
             if (State != RoomState.Playing) return;
+
             State = RoomState.Finished;
             _finishedTickCount = 0;
 
             if (IsRecording)
             {
-                // 兜底逻辑：如果房主未命名，默认使用房间名称
                 string finalName = string.IsNullOrEmpty(replayDisplayName) ? Config.RoomName : replayDisplayName;
-                LastReplay = StopRecordAndSave(finalName);
-                ServerReplayStorage.SaveReplay(LastReplay, _netConfig);
+                LastReplayId = StopRecordAndSave(finalName, CurrentTick - _recordStartTick);
             }
 
             for (int i = 0; i < _components.Count; i++)
@@ -218,21 +221,31 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            byte[] payload = _serializeFunc(msg);
-            var packet = new Packet(0, meta.Id, meta.Scope, RoomId, payload);
-
-            if (recordToReplay)
+            // 核心修复：将 Buffer 提升至 128KB
+            byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(131072);
+            try
             {
-                RecordPacket(packet);
-            }
+                int length = _serializer.Serialize(msg, buffer);
+                var packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, length);
 
-            foreach (var kvp in _members)
-            {
-                var session = kvp.Value;
-                if (session.IsOnline && session.IsRoomReady)
+                if (recordToReplay && IsRecording)
                 {
-                    _sendToConnection?.Invoke(session.ConnectionId, packet);
+                    int relativeTick = CurrentTick - _recordStartTick;
+                    ServerReplayStorage.RecordFrame(RoomId, relativeTick, meta.Id, buffer, length);
                 }
+
+                foreach (var kvp in _members)
+                {
+                    var session = kvp.Value;
+                    if (session.IsOnline && session.IsRoomReady)
+                    {
+                        _transport?.SendToClient(session.ConnectionId, packet);
+                    }
+                }
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
             }
         }
 
@@ -252,74 +265,49 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            byte[] payload = _serializeFunc(msg);
-            var packet = new Packet(0, meta.Id, meta.Scope, RoomId, payload);
-
-            if (recordToReplay)
+            // 核心修复：将 Buffer 提升至 128KB
+            byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(131072);
+            try
             {
-                RecordPacket(packet);
-            }
+                int length = _serializer.Serialize(msg, buffer);
+                var packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, length);
 
-            _sendToConnection?.Invoke(session.ConnectionId, packet);
-        }
-
-        private void RecordPacket(Packet packet)
-        {
-            if (!IsRecording) return;
-
-            if (_recorder.Count < MaxReplayFrames)
-            {
-                byte[] payloadCopy;
-                if (packet.Payload == null || packet.Payload.Length == 0)
+                if (recordToReplay && IsRecording)
                 {
-                    payloadCopy = new byte[0];
-                }
-                else
-                {
-                    payloadCopy = new byte[packet.Payload.Length];
-                    Buffer.BlockCopy(packet.Payload, 0, payloadCopy, 0, packet.Payload.Length);
+                    int relativeTick = CurrentTick - _recordStartTick;
+                    ServerReplayStorage.RecordFrame(RoomId, relativeTick, meta.Id, buffer, length);
                 }
 
-                int relativeTick = CurrentTick - _recordStartTick;
-                _recorder.Add(new ReplayFrame(relativeTick, packet.MsgId, payloadCopy, RoomId));
+                _transport?.SendToClient(session.ConnectionId, packet);
             }
-            else
+            finally
             {
-                IsRecording = false;
-                NetLogger.LogWarning("Room", $"录像阻断: 录像帧数已达上限 {MaxReplayFrames}，自动停止录制", RoomId);
+                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
             }
         }
 
         public void StartRecord()
         {
             IsRecording = true;
-            _recorder.Clear();
             _recordStartTick = CurrentTick;
+            ServerReplayStorage.StartRecord(RoomId);
         }
 
-        // 核心修改：接收 DisplayName 并写入 ReplayFile
-        public ReplayFile StopRecordAndSave(string displayName)
+        public string StopRecordAndSave(string displayName, int totalTicks)
         {
             IsRecording = false;
-            var replayFile = new ReplayFile
-            {
-                ReplayId = Guid.NewGuid().ToString("N"),
-                DisplayName = displayName,
-                RoomId = this.RoomId,
-                ComponentIds = this.ComponentIds,
-                Frames = new List<ReplayFrame>(_recorder)
-            };
-            _recorder.Clear();
-            return replayFile;
+            string replayId = Guid.NewGuid().ToString("N");
+            ServerReplayStorage.StopRecordAndSave(RoomId, replayId, displayName, ComponentIds, _netConfig, totalTicks);
+            return replayId;
         }
 
         public void Tick()
         {
             CurrentTick++;
 
-            for (int i = 0; i < _components.Count; i++)
+            for (int i = 0; i < _tickableComponents.Count; i++)
             {
-                _components[i].OnTick();
+                _tickableComponents[i].OnTick();
             }
 
             if (State == RoomState.Finished)
@@ -331,7 +319,7 @@ namespace StellarNet.Lite.Server.Core
                     var sessionsToKick = new System.Collections.Generic.List<Session>(_members.Values);
                     foreach (var s in sessionsToKick)
                     {
-                        var kickMsg = new S2C_LeaveRoomResult { Success = true };
+                        var kickMsg = new StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult { Success = true };
                         SendMessageTo(s, kickMsg);
                         RemoveMember(s);
                     }
@@ -346,12 +334,18 @@ namespace StellarNet.Lite.Server.Core
                 EndGame();
             }
 
+            if (IsRecording)
+            {
+                ServerReplayStorage.AbortRecord(RoomId);
+            }
+
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnDestroy();
             }
 
             _components.Clear();
+            _tickableComponents.Clear();
 
             foreach (var kvp in _members)
             {
@@ -359,7 +353,6 @@ namespace StellarNet.Lite.Server.Core
             }
 
             _members.Clear();
-
             Dispatcher.Clear();
         }
     }

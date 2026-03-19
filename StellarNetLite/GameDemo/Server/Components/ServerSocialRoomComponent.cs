@@ -11,11 +11,10 @@ using StellarNet.Lite.Shared.Protocol;
 namespace StellarNet.Lite.Game.Server.Components
 {
     [RoomComponent(102, "SocialRoom", "简易交友房间")]
-    public sealed class ServerSocialRoomComponent : RoomComponent
+    public sealed class ServerSocialRoomComponent : RoomComponent, ITickableComponent
     {
         private readonly ServerApp _app;
         private ServerObjectSyncComponent _syncService;
-
         private readonly Dictionary<string, int> _sessionToNetId = new Dictionary<string, int>();
         private readonly Dictionary<int, float> _actionEndTimes = new Dictionary<int, float>();
 
@@ -24,7 +23,6 @@ namespace StellarNet.Lite.Game.Server.Components
         private static readonly int AnimHash_Walk = Animator.StringToHash("Walk");
         private static readonly int AnimHash_Wave = Animator.StringToHash("Wave");
         private static readonly int AnimHash_Dance = Animator.StringToHash("Dance");
-
         private const float PlayerMoveSpeed = 4.0f;
 
         public ServerSocialRoomComponent(ServerApp app)
@@ -42,10 +40,8 @@ namespace StellarNet.Lite.Game.Server.Components
         public override void OnGameStart()
         {
             if (_syncService == null) return;
-
             _sessionToNetId.Clear();
             _actionEndTimes.Clear();
-
             foreach (var kvp in Room.Members)
             {
                 SpawnPlayerForSession(kvp.Value);
@@ -55,7 +51,6 @@ namespace StellarNet.Lite.Game.Server.Components
         public override void OnMemberJoined(Session session)
         {
             if (session == null) return;
-
             if (Room.State == RoomState.Playing)
             {
                 SpawnPlayerForSession(session);
@@ -65,7 +60,6 @@ namespace StellarNet.Lite.Game.Server.Components
         public override void OnMemberLeft(Session session)
         {
             if (session == null) return;
-
             if (_sessionToNetId.TryGetValue(session.SessionId, out int netId))
             {
                 _syncService?.DestroyObject(netId);
@@ -91,22 +85,17 @@ namespace StellarNet.Lite.Game.Server.Components
         private void SpawnPlayerForSession(Session session)
         {
             if (_sessionToNetId.ContainsKey(session.SessionId)) return;
-
             Vector2 randomCircle = UnityEngine.Random.insideUnitCircle * 3f;
             Vector3 spawnPos = new Vector3(randomCircle.x, 0, randomCircle.y);
-
-            // 核心修改：显式声明该实体需要同步 Transform 和 Animator
             var syncEntity = _syncService.SpawnObject(PlayerPrefabHash, EntitySyncMask.All, spawnPos, Vector3.zero, Vector3.zero, session.SessionId);
             syncEntity.AnimStateHash = AnimHash_Idle;
             syncEntity.AnimNormalizedTime = 0f;
-
             _sessionToNetId.Add(session.SessionId, syncEntity.NetId);
         }
 
-        public override void OnTick()
+        public void OnTick()
         {
             if (Room.State != RoomState.Playing || _syncService == null) return;
-
             float deltaTime = 1f / _app.Config.TickRate;
             float currentTime = Time.realtimeSinceStartup;
 
@@ -118,7 +107,6 @@ namespace StellarNet.Lite.Game.Server.Components
                 if (playerSync.Velocity.sqrMagnitude > 0.01f)
                 {
                     playerSync.Position += playerSync.Velocity * deltaTime;
-
                     if (playerSync.AnimStateHash != AnimHash_Walk)
                     {
                         playerSync.AnimStateHash = AnimHash_Walk;
@@ -149,16 +137,14 @@ namespace StellarNet.Lite.Game.Server.Components
         {
             if (session == null || msg == null) return;
             if (Room.State != RoomState.Playing || _syncService == null) return;
-
             if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId)) return;
+
             var playerSync = _syncService.GetEntity(netId);
             if (playerSync == null) return;
 
             Vector3 inputDir = new Vector3(msg.DirX, 0, msg.DirZ);
             if (inputDir.sqrMagnitude > 1f) inputDir.Normalize();
-
             playerSync.Velocity = inputDir * PlayerMoveSpeed;
-
             if (inputDir.sqrMagnitude > 0.01f)
             {
                 playerSync.Rotation = Quaternion.LookRotation(inputDir).eulerAngles;
@@ -170,13 +156,12 @@ namespace StellarNet.Lite.Game.Server.Components
         {
             if (session == null || msg == null) return;
             if (Room.State != RoomState.Playing || _syncService == null) return;
-
             if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId)) return;
+
             var playerSync = _syncService.GetEntity(netId);
             if (playerSync == null) return;
 
             playerSync.Velocity = Vector3.zero;
-
             if (msg.ActionId == 1)
             {
                 playerSync.AnimStateHash = AnimHash_Wave;
@@ -196,11 +181,9 @@ namespace StellarNet.Lite.Game.Server.Components
         {
             if (session == null || msg == null || string.IsNullOrEmpty(msg.Content)) return;
             if (Room.State != RoomState.Playing) return;
-
             if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId)) return;
 
             string safeContent = msg.Content.Length > 30 ? msg.Content.Substring(0, 30) + "..." : msg.Content;
-
             var syncMsg = new S2C_SocialBubbleSync { NetId = netId, Content = safeContent };
             Room.BroadcastMessage(syncMsg, false);
         }

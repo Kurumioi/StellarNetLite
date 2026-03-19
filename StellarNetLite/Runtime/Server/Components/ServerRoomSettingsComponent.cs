@@ -60,6 +60,7 @@ namespace StellarNet.Lite.Server.Components
             if (session == null) return;
 
             _readyStates.Remove(session.SessionId);
+
             var msg = new S2C_MemberLeft { SessionId = session.SessionId };
             Room.BroadcastMessage(msg);
 
@@ -169,6 +170,7 @@ namespace StellarNet.Lite.Server.Components
             if (!_readyStates.ContainsKey(session.SessionId)) return;
 
             _readyStates[session.SessionId] = msg.IsReady;
+
             var notify = new S2C_MemberReadyChanged { SessionId = session.SessionId, IsReady = msg.IsReady };
             Room.BroadcastMessage(notify);
         }
@@ -197,10 +199,10 @@ namespace StellarNet.Lite.Server.Components
             if (session.SessionId != _ownerSessionId) return;
             if (Room.State != RoomState.Playing) return;
 
-            // 核心修复：必须先调用 EndGame 触发落盘，才能获取到 LastReplay.ReplayId
             Room.EndGame();
 
-            string rId = Room.LastReplay != null ? Room.LastReplay.ReplayId : string.Empty;
+            // 核心修复 P0-4：修正编译错误，使用正确的属性名 LastReplayId
+            string rId = Room.LastReplayId ?? string.Empty;
 
             var notify = new S2C_GameEnded
             {

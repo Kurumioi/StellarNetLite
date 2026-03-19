@@ -11,11 +11,21 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Modules
 {
-    public class ReplayDownloadTask
+    public class ReplayDownloadTask : IDisposable
     {
         public string ReplayId;
-        public byte[] FileData;
-        public int CurrentOffset;
+        public FileStream FS;
+        public long TotalLength;
+        public long CurrentOffset;
+
+        public void Dispose()
+        {
+            if (FS != null)
+            {
+                FS.Dispose();
+                FS = null;
+            }
+        }
     }
 
     [ServerModule("ServerReplayModule", "录像下载与分发模块")]
@@ -58,6 +68,7 @@ namespace StellarNet.Lite.Server.Modules
 
                         string rId = parts[0];
                         string dName = rId;
+                        int tTicks = 0;
 
                         if (parts.Length > 1)
                         {
@@ -74,11 +85,18 @@ namespace StellarNet.Lite.Server.Modules
                             }
                         }
 
+                        // 核心升级：0 I/O 解析文件命中携带的 TotalTicks
+                        if (parts.Length > 2)
+                        {
+                            int.TryParse(parts[2], out tTicks);
+                        }
+
                         replyList.Add(new ReplayBriefInfo
                         {
                             ReplayId = rId,
                             DisplayName = dName,
-                            Timestamp = new DateTimeOffset(f.CreationTimeUtc).ToUnixTimeSeconds()
+                            Timestamp = new DateTimeOffset(f.CreationTimeUtc).ToUnixTimeSeconds(),
+                            TotalTicks = tTicks
                         });
                     }
                 }
@@ -110,7 +128,6 @@ namespace StellarNet.Lite.Server.Modules
 
                 if (files.Length > 0)
                 {
-                    // 核心防御：时间窗口熔断。仅允许在录像生成后的 5 分钟内进行重命名，防止恶意玩家抓包篡改历史录像
                     if ((DateTime.UtcNow - files[0].CreationTimeUtc).TotalMinutes > 5)
                     {
                         NetLogger.LogWarning("ServerReplayModule", $"重命名拦截: 录像 {msg.ReplayId} 已超过5分钟修改保护期", "-", session.SessionId);
@@ -119,13 +136,17 @@ namespace StellarNet.Lite.Server.Modules
 
                     string oldPath = files[0].FullName;
                     string newName = string.IsNullOrEmpty(msg.NewName) ? "未命名录像" : msg.NewName;
-
                     string base64Name = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(newName));
                     string safeBase64Name = base64Name.Replace('+', '-').Replace('/', '_');
 
-                    string newPath = Path.Combine(folderPath, $"{msg.ReplayId}@{safeBase64Name}.replay").Replace("\\", "/");
+                    // 保持原有的 TotalTicks 后缀（如果存在）
+                    string nameWithoutExt = Path.GetFileNameWithoutExtension(files[0].Name);
+                    var parts = nameWithoutExt.Split('@');
+                    string ticksSuffix = parts.Length > 2 ? $"@{parts[2]}" : "";
 
+                    string newPath = Path.Combine(folderPath, $"{msg.ReplayId}@{safeBase64Name}{ticksSuffix}.replay").Replace("\\", "/");
                     File.Move(oldPath, newPath);
+
                     NetLogger.LogInfo("ServerReplayModule", $"录像重命名成功: {msg.ReplayId} -> {newName}", "-", session.SessionId);
                 }
             }
@@ -138,13 +159,17 @@ namespace StellarNet.Lite.Server.Modules
         [NetHandler]
         public void OnC2S_DownloadReplay(Session session, C2S_DownloadReplay msg)
         {
-            if (session == null || msg == null) return;
-            if (string.IsNullOrEmpty(msg.ReplayId)) return;
+            if (session == null || msg == null || string.IsNullOrEmpty(msg.ReplayId)) return;
 
             CleanupDeadTasks();
 
-            string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
+            if (_downloadTasks.TryGetValue(session.SessionId, out var oldTask))
+            {
+                oldTask.Dispose();
+                _downloadTasks.Remove(session.SessionId);
+            }
 
+            string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
             var files = new DirectoryInfo(folderPath).GetFiles($"{msg.ReplayId}@*.replay");
             if (files.Length == 0)
             {
@@ -167,38 +192,41 @@ namespace StellarNet.Lite.Server.Modules
             try
             {
                 string fullPath = files[0].FullName;
-                byte[] fileData = File.ReadAllBytes(fullPath);
+                var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                long totalLength = fs.Length;
+                long startOffset = msg.StartOffset;
 
-                int startOffset = msg.StartOffset;
-                if (startOffset < 0 || startOffset > fileData.Length)
+                if (startOffset < 0 || startOffset > totalLength)
                 {
                     startOffset = 0;
                 }
 
+                fs.Position = startOffset;
+
                 var task = new ReplayDownloadTask
                 {
                     ReplayId = msg.ReplayId,
-                    FileData = fileData,
+                    FS = fs,
+                    TotalLength = totalLength,
                     CurrentOffset = startOffset
                 };
-
                 _downloadTasks[session.SessionId] = task;
 
                 var startMsg = new S2C_DownloadReplayStart
                 {
                     Success = true,
                     ReplayId = msg.ReplayId,
-                    TotalBytes = fileData.Length,
-                    AcceptedOffset = startOffset,
+                    TotalBytes = (int)totalLength,
+                    AcceptedOffset = (int)startOffset,
                     Reason = string.Empty
                 };
-
                 _app.SendMessageToSession(session, startMsg);
+
                 SendNextChunk(session, task);
             }
             catch (Exception e)
             {
-                NetLogger.LogError("ServerReplayModule", $"读取录像文件异常: {e.Message}", "-", session.SessionId);
+                NetLogger.LogError("ServerReplayModule", $"打开录像文件流异常: {e.Message}", "-", session.SessionId);
                 var errorRes = new S2C_DownloadReplayStart { Success = false, ReplayId = msg.ReplayId, Reason = "服务器读取文件失败" };
                 _app.SendMessageToSession(session, errorRes);
             }
@@ -217,25 +245,49 @@ namespace StellarNet.Lite.Server.Modules
 
         private void SendNextChunk(Session session, ReplayDownloadTask task)
         {
-            int remaining = task.FileData.Length - task.CurrentOffset;
+            long remaining = task.TotalLength - task.CurrentOffset;
             if (remaining <= 0)
             {
+                task.Dispose();
                 _downloadTasks.Remove(session.SessionId);
                 return;
             }
 
-            int size = Math.Min(ChunkSize, remaining);
+            int size = (int)Math.Min(ChunkSize, remaining);
             byte[] chunk = new byte[size];
-            Buffer.BlockCopy(task.FileData, task.CurrentOffset, chunk, 0, size);
-            task.CurrentOffset += size;
 
-            var chunkMsg = new S2C_DownloadReplayChunk
+            try
             {
-                ReplayId = task.ReplayId,
-                ChunkData = chunk
-            };
+                int bytesRead = task.FS.Read(chunk, 0, size);
+                if (bytesRead <= 0)
+                {
+                    task.Dispose();
+                    _downloadTasks.Remove(session.SessionId);
+                    return;
+                }
 
-            _app.SendMessageToSession(session, chunkMsg);
+                task.CurrentOffset += bytesRead;
+
+                if (bytesRead < size)
+                {
+                    byte[] actualChunk = new byte[bytesRead];
+                    Buffer.BlockCopy(chunk, 0, actualChunk, 0, bytesRead);
+                    chunk = actualChunk;
+                }
+
+                var chunkMsg = new S2C_DownloadReplayChunk
+                {
+                    ReplayId = task.ReplayId,
+                    ChunkData = chunk
+                };
+                _app.SendMessageToSession(session, chunkMsg);
+            }
+            catch (Exception e)
+            {
+                NetLogger.LogError("ServerReplayModule", $"读取录像块异常: {e.Message}", "-", session.SessionId);
+                task.Dispose();
+                _downloadTasks.Remove(session.SessionId);
+            }
         }
 
         private void CleanupDeadTasks()
@@ -251,7 +303,11 @@ namespace StellarNet.Lite.Server.Modules
 
             foreach (var id in deadSessions)
             {
-                _downloadTasks.Remove(id);
+                if (_downloadTasks.TryGetValue(id, out var task))
+                {
+                    task.Dispose();
+                    _downloadTasks.Remove(id);
+                }
             }
         }
     }

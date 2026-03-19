@@ -15,18 +15,18 @@
 ---
 
 ## 1. 核心原理：ObjectSync 到底在干什么？
-
 在 StellarNet Lite 中，我们坚决弃用了 Mirror 原生的 `NetworkTransform` 和 `NetworkAnimator`。取而代之的是框架自带的 `ObjectSyncComponent` (双端组件)。
 
 ### 1.1 服务端权威 (ServerObjectSyncComponent)
 它是整个房间的“物理与动画真理中心”。
 - 负责分配全局唯一的 `NetId`。
 - 负责在内存中维护所有实体的 `Transform` (位置/旋转/缩放/速度) 和 `Animator` (状态哈希/归一化时间/BlendTree参数)。
-- 按照设定的 Tick 频率，将发生变化的实体状态打包成 `S2C_ObjectSync` 数组，全量/增量广播给客户端，并自动录入 Replay 录像。
+- 按照设定的 Tick 频率，将发生变化的实体状态打包成 `S2C_ObjectSync` 数组。
+- **性能核心**：该协议实现了 `ILiteNetSerializable` 接口，底层采用纯二进制流写入，彻底消除了 JSON 序列化带来的 GC 开销与带宽浪费。
 
 ### 1.2 客户端预测与缓存 (ClientObjectSyncComponent)
 它是客户端的“数据缓存池”。
-- 接收到同步包后，**不直接操作 GameObject**，而是将数据写入内存字典。
+- 接收到同步包后，底层通过 `ArraySegment` 的 Offset 切片进行 0GC 解析，**不直接操作 GameObject**，而是将数据写入内存字典。
 - 提供 `TryGetTransformData` 和 `TryGetAnimatorData` 接口，供表现层按需拉取。
 - 在两次同步包的间隔期间，利用服务端的下发的 `Velocity` (速度) 进行本地航位推测 (Dead Reckoning)，保证移动平滑。
 
@@ -40,7 +40,6 @@
 ---
 
 ## 2. 架构心智：为什么物理同步与业务逻辑要分离？
-
 **新手最容易犯的错误**：试图把怪物的血量 (HP)、玩家的背包数据，强行塞进 `ObjectSyncComponent` 里同步。
 
 **StellarNet Lite 的核心架构约束**：
@@ -56,7 +55,6 @@
 ---
 
 ## 3. 基础基建：预制体与表现层挂载
-
 在写代码前，必须先准备好客户端的表现层预制体。
 
 ### 步骤 1：制作预制体
@@ -73,13 +71,11 @@
 ---
 
 ## 4. 实战演练：从 0 到 1 开发“打怪闯关”玩法
-
 我们将开发一个 `DungeonComponent`（闯关组件）。
 **流程**：房主点击开始 -> 服务端生成怪物 -> 玩家发送攻击请求 -> 服务端扣血并同步 -> 血量归零服务端销毁怪物。
 
 ### 4.1 定义业务协议 (Shared 层)
 新建 `DungeonProtocols.cs`。注意，这里只定义业务数据，不定义位置信息。
-
 ```csharp
 using StellarNet.Lite.Shared.Core;
 
@@ -106,7 +102,6 @@ namespace StellarNet.Lite.Game.Shared.Protocol
 
 ### 4.2 编写服务端业务组件 (Server 层)
 新建 `ServerDungeonComponent.cs`。它将调用 `ServerObjectSyncComponent` 的 API 来生成物理实体，同时自己维护 HP 数据。
-
 ```csharp
 using System.Collections.Generic;
 using UnityEngine;
@@ -147,6 +142,7 @@ namespace StellarNet.Lite.Game.Server.Components
             
             // 游戏开始，生成一只怪物
             Vector3 spawnPos = new Vector3(0, 0, 5);
+            
             // 调用底座 API 生成实体，指定需要同步 Transform 和 Animator
             var monsterEntity = _syncService.SpawnObject(
                 NetPrefabConsts.NetPrefabs_Monster_Slime, 
@@ -155,7 +151,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 Vector3.zero, 
                 Vector3.zero
             );
-
+            
             // 记录业务数据
             _monsterHpDict[monsterEntity.NetId] = MaxMonsterHp;
             NetLogger.LogInfo("ServerDungeon", $"生成怪物成功，NetId: {monsterEntity.NetId}");
@@ -171,12 +167,12 @@ namespace StellarNet.Lite.Game.Server.Components
             
             // 1. 校验目标是否存在且存活
             if (!_monsterHpDict.TryGetValue(targetId, out int currentHp)) return;
-
+            
             // 2. 扣除血量 (权威逻辑)
             currentHp -= msg.Damage;
             if (currentHp < 0) currentHp = 0;
             _monsterHpDict[targetId] = currentHp;
-
+            
             // 3. 广播血量变化业务事件
             var hpMsg = new S2C_EntityHpChanged 
             { 
@@ -185,7 +181,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 MaxHp = MaxMonsterHp 
             };
             Room.BroadcastMessage(hpMsg);
-
+            
             // 4. 如果死亡，调用底座 API 销毁物理实体
             if (currentHp <= 0)
             {
@@ -210,7 +206,6 @@ namespace StellarNet.Lite.Game.Server.Components
 
 ### 4.3 编写客户端业务组件 (Client 层)
 新建 `ClientDungeonComponent.cs`。它只负责接收 HP 变化，并抛给 UI 层。怪物的生成和移动已经由底层的 `ObjectSpawnerView` 和 `NetTransformView` 自动处理了！
-
 ```csharp
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Client.Core;
@@ -233,7 +228,6 @@ namespace StellarNet.Lite.Game.Client.Components
         public void OnS2C_EntityHpChanged(S2C_EntityHpChanged msg)
         {
             if (msg == null) return;
-            
             // 0GC 直抛给表现层。View 层（如怪物头顶的血条 UI）监听此事件进行刷新
             Room.NetEventSystem.Broadcast(msg);
         }
@@ -243,7 +237,6 @@ namespace StellarNet.Lite.Game.Client.Components
 
 ### 4.4 表现层交互 (View 层)
 在客户端的玩家控制器脚本中，采集输入并发送攻击请求：
-
 ```csharp
 // 伪代码：玩家点击鼠标左键，射线检测点中怪物
 if (Input.GetMouseButtonDown(0))
@@ -271,7 +264,6 @@ if (Input.GetMouseButtonDown(0))
 ---
 
 ## 5. 进阶品类扩展思路 (生存建造 / 赛车竞速)
-
 掌握了上述 MSV 解耦心智后，任何品类都可以轻松扩展。
 
 ### 5.1 生存建造类 (如饥荒、Minecraft)
@@ -292,7 +284,6 @@ if (Input.GetMouseButtonDown(0))
 ---
 
 ## 6. 避坑与终极排障指南
-
 在使用 `ObjectSyncComponent` 时，如果遇到表现异常，请按以下顺序排查：
 
 ### 坑 1：服务端调用了 SpawnObject，但客户端没生成模型？

@@ -2,71 +2,168 @@
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Collections.Generic;
 using UnityEngine;
-using Newtonsoft.Json;
-using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Infrastructure
 {
-    /// <summary>
-    /// 服务端录像存储服务。
-    /// 核心重构：引入 UrlSafe Base64 文件名编码，实现 0 I/O 的元数据读取。
-    /// </summary>
     public static class ServerReplayStorage
     {
         public const string ReplayFolderName = "Replays";
+        private const uint MagicBytes = 0x50455253; // "SREP"
 
-        public static void SaveReplay(ReplayFile replay, NetConfig config)
+        private class RecordContext
         {
-            if (replay == null || config == null)
-            {
-                NetLogger.LogError("[ServerReplayStorage] ", $" 保存失败: 传入的录像文件或配置为空");
-                return;
-            }
+            public FileStream FS;
+            public GZipStream GZ;
+            public BinaryWriter Writer;
+            public string TempFilePath;
+        }
 
-            if (string.IsNullOrEmpty(replay.ReplayId))
-            {
-                NetLogger.LogError("[ServerReplayStorage] ", $" 保存失败: ReplayId 为空");
-                return;
-            }
+        private static readonly Dictionary<string, RecordContext> _activeRecords = new Dictionary<string, RecordContext>();
+
+        public static void StartRecord(string roomId)
+        {
+            if (string.IsNullOrEmpty(roomId)) return;
 
             string basePath = Application.persistentDataPath;
             string folderPath = Path.Combine(basePath, ReplayFolderName).Replace("\\", "/");
+            if (!Directory.Exists(folderPath))
+            {
+                Directory.CreateDirectory(folderPath);
+            }
+
+            string tempPath = Path.Combine(folderPath, $"{roomId}_temp.replay").Replace("\\", "/");
 
             try
             {
-                if (!Directory.Exists(folderPath))
+                var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                var gz = new GZipStream(fs, CompressionMode.Compress, true);
+                var writer = new BinaryWriter(gz);
+
+                _activeRecords[roomId] = new RecordContext
                 {
-                    Directory.CreateDirectory(folderPath);
+                    FS = fs,
+                    GZ = gz,
+                    Writer = writer,
+                    TempFilePath = tempPath
+                };
+            }
+            catch (Exception e)
+            {
+                NetLogger.LogError("[ServerReplayStorage]", $"启动流式录制异常: {e.Message}", roomId);
+            }
+        }
+
+        public static void RecordFrame(string roomId, int tick, int msgId, byte[] payloadBuffer, int payloadLength)
+        {
+            if (!_activeRecords.TryGetValue(roomId, out var ctx)) return;
+
+            try
+            {
+                ctx.Writer.Write(tick);
+                ctx.Writer.Write(msgId);
+                ctx.Writer.Write(payloadLength);
+
+                if (payloadLength > 0 && payloadBuffer != null)
+                {
+                    ctx.Writer.Write(payloadBuffer, 0, payloadLength);
+                }
+            }
+            catch (Exception e)
+            {
+                NetLogger.LogError("[ServerReplayStorage]", $"写入帧数据异常: {e.Message}", roomId);
+            }
+        }
+
+        // 核心升级：接收 totalTicks 参数，并将其写入 Version 2 格式的 Header 与文件名中
+        public static void StopRecordAndSave(string roomId, string replayId, string displayName, int[] componentIds, NetConfig config, int totalTicks)
+        {
+            if (!_activeRecords.TryGetValue(roomId, out var ctx)) return;
+
+            _activeRecords.Remove(roomId);
+
+            try
+            {
+                ctx.Writer.Dispose();
+                ctx.GZ.Dispose();
+                ctx.FS.Dispose();
+
+                string folderPath = Path.Combine(Application.persistentDataPath, ReplayFolderName).Replace("\\", "/");
+                string safeBase64Name = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(displayName))
+                    .Replace('+', '-').Replace('/', '_');
+
+                string finalPath = Path.Combine(folderPath, $"{replayId}@{safeBase64Name}@{totalTicks}.replay").Replace("\\", "/");
+
+                using (var finalFs = new FileStream(finalPath, FileMode.Create, FileAccess.Write))
+                {
+                    byte[] headerBytes;
+                    using (var ms = new MemoryStream())
+                    using (var headerWriter = new BinaryWriter(ms))
+                    {
+                        headerWriter.Write(MagicBytes);
+                        headerWriter.Write((byte)2);
+                        headerWriter.Write(displayName ?? "");
+                        headerWriter.Write(roomId ?? "");
+
+                        int compCount = componentIds?.Length ?? 0;
+                        headerWriter.Write(compCount);
+                        for (int i = 0; i < compCount; i++)
+                        {
+                            headerWriter.Write(componentIds[i]);
+                        }
+
+                        headerWriter.Write(totalTicks);
+                        headerWriter.Flush();
+                        headerBytes = ms.ToArray();
+                    }
+
+                    byte[] lengthBytes = BitConverter.GetBytes(headerBytes.Length);
+                    finalFs.Write(lengthBytes, 0, 4);
+                    finalFs.Write(headerBytes, 0, headerBytes.Length);
+
+                    using (var tempFs = new FileStream(ctx.TempFilePath, FileMode.Open, FileAccess.Read))
+                    {
+                        tempFs.CopyTo(finalFs);
+                    }
                 }
 
-                // 核心重构：对 DisplayName 进行 UrlSafe Base64 编码，防止破坏文件系统
-                string displayName = string.IsNullOrEmpty(replay.DisplayName) ? "未命名录像" : replay.DisplayName;
-                string base64Name = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(displayName));
-                // 替换标准 Base64 中的特殊字符，使其变为 UrlSafe
-                string safeBase64Name = base64Name.Replace('+', '-').Replace('/', '_');
-
-                // 物理文件名格式：{ReplayId}@{SafeBase64Name}.replay
-                string fileName = $"{replay.ReplayId}@{safeBase64Name}.replay";
-                string fullPath = Path.Combine(folderPath, fileName).Replace("\\", "/");
-
-                string json = JsonConvert.SerializeObject(replay, Formatting.None);
-                byte[] jsonBytes = System.Text.Encoding.UTF8.GetBytes(json);
-
-                using (FileStream fs = new FileStream(fullPath, FileMode.Create))
-                using (GZipStream gz = new GZipStream(fs, CompressionMode.Compress))
+                // 核心修复：防御性删除，杜绝无意义的死代码引发异常
+                if (File.Exists(ctx.TempFilePath))
                 {
-                    gz.Write(jsonBytes, 0, jsonBytes.Length);
+                    File.Delete(ctx.TempFilePath);
                 }
 
-                NetLogger.LogInfo($"[ServerReplayStorage] ", $" 录像压缩保存成功: {fileName}, 帧数: {replay.Frames.Count}");
-
+                NetLogger.LogInfo("[ServerReplayStorage]", $"流式录像保存成功: {replayId}@{safeBase64Name}@{totalTicks}.replay", roomId);
                 EnforceRollingLimit(folderPath, config.MaxReplayFiles);
             }
             catch (Exception e)
             {
-                NetLogger.LogError($"[ServerReplayStorage] ", $" 录像保存异常: {e.Message}");
+                NetLogger.LogError("[ServerReplayStorage]", $"合并录像文件异常: {e.Message}", roomId);
+            }
+        }
+
+        public static void AbortRecord(string roomId)
+        {
+            if (!_activeRecords.TryGetValue(roomId, out var ctx)) return;
+
+            _activeRecords.Remove(roomId);
+
+            try
+            {
+                ctx.Writer.Dispose();
+                ctx.GZ.Dispose();
+                ctx.FS.Dispose();
+
+                if (File.Exists(ctx.TempFilePath))
+                {
+                    File.Delete(ctx.TempFilePath);
+                }
+            }
+            catch (Exception e)
+            {
+                NetLogger.LogError("[ServerReplayStorage]", $"中止录像异常: {e.Message}", roomId);
             }
         }
 
@@ -79,21 +176,18 @@ namespace StellarNet.Lite.Server.Infrastructure
                 var dirInfo = new DirectoryInfo(folderPath);
                 var files = dirInfo.GetFiles("*.replay");
 
-                if (files.Length <= maxFiles)
-                {
-                    return;
-                }
+                if (files.Length <= maxFiles) return;
 
                 var sortedFiles = files.OrderByDescending(f => f.CreationTimeUtc).ToList();
                 for (int i = maxFiles; i < sortedFiles.Count; i++)
                 {
                     sortedFiles[i].Delete();
-                    NetLogger.LogInfo($"[ServerReplayStorage] ", $" 滚动清理: 已删除过期录像文件 {sortedFiles[i].Name}");
+                    NetLogger.LogInfo("[ServerReplayStorage]", $"滚动清理: 已删除过期录像文件 {sortedFiles[i].Name}");
                 }
             }
             catch (Exception e)
             {
-                NetLogger.LogError($"[ServerReplayStorage] ", $" 滚动清理异常: {e.Message}");
+                NetLogger.LogError("[ServerReplayStorage]", $"滚动清理异常: {e.Message}");
             }
         }
     }

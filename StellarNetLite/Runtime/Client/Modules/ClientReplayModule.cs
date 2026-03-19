@@ -1,7 +1,5 @@
 ﻿using System;
 using System.IO;
-using System.IO.Compression;
-using System.Text;
 using UnityEngine;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
@@ -33,30 +31,20 @@ namespace StellarNet.Lite.Client.Modules
                 Directory.CreateDirectory(CacheFolderPath);
             }
 
-            // 核心修复：客户端本地缓存也统一使用 .replay 后缀，存储压缩后的二进制流
             string finalPath = Path.Combine(CacheFolderPath, $"{replayId}.replay").Replace("\\", "/");
             string tmpPath = Path.Combine(CacheFolderPath, $"{replayId}.tmp").Replace("\\", "/");
 
             if (File.Exists(finalPath))
             {
-                NetLogger.LogInfo("ClientReplayModule", $"命中本地缓存，直接读取并解压录像: {replayId}");
-                try
+                NetLogger.LogInfo("ClientReplayModule", $"命中本地缓存，直接加载录像: {replayId}");
+                GlobalTypeNetEvent.Broadcast(new S2C_DownloadReplayResult
                 {
-                    string json = DecompressReplayFile(finalPath);
-                    GlobalTypeNetEvent.Broadcast(new S2C_DownloadReplayResult
-                    {
-                        Success = true,
-                        ReplayId = replayId,
-                        ReplayFileData = json,
-                        Reason = string.Empty
-                    });
-                    return;
-                }
-                catch (Exception e)
-                {
-                    NetLogger.LogError("ClientReplayModule", $"读取本地缓存解压失败，将重新下载: {e.Message}");
-                    File.Delete(finalPath);
-                }
+                    Success = true,
+                    ReplayId = replayId,
+                    ReplayFileData = finalPath, // 核心修改：传递文件路径，而非全量 JSON 字符串
+                    Reason = string.Empty
+                });
+                return;
             }
 
             int startOffset = 0;
@@ -69,38 +57,17 @@ namespace StellarNet.Lite.Client.Modules
             app.SendMessage(new C2S_DownloadReplay { ReplayId = replayId, StartOffset = startOffset });
         }
 
-        // 核心新增：从磁盘读取 .replay 二进制文件并在内存中 GZip 解压为 JSON 字符串
-        private static string DecompressReplayFile(string filePath)
-        {
-            byte[] compressedData = File.ReadAllBytes(filePath);
-            using (MemoryStream ms = new MemoryStream(compressedData))
-            using (GZipStream gz = new GZipStream(ms, CompressionMode.Decompress))
-            using (StreamReader reader = new StreamReader(gz, Encoding.UTF8))
-            {
-                return reader.ReadToEnd();
-            }
-        }
-
         [NetHandler]
         public void OnS2C_ReplayList(S2C_ReplayList msg)
         {
-            if (msg == null)
-            {
-                NetLogger.LogError("ClientReplayModule", "收到非法同步包: Msg 为空");
-                return;
-            }
-
+            if (msg == null) return;
             GlobalTypeNetEvent.Broadcast(msg);
         }
 
         [NetHandler]
         public void OnS2C_DownloadReplayStart(S2C_DownloadReplayStart msg)
         {
-            if (msg == null)
-            {
-                NetLogger.LogError("ClientReplayModule", "收到非法同步包: Msg 为空");
-                return;
-            }
+            if (msg == null) return;
 
             CloseFileStream();
 
@@ -118,7 +85,6 @@ namespace StellarNet.Lite.Client.Modules
 
             _downloadingReplayId = msg.ReplayId;
             _expectedTotalBytes = msg.TotalBytes;
-
             string tmpPath = Path.Combine(CacheFolderPath, $"{msg.ReplayId}.tmp").Replace("\\", "/");
 
             try
@@ -126,11 +92,9 @@ namespace StellarNet.Lite.Client.Modules
                 if (msg.AcceptedOffset == 0 && File.Exists(tmpPath))
                 {
                     File.Delete(tmpPath);
-                    NetLogger.LogWarning("ClientReplayModule", "服务端重置了偏移量，已清空本地临时脏数据，重新下载");
                 }
 
                 _fileStream = new FileStream(tmpPath, FileMode.Append, FileAccess.Write, FileShare.None);
-                NetLogger.LogInfo("ClientReplayModule", $"开始接收录像流: {msg.ReplayId}, 总大小: {msg.TotalBytes} bytes, 当前本地大小: {_fileStream.Length} bytes");
 
                 if (_fileStream.Length >= _expectedTotalBytes)
                 {
@@ -147,17 +111,8 @@ namespace StellarNet.Lite.Client.Modules
         [NetHandler]
         public void OnS2C_DownloadReplayChunk(S2C_DownloadReplayChunk msg)
         {
-            if (msg == null || msg.ChunkData == null)
-            {
-                NetLogger.LogError("ClientReplayModule", "收到非法同步包: Msg 或 ChunkData 为空");
-                return;
-            }
-
-            if (msg.ReplayId != _downloadingReplayId || _fileStream == null)
-            {
-                NetLogger.LogWarning("ClientReplayModule", $"收到非当前下载任务的 Chunk，已忽略。当前任务: {_downloadingReplayId}, 收到: {msg.ReplayId}");
-                return;
-            }
+            if (msg == null || msg.ChunkData == null) return;
+            if (msg.ReplayId != _downloadingReplayId || _fileStream == null) return;
 
             try
             {
@@ -181,7 +136,6 @@ namespace StellarNet.Lite.Client.Modules
 
         private void FinishDownload(string replayId)
         {
-            NetLogger.LogInfo("ClientReplayModule", $"录像 {replayId} 接收完毕，开始解压装配并派发给 UI");
             CloseFileStream();
 
             string tmpPath = Path.Combine(CacheFolderPath, $"{replayId}.tmp").Replace("\\", "/");
@@ -190,26 +144,15 @@ namespace StellarNet.Lite.Client.Modules
             if (File.Exists(finalPath)) File.Delete(finalPath);
             File.Move(tmpPath, finalPath);
 
-            try
-            {
-                // 核心修复：落盘完成后，立刻在内存中解压出 JSON 抛给 UI
-                string json = DecompressReplayFile(finalPath);
-                _downloadingReplayId = null;
+            _downloadingReplayId = null;
 
-                GlobalTypeNetEvent.Broadcast(new S2C_DownloadReplayResult
-                {
-                    Success = true,
-                    ReplayId = replayId,
-                    ReplayFileData = json,
-                    Reason = string.Empty
-                });
-            }
-            catch (Exception e)
+            GlobalTypeNetEvent.Broadcast(new S2C_DownloadReplayResult
             {
-                NetLogger.LogError("ClientReplayModule", $"下载完成但解压失败: {e.Message}");
-                File.Delete(finalPath);
-                _downloadingReplayId = null;
-            }
+                Success = true,
+                ReplayId = replayId,
+                ReplayFileData = finalPath, // 传递文件路径
+                Reason = string.Empty
+            });
         }
 
         private void CloseFileStream()

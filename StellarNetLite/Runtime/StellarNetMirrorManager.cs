@@ -13,55 +13,62 @@ using StellarNet.Lite.Client.Infrastructure;
 
 namespace StellarNet.Lite.Shared.Infrastructure
 {
-    public class StellarNetMirrorManager : NetworkManager
+    public class StellarNetMirrorManager : NetworkManager, INetworkTransport
     {
-        public Func<object, byte[]> SerializeFunc { get; private set; }
-        public Func<byte[], Type, object> DeserializeFunc { get; private set; }
-
+        public INetSerializer Serializer { get; private set; }
         private NetConfig _netConfig;
 
         public override void Awake()
         {
             base.Awake();
-            var serializer = new JsonNetSerializer();
-            SerializeFunc = serializer.Serialize;
-            DeserializeFunc = serializer.Deserialize;
+
+            Serializer = new LiteNetSerializer();
 
             _netConfig = NetConfigLoader.LoadServerConfigSync(ConfigRootPath.StreamingAssets);
+            ApplyConfigInternal(_netConfig);
 
-            // 核心修复：将配置中的参数强制注入到 Mirror 底层
-            this.maxConnections = _netConfig.MaxConnections;
-            this.networkAddress = _netConfig.Ip; // 客户端连接目标 IP
+            NetMessageMapper.Initialize();
 
-            // 动态修改 Transport 端口 (兼容 Kcp, Telepathy 等主流传输层)
+            // 核心修复 P0-3：适配新的委托签名，增加 offset 参数
+            Func<byte[], int, int, Type, object> deserializeFunc = Serializer.Deserialize;
+
+            ServerRoomFactory.ComponentBinder = (comp, dispatcher) =>
+                AutoRegistry.BindServerComponent(comp, dispatcher, deserializeFunc);
+            ClientRoomFactory.ComponentBinder = (comp, dispatcher) =>
+                AutoRegistry.BindClientComponent(comp, dispatcher, deserializeFunc);
+        }
+
+        public void ApplyConfig(NetConfig config)
+        {
+            if (config == null) return;
+            _netConfig = config;
+            ApplyConfigInternal(_netConfig);
+        }
+
+        private void ApplyConfigInternal(NetConfig config)
+        {
+            this.maxConnections = config.MaxConnections;
+            this.networkAddress = config.Ip;
+
             var transport = GetComponent<Transport>();
             if (transport is PortTransport portTransport)
             {
-                portTransport.Port = _netConfig.Port;
-                NetLogger.LogInfo("StellarNetManager", $"已将底层传输端口动态设置为: {_netConfig.Port}, 目标 IP: {_netConfig.Ip}");
+                portTransport.Port = config.Port;
+                NetLogger.LogInfo("StellarNetManager", $"已将底层传输端口动态设置为: {config.Port}, 目标 IP: {config.Ip}");
             }
             else if (transport != null)
             {
-                // 兼容某些未实现 PortTransport 接口的老版本组件，尝试反射注入
                 var portField = transport.GetType().GetField("port") ?? transport.GetType().GetField("Port");
                 if (portField != null)
                 {
-                    portField.SetValue(transport, _netConfig.Port);
-                    NetLogger.LogInfo("StellarNetManager", $"已通过反射将底层传输端口设置为: {_netConfig.Port}, 目标 IP: {_netConfig.Ip}");
+                    portField.SetValue(transport, config.Port);
+                    NetLogger.LogInfo("StellarNetManager", $"已通过反射将底层传输端口设置为: {config.Port}, 目标 IP: {config.Ip}");
                 }
                 else
                 {
                     NetLogger.LogWarning("StellarNetManager", $"当前使用的 Transport ({transport.GetType().Name}) 无法自动设置端口，请在 Inspector 中手动配置。");
                 }
             }
-
-            NetMessageMapper.Initialize();
-
-            ServerRoomFactory.ComponentBinder = (comp, dispatcher) =>
-                AutoRegistry.BindServerComponent(comp, dispatcher, DeserializeFunc);
-
-            ClientRoomFactory.ComponentBinder = (comp, dispatcher) =>
-                AutoRegistry.BindClientComponent(comp, dispatcher, DeserializeFunc);
         }
 
         private void FixedUpdate()
@@ -72,7 +79,40 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
         }
 
-        #region 服务端专属
+        #region ================= INetworkTransport 接口实现 =================
+
+        public void SendToServer(Packet packet)
+        {
+            if (NetworkClient.ready)
+            {
+                NetworkClient.Send(new MirrorPacketMsg(packet));
+            }
+        }
+
+        public void SendToClient(int connectionId, Packet packet)
+        {
+            if (NetworkServer.connections.TryGetValue(connectionId, out var conn))
+            {
+                conn.Send(new MirrorPacketMsg(packet));
+            }
+        }
+
+        public void DisconnectClient(int connectionId)
+        {
+            if (NetworkServer.connections.TryGetValue(connectionId, out var conn))
+            {
+                conn.Disconnect();
+            }
+        }
+
+        public float GetRTT()
+        {
+            return (float)NetworkTime.rtt;
+        }
+
+        #endregion
+
+        #region ================= 服务端专属 =================
 
         public ServerApp ServerApp { get; private set; }
 
@@ -86,8 +126,10 @@ namespace StellarNet.Lite.Shared.Infrastructure
             base.OnStartServer();
             NetworkServer.tickRate = _netConfig.TickRate;
 
-            ServerApp = new ServerApp(MirrorServerSend, SerializeFunc, _netConfig);
-            AutoRegistry.RegisterServer(ServerApp, DeserializeFunc);
+            ServerApp = new ServerApp(this, Serializer, _netConfig);
+
+            Func<byte[], int, int, Type, object> deserializeFunc = Serializer.Deserialize;
+            AutoRegistry.RegisterServer(ServerApp, deserializeFunc);
 
             NetworkServer.RegisterHandler<MirrorPacketMsg>(OnServerReceivePacket, false);
             NetLogger.LogInfo("StellarNetManager", $"服务端装配完毕，开始监听网络请求。TickRate: {NetworkServer.tickRate}");
@@ -98,7 +140,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             OnServerStoppedEvent?.Invoke();
             NetLogger.LogInfo("StellarNetManager", "服务端物理节点已停止运行");
-
             if (ServerApp != null)
             {
                 ServerApp.Dispose();
@@ -106,7 +147,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
 
             ServerRoomFactory.Clear();
-
             base.OnStopServer();
         }
 
@@ -133,14 +173,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
             base.OnServerDisconnect(conn);
         }
 
-        private void MirrorServerSend(int connId, Packet packet)
-        {
-            if (NetworkServer.connections.TryGetValue(connId, out var conn))
-            {
-                conn.Send(new MirrorPacketMsg(packet));
-            }
-        }
-
         private void OnServerReceivePacket(NetworkConnectionToClient conn, MirrorPacketMsg msg)
         {
             ServerApp?.OnReceivePacket(conn.connectionId, msg.ToPacket());
@@ -148,10 +180,11 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         #endregion
 
-        #region 客户端专属
+        #region ================= 客户端专属 =================
 
         public ClientApp ClientApp { get; private set; }
         public ClientNetworkMonitor NetworkMonitor { get; private set; }
+
         private Coroutine _reconnectCoroutine;
 
         public static event Action OnClientStartedEvent;
@@ -162,12 +195,14 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public override void OnStartClient()
         {
             base.OnStartClient();
-
             if (ClientApp == null)
             {
-                ClientApp = new ClientApp(MirrorClientSend, SerializeFunc);
+                ClientApp = new ClientApp(this, Serializer);
                 NetClient.Initialize(ClientApp);
-                AutoRegistry.RegisterClient(ClientApp, DeserializeFunc);
+
+                Func<byte[], int, int, Type, object> deserializeFunc = Serializer.Deserialize;
+                AutoRegistry.RegisterClient(ClientApp, deserializeFunc);
+
                 NetworkClient.RegisterHandler<MirrorPacketMsg>(OnClientReceivePacket, false);
             }
 
@@ -176,7 +211,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 NetworkMonitor = gameObject.AddComponent<ClientNetworkMonitor>();
             }
 
-            NetworkMonitor.Init(ClientApp);
+            NetworkMonitor.Init(ClientApp, this);
 
             NetLogger.LogInfo("StellarNetManager", "客户端装配完毕，准备就绪。");
             OnClientStartedEvent?.Invoke();
@@ -186,7 +221,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             OnClientStoppedEvent?.Invoke();
             NetLogger.LogInfo("StellarNetManager", "客户端物理节点已停止运行");
-
             if (_reconnectCoroutine != null)
             {
                 StopCoroutine(_reconnectCoroutine);
@@ -201,7 +235,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
 
             ClientRoomFactory.Clear();
-
             base.OnStopClient();
         }
 
@@ -239,7 +272,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 {
                     NetLogger.LogWarning("StellarNetManager", "物理连接意外断开，触发软挂起与自动重试机制");
                     ClientApp.SuspendConnection();
-
                     if (_reconnectCoroutine != null) StopCoroutine(_reconnectCoroutine);
                     _reconnectCoroutine = StartCoroutine(ReconnectionRoutine());
                 }
@@ -298,18 +330,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public void RestartReconnectionRoutine()
         {
             if (ClientApp == null || ClientApp.State != ClientAppState.ConnectionSuspended) return;
-
             ClientApp.Session.LastDisconnectRealtime = DateTime.UtcNow;
             if (_reconnectCoroutine != null) StopCoroutine(_reconnectCoroutine);
             _reconnectCoroutine = StartCoroutine(ReconnectionRoutine());
-        }
-
-        private void MirrorClientSend(Packet packet)
-        {
-            if (NetworkClient.ready)
-            {
-                NetworkClient.Send(new MirrorPacketMsg(packet));
-            }
         }
 
         private void OnClientReceivePacket(MirrorPacketMsg msg)

@@ -30,6 +30,7 @@ public class Panel_StellarNetLobby : UIPanelBase
     [SerializeField] private GameObject replayItemPrefab;
 
     [SerializeField] private Panel_StellarNetLobbyData dataModel;
+
     private string _downloadingReplayId = string.Empty;
 
     public override void OnInit()
@@ -42,6 +43,9 @@ public class Panel_StellarNetLobby : UIPanelBase
 
         GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse).UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList).UnRegisterWhenGameObjectDestroyed(gameObject);
+
+        // 修复：监听下载结果，防止网络波动导致防抖锁死锁
+        GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnS2C_DownloadReplayResult).UnRegisterWhenGameObjectDestroyed(gameObject);
     }
 
     private void OnDestroy()
@@ -55,6 +59,7 @@ public class Panel_StellarNetLobby : UIPanelBase
     public override async UniTask OnOpen(object uiData = null)
     {
         await base.OnOpen(uiData);
+
         if (uiData is Panel_StellarNetLobbyData data)
         {
             dataModel = data;
@@ -111,6 +116,7 @@ public class Panel_StellarNetLobby : UIPanelBase
     private void OnS2C_ReplayList(S2C_ReplayList msg)
     {
         if (replayListContent == null || replayItemPrefab == null) return;
+
         replayListContent.ClearChildren();
 
         if (msg.Replays == null || msg.Replays.Length == 0) return;
@@ -125,7 +131,6 @@ public class Panel_StellarNetLobby : UIPanelBase
 
             if (text != null)
             {
-                // 修复：渲染可读的 DisplayName 和时间戳
                 DateTime dt = DateTimeOffset.FromUnixTimeSeconds(replay.Timestamp).LocalDateTime;
                 text.text = $"[{dt:MM-dd HH:mm}] {replay.DisplayName}";
             }
@@ -136,10 +141,29 @@ public class Panel_StellarNetLobby : UIPanelBase
                 btn.onClick.AddListener(() =>
                 {
                     if (!string.IsNullOrEmpty(_downloadingReplayId)) return;
+
                     _downloadingReplayId = rId;
                     StellarNet.Lite.Client.Modules.ClientReplayModule.RequestDownload(NetClient.App, rId);
+
                     if (text != null) text.text = $"{replay.DisplayName} (下载/加载中...)";
                 });
+            }
+        }
+    }
+
+    private void OnS2C_DownloadReplayResult(S2C_DownloadReplayResult msg)
+    {
+        // 修复：无论成功还是失败，都必须释放防抖锁，否则失败一次后将永远无法点击下载
+        if (_downloadingReplayId == msg.ReplayId)
+        {
+            _downloadingReplayId = string.Empty;
+
+            if (!msg.Success)
+            {
+                LogKit.LogError("Panel_StellarNetLobby", $"录像下载失败: {msg.Reason}");
+                GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"录像下载失败: {msg.Reason}" });
+                // 刷新列表以重置UI状态
+                OnRefreshReplayBtn();
             }
         }
     }

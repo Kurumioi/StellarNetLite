@@ -21,12 +21,13 @@ public class GameLauncher : MonoSingleton<GameLauncher>
 {
     [SerializeField] private StellarNetMirrorManager netManager;
     public static StellarNetMirrorManager NetManager => Instance.netManager;
+
     public ENetMode netMode = ENetMode.None;
 
     protected override void Awake()
     {
         base.Awake();
-        if (netMode == ENetMode.Client)
+        if (netMode != ENetMode.Server)
         {
             UIKit.Instance.Init();
         }
@@ -36,7 +37,8 @@ public class GameLauncher : MonoSingleton<GameLauncher>
     {
         StellarNetMirrorManager.OnClientConnectedEvent += OnClientConnected;
         StellarNetMirrorManager.OnClientDisconnectedEvent += OnClientDisconnected;
-        LauncherNet(netMode);
+
+        LauncherNetAsync(netMode);
     }
 
     protected override void OnDestroy()
@@ -48,8 +50,11 @@ public class GameLauncher : MonoSingleton<GameLauncher>
 
     private void OnClientConnected()
     {
-        // 核心修复 P0-3：初始化全局 UI 路由
-        ClientUIRouter.Instance.Init();
+        // 全局路由依然需要常驻，负责大厅和登录的流转
+        GlobalUIRouter.Instance.Init();
+
+        // 核心重构：移除了所有 EnsureRouter 相关的硬编码挂载。
+        // 现在业务 UI 路由和 3D 表现层全部由对应的 ClientRoomComponent 在 OnInit 中动态生成。
 
         UIKit.OpenPanel<Panel_GlobalNetMonitor>();
         UIKit.OpenPanel<Panel_StellarNetLogin>();
@@ -57,16 +62,29 @@ public class GameLauncher : MonoSingleton<GameLauncher>
 
     private void OnClientDisconnected()
     {
-        // 核心修复 P0-3：将断线 UI 清理职责移交 Router
-        if (ClientUIRouter.Instance != null)
+        if (GlobalUIRouter.Instance != null)
         {
-            ClientUIRouter.Instance.HandlePhysicalDisconnect();
+            GlobalUIRouter.Instance.HandlePhysicalDisconnect();
         }
     }
 
-    private void LauncherNet(ENetMode eNetMode)
+    private async void LauncherNetAsync(ENetMode eNetMode)
     {
         if (eNetMode == ENetMode.None) return;
+
+        try
+        {
+            var config = await NetConfigLoader.LoadAsync(ConfigRootPath.StreamingAssets);
+            if (NetManager != null)
+            {
+                NetManager.ApplyConfig(config);
+            }
+        }
+        catch (Exception e)
+        {
+            NetLogger.LogError("GameLauncher", $"异步加载网络配置失败: {e.Message}");
+        }
+
         switch (eNetMode)
         {
             case ENetMode.Client: StartClient(); break;

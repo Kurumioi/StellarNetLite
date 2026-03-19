@@ -7,22 +7,16 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Components
 {
-    /// <summary>
-    /// 服务端权威实体内存模型。
-    /// 职责：存储绝对正确的全量维度状态，作为重连快照与帧同步的唯一数据源。
-    /// </summary>
     public class ServerSyncEntity
     {
         public int NetId;
         public int PrefabHash;
         public byte Mask;
         public string OwnerSessionId;
-
         public Vector3 Position;
         public Vector3 Rotation;
         public Vector3 Velocity;
         public Vector3 Scale = Vector3.one;
-
         public int AnimStateHash;
         public float AnimNormalizedTime;
         public float FloatParam1;
@@ -31,7 +25,7 @@ namespace StellarNet.Lite.Server.Components
     }
 
     [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
-    public sealed class ServerObjectSyncComponent : RoomComponent
+    public sealed class ServerObjectSyncComponent : RoomComponent, ITickableComponent
     {
         private readonly ServerApp _app;
         private readonly Dictionary<int, ServerSyncEntity> _entities = new Dictionary<int, ServerSyncEntity>();
@@ -95,7 +89,7 @@ namespace StellarNet.Lite.Server.Components
             }
         }
 
-        public override void OnTick()
+        public void OnTick()
         {
             if (Room.State != RoomState.Playing || _entities.Count == 0) return;
 
@@ -162,7 +156,6 @@ namespace StellarNet.Lite.Server.Components
                 Velocity = velocity,
                 OwnerSessionId = ownerSessionId ?? string.Empty
             };
-
             _entities.Add(entity.NetId, entity);
 
             var spawnMsg = new S2C_ObjectSpawn
@@ -189,9 +182,7 @@ namespace StellarNet.Lite.Server.Components
                 FloatParam3 = entity.FloatParam3,
                 OwnerSessionId = entity.OwnerSessionId
             };
-
             Room.BroadcastMessage(spawnMsg, true);
-
             return entity;
         }
 

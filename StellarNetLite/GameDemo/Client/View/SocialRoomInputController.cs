@@ -1,4 +1,5 @@
 ﻿using UnityEngine;
+using UnityEngine.EventSystems;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Game.Shared.Protocol;
 using StellarNet.Lite.Shared.Infrastructure;
@@ -10,7 +11,6 @@ namespace StellarNet.Lite.Game.Client.Views
 {
     /// <summary>
     /// 交友房间输入控制器 (Controller 层)
-    /// 核心修复 P1-2：接管所有意图采集，包括聊天发送和结束游戏。
     /// </summary>
     public class SocialRoomInputController : MonoBehaviour
     {
@@ -36,7 +36,6 @@ namespace StellarNet.Lite.Game.Client.Views
             _isInputBlockedByWeakNet = evt.IsWeakNetBlock;
         }
 
-        // 核心修复 P1-2：提供给 View 层的公共接口，供 UI 按钮/输入框回调
         public void SendChatBubble(string content)
         {
             if (string.IsNullOrEmpty(content) || _boundRoom == null) return;
@@ -57,7 +56,6 @@ namespace StellarNet.Lite.Game.Client.Views
         private void Update()
         {
             if (_boundRoom == null) return;
-
             var settingsComp = _boundRoom.GetComponent<ClientRoomSettingsComponent>();
             bool isGameStarted = settingsComp != null && settingsComp.IsGameStarted;
 
@@ -71,15 +69,21 @@ namespace StellarNet.Lite.Game.Client.Views
         {
             if (_isInputBlockedByWeakNet) return;
 
-            if (GUI.GetNameOfFocusedControl() == "ChatInputField")
+            // 核心修复：彻底废弃 GUI.GetNameOfFocusedControl，采用 EventSystem 适配 UGUI 焦点。
+            // 防止玩家在聊天输入框打字时，WASD 键穿透导致角色乱跑。
+            if (EventSystem.current != null && EventSystem.current.currentSelectedGameObject != null)
             {
-                if (_lastInput != Vector2.zero)
+                var tmpInput = EventSystem.current.currentSelectedGameObject.GetComponent<TMPro.TMP_InputField>();
+                if (tmpInput != null && tmpInput.isFocused)
                 {
-                    _lastInput = Vector2.zero;
-                    NetClient.Send(new C2S_SocialMoveReq { DirX = 0, DirZ = 0 });
-                }
+                    if (_lastInput != Vector2.zero)
+                    {
+                        _lastInput = Vector2.zero;
+                        NetClient.Send(new C2S_SocialMoveReq { DirX = 0, DirZ = 0 });
+                    }
 
-                return;
+                    return;
+                }
             }
 
             float h = Input.GetAxisRaw("Horizontal");

@@ -3,10 +3,6 @@ using StellarNet.Lite.Client.Components;
 
 namespace StellarNet.Lite.Client.Components.Views
 {
-    /// <summary>
-    /// 纯粹的空间同步表现组件。
-    /// 职责：向底层索要 PredictedTransformData，并执行平滑插值。
-    /// </summary>
     [RequireComponent(typeof(NetIdentity))]
     public class NetTransformView : MonoBehaviour
     {
@@ -35,7 +31,6 @@ namespace StellarNet.Lite.Client.Components.Views
         private void Update()
         {
             if (_identity == null || _identity.SyncService == null) return;
-
             if (!_identity.SyncService.TryGetTransformData(_identity.NetId, out var syncData)) return;
 
             ProcessTransformSync(ref syncData);
@@ -62,7 +57,8 @@ namespace StellarNet.Lite.Client.Components.Views
                 if (distanceToTarget > CatchUpThreshold) effectiveSmoothTime *= 0.5f;
                 effectiveSmoothTime /= syncData.PlaybackSpeed;
 
-                transform.position = Vector3.SmoothDamp(currentPos, syncData.Position, ref _currentVelocity, effectiveSmoothTime);
+                // 核心优化 P1-2：确保 SmoothDamp 内部正确使用 Time.deltaTime
+                transform.position = Vector3.SmoothDamp(currentPos, syncData.Position, ref _currentVelocity, effectiveSmoothTime, Mathf.Infinity, Time.deltaTime);
             }
 
             if (syncData.PlaybackSpeed > 0f)
@@ -76,6 +72,8 @@ namespace StellarNet.Lite.Client.Components.Views
                 {
                     Quaternion targetRot = Quaternion.Euler(syncData.Rotation);
                     float rotSpeed = RotSmoothSpeed * syncData.PlaybackSpeed;
+
+                    // 核心优化 P1-2：确保 Slerp 使用 Time.deltaTime
                     transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * rotSpeed);
 
                     float scaleSpeed = 10f * syncData.PlaybackSpeed;

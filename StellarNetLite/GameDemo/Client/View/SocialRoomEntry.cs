@@ -9,23 +9,19 @@ namespace StellarNet.Lite.Game.Client.Views
 {
     /// <summary>
     /// 交友房间场景生命周期入口 (View层)
-    /// 核心修复 P1-5：拆分 Controller 与 View，严格遵循 MSV。
+    /// 核心修复：彻底移除旧版 IMGUI View 的挂载，表现层全权交由 UGUI Panel 接管。
     /// </summary>
     public class SocialRoomEntry : MonoBehaviour
     {
-        [Header("核心表现层组件")] 
-        public ObjectSpawnerView SpawnerView;
-        public SocialRoomView RoomView;
-        
-        [Header("核心控制层组件")]
-        public SocialRoomInputController InputController;
+        [Header("核心表现层组件")] public ObjectSpawnerView SpawnerView;
+
+        [Header("核心控制层组件")] public SocialRoomInputController InputController;
 
         private ClientRoom _boundRoom;
 
         private void Start()
         {
             if (SpawnerView == null) SpawnerView = gameObject.AddComponent<ObjectSpawnerView>();
-            if (RoomView == null) RoomView = gameObject.AddComponent<SocialRoomView>();
             if (InputController == null) InputController = gameObject.AddComponent<SocialRoomInputController>();
 
             GlobalTypeNetEvent.Register<Local_RoomEntered>(OnRoomEntered).UnRegisterWhenGameObjectDestroyed(gameObject);
@@ -41,7 +37,6 @@ namespace StellarNet.Lite.Game.Client.Views
             NetLogger.LogInfo("SocialRoomEntry", $"检测到进入交友房间 {_boundRoom.RoomId}，执行表现与控制层初始化");
 
             SpawnerView.Init(_boundRoom);
-            RoomView.Init(_boundRoom);
             InputController.Init(_boundRoom);
         }
 
@@ -51,7 +46,6 @@ namespace StellarNet.Lite.Game.Client.Views
             {
                 _boundRoom = null;
                 SpawnerView.Clear();
-                RoomView.Clear(evt.IsSuspended);
                 InputController.Clear();
             }
         }
