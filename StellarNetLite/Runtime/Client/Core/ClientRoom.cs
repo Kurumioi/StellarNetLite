@@ -1,8 +1,6 @@
 ﻿using System.Collections.Generic;
-using UnityEngine;
-using StellarNet.Lite.Shared.Core;
-using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Client.Core.Events;
+using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Client.Core
 {
@@ -10,11 +8,10 @@ namespace StellarNet.Lite.Client.Core
     {
         public string RoomId { get; }
         public ClientRoomDispatcher Dispatcher { get; }
-
-        // 核心重构：挂载全新的实例化沙盒事件系统
         public RoomNetEventSystem NetEventSystem { get; }
 
         private readonly List<ClientRoomComponent> _components = new List<ClientRoomComponent>();
+        private bool _isDestroyed;
 
         private ClientRoom(string roomId)
         {
@@ -27,7 +24,7 @@ namespace StellarNet.Lite.Client.Core
         {
             if (string.IsNullOrEmpty(roomId))
             {
-                NetLogger.LogError("[ClientRoom] ", $" 房间创建阻断: 传入的 roomId 为空，拒绝实例化");
+                NetLogger.LogError("ClientRoom", "创建失败: roomId 为空");
                 return null;
             }
 
@@ -36,9 +33,15 @@ namespace StellarNet.Lite.Client.Core
 
         public void AddComponent(ClientRoomComponent component)
         {
+            if (_isDestroyed)
+            {
+                NetLogger.LogError("ClientRoom", $"添加组件失败: 房间已销毁, RoomId:{RoomId}, Component:{component?.GetType().FullName ?? "null"}");
+                return;
+            }
+
             if (component == null)
             {
-                NetLogger.LogError($"[ClientRoom] ", $" 添加组件失败: component 为空，RoomId: {RoomId}");
+                NetLogger.LogError("ClientRoom", $"添加组件失败: component 为空, RoomId:{RoomId}");
                 return;
             }
 
@@ -61,17 +64,43 @@ namespace StellarNet.Lite.Client.Core
 
         public void InitializeComponents()
         {
+            if (_isDestroyed)
+            {
+                NetLogger.LogError("ClientRoom", $"初始化失败: 房间已销毁, RoomId:{RoomId}");
+                return;
+            }
+
             for (int i = 0; i < _components.Count; i++)
             {
-                _components[i].OnInit();
+                ClientRoomComponent component = _components[i];
+                if (component == null)
+                {
+                    NetLogger.LogError("ClientRoom", $"初始化失败: 第 {i} 个组件为空, RoomId:{RoomId}");
+                    continue;
+                }
+
+                component.OnInit();
             }
         }
 
         public void Destroy()
         {
+            if (_isDestroyed)
+            {
+                return;
+            }
+
+            _isDestroyed = true;
+
             for (int i = 0; i < _components.Count; i++)
             {
-                _components[i].OnDestroy();
+                ClientRoomComponent component = _components[i];
+                if (component == null)
+                {
+                    continue;
+                }
+
+                component.OnDestroy();
             }
 
             _components.Clear();

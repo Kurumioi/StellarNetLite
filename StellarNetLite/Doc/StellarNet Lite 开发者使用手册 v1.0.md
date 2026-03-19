@@ -16,8 +16,7 @@
 - [核心开发流程](#核心开发流程)
 - [通信与状态流转](#通信与状态流转)
 - [房间与回放机制](#房间与回放机制)
-- [当前版本开发建议](#当前版本开发建议)
-- [文档入口](#文档入口)
+- [当前版本开发建议 (极度重要)](#当前版本开发建议-极度重要)
 
 ---
 
@@ -44,7 +43,8 @@ StellarNet Lite 不是一个追求“黑盒自动同步”的网络方案。
 - 服务端：`ServerApp.SendMessageToSession<T>()`
 - 房间内广播：`Room.BroadcastMessage<T>()`
 - 房间内单播：`Room.SendMessageTo<T>()`
-  **底层优化**：发送时自动从 `System.Buffers.ArrayPool` 借用内存，配合 `INetSerializer` 完成 0GC 序列化，彻底消除高频发包带来的内存抖动。
+
+**底层优化**：发送时自动从 `System.Buffers.ArrayPool` 借用内存。对于高频协议，强烈建议实现 `ILiteNetSerializable` 接口，配合底层的 `INetSerializer` 完成纯二进制的 0GC 序列化，彻底消除高频发包带来的 JSON 字符串分配与内存抖动。
 
 ### 2. NetMessageMapper 元数据驱动
 框架启动时扫描所有带 `[NetMsg]` 的协议类型，建立类型到协议元数据的映射。这意味着业务层只需要关心“发送什么对象”，不需要关心“这个对象应该用哪个魔数协议号”。
@@ -57,7 +57,7 @@ StellarNet Lite 不是一个追求“黑盒自动同步”的网络方案。
 
 ### 4. Global / Room 作用域分离
 框架内部把所有网络消息严格分成两种作用域：
-- **Global**：不依赖房间上下文的逻辑（如登录、大厅列表、建房）。
+- **Global**：不依赖房间上下文的逻辑（如登录、大厅列表、建房、录像下载）。
 - **Room**：必须依赖某个房间上下文的逻辑（如战斗同步、房间聊天）。
 
 ### 5. 房间组件化装配
@@ -71,10 +71,11 @@ StellarNet Lite 不是一个追求“黑盒自动同步”的网络方案。
 客户端内部采用两类事件系统，支持直接抛出协议对象，0GC 且无需 DTO 转换：
 - `GlobalTypeNetEvent`：大厅、登录、录像列表等全局事件，基于泛型静态类，极速派发。
 - `RoomNetEventSystem`：挂载在 `ClientRoom` 实例上的房间级事件总线。彻底避免回放房间和在线房间串线。
+- **生命周期防泄漏**：提供 `.UnRegisterWhenGameObjectDestroyed(gameObject)` 与 `.UnRegisterWhenMonoDisable(this)`，彻底杜绝 UI 隐藏后的幽灵响应。
 
 ### 8. 流式 Replay 沙盒回放
 回放是一个**客户端本地沙盒房间**。
-**底层优化**：服务端采用 `GZipStream` 边打边压直接落盘；客户端采用 `FileStream` 分块下载（支持断点续传），播放时通过 `BinaryReader` 直接读取解压流，杜绝大文件 OOM。
+**底层优化**：服务端采用 `GZipStream` 边打边压直接落盘；客户端采用 `FileStream` 分块下载（支持断点续传），播放时通过 `BinaryReader` 直接读取解压流，杜绝大文件 OOM。支持房主通过 `C2S_RenameReplay` 重命名录像。
 
 ### 9. Seq 防重放机制
 客户端每次发包自动递增 `Seq`，服务端按 Session 记录 `LastReceivedSeq`。收到旧包或重复包直接拦截，防止重复点击或网络重试污染。
@@ -153,7 +154,7 @@ if (NetClient.State == ClientAppState.OnlineRoom)
 
 ### 新增一个房间玩法功能
 标准步骤如下：
-1. 定义 Shared 协议 (`[NetMsg]`)。如果是高频同步协议，建议实现 `ILiteNetSerializable` 接口以启用二进制 0GC 序列化。
+1. 定义 Shared 协议 (`[NetMsg]`)。如果是高频同步协议，**必须实现 `ILiteNetSerializable` 接口**以启用二进制 0GC 序列化。
 2. 编写服务端 `RoomComponent` (`[RoomComponent]`)。
 3. 编写客户端 `ClientRoomComponent` (`[RoomComponent]`)，收到协议直接 `Room.NetEventSystem.Broadcast(msg)`。
 4. **点击顶部菜单 `StellarNet/Lite 强制重新生成协议与组件常量表`**。
@@ -162,8 +163,10 @@ if (NetClient.State == ClientAppState.OnlineRoom)
 
 ---
 
-## 当前版本开发建议
-1. **新业务统一走强类型发送器**：绝对不要手写 `new Packet(...)`，统一使用 `NetClient.Send<T>()` 和 `Room.BroadcastMessage<T>()`，享受底层的内存池红利。
+## 当前版本开发建议 (极度重要)
+
+1. **高频协议必须 0GC**：对于摇杆移动、坐标同步等每秒发送多次的协议，必须实现 `ILiteNetSerializable`，否则 JSON 序列化会迅速撑爆 GC。
 2. **优先横向扩展 RoomComponent**：新增房间功能时，优先新增独立组件，不要把功能堆进现有的巨石类中。
-3. **View 享受直抛红利**：View 直接监听 `S2C_` 协议，并务必使用 `.UnRegisterWhenGameObjectDestroyed(gameObject)` 确保生命周期安全。
-4. **所有高风险入口先做前置拦截**：例如判空、RoomId 校验、状态机校验。统一原则：**先拦截，先报错，先 return，绝不带病继续。**
+3. **UI 必须防泄漏**：View 层监听 `S2C_` 协议时，**务必使用 `.UnRegisterWhenMonoDisable(this)`**。如果 UI 被隐藏但未销毁，不注销事件会导致后台疯狂响应网络包并报错。
+4. **表现层坐标解耦**：UI 气泡、血条等需要跟随 3D 物体的表现，必须使用 `UGUIFollowTarget` 组件，严禁在业务逻辑中手写 `Camera.main.WorldToScreenPoint`。
+5. **所有高风险入口先做前置拦截**：例如判空、RoomId 校验、状态机校验。统一原则：**先拦截，先报错，先 return，绝不带病继续。**

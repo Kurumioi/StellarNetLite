@@ -1,10 +1,9 @@
 ﻿#if UNITY_EDITOR
-using System;
 using System.IO;
-using UnityEditor;
-using UnityEngine;
 using Newtonsoft.Json;
 using StellarNet.Lite.Shared.Infrastructure;
+using UnityEditor;
+using UnityEngine;
 
 namespace StellarNet.Lite.Editor
 {
@@ -40,12 +39,18 @@ namespace StellarNet.Lite.Editor
                 LoadFromCurrentRoot();
             }
 
+            if (_currentConfig == null)
+            {
+                _currentConfig = new NetConfig();
+            }
+
             GUILayout.Space(10);
             EditorGUILayout.BeginVertical("box");
-
             _currentConfig.Ip = EditorGUILayout.TextField("服务器 IP:", _currentConfig.Ip);
+
             int port = EditorGUILayout.IntField("端口 (Port):", _currentConfig.Port);
             _currentConfig.Port = (ushort)Mathf.Clamp(port, 0, 65535);
+
             _currentConfig.MaxConnections = EditorGUILayout.IntField("最大连接数:", _currentConfig.MaxConnections);
             _currentConfig.TickRate = EditorGUILayout.IntField("服务器帧率 (TickRate):", _currentConfig.TickRate);
 
@@ -60,7 +65,6 @@ namespace StellarNet.Lite.Editor
             GUILayout.Space(5);
             EditorGUILayout.LabelField("版本控制策略", EditorStyles.boldLabel);
             _currentConfig.MinClientVersion = EditorGUILayout.TextField("最低客户端版本:", _currentConfig.MinClientVersion);
-
             EditorGUILayout.EndVertical();
 
             GUILayout.Space(20);
@@ -82,51 +86,110 @@ namespace StellarNet.Lite.Editor
         private void LoadFromCurrentRoot()
         {
             _currentConfig = NetConfigLoader.LoadEditorSync(_targetRoot);
+            if (_currentConfig == null)
+            {
+                NetLogger.LogError("NetConfigEditorWindow", $"加载配置失败: 返回 config 为空, Root:{_targetRoot}");
+                _currentConfig = new NetConfig();
+            }
         }
 
         private void SaveToCurrentRoot()
         {
-            // 核心修复 P1-1：移除大 try-catch，按节点拆分校验，提供精准错误日志
             if (_currentConfig == null)
             {
-                NetLogger.LogError("NetConfigEditorWindow", "保存失败: 当前配置对象为空");
+                NetLogger.LogError("NetConfigEditorWindow", "保存失败: _currentConfig 为空");
                 return;
             }
+
+            NormalizeCurrentConfig();
 
             string basePath = _targetRoot == ConfigRootPath.StreamingAssets
                 ? Application.streamingAssetsPath
                 : Application.persistentDataPath;
 
-            string folderPath = Path.Combine(basePath, NetConfigLoader.ConfigFolderName).Replace("\\", "/");
-            string fullPath = Path.Combine(folderPath, NetConfigLoader.ConfigFileName).Replace("\\", "/");
-
-            if (!Directory.Exists(folderPath))
+            if (string.IsNullOrEmpty(basePath))
             {
-                try
-                {
-                    Directory.CreateDirectory(folderPath);
-                }
-                catch (Exception e)
-                {
-                    NetLogger.LogError("NetConfigEditorWindow", $"创建目录失败: {folderPath} | 异常: {e.Message}");
-                    return;
-                }
-            }
-
-            string json = JsonConvert.SerializeObject(_currentConfig, Formatting.Indented);
-
-            try
-            {
-                File.WriteAllText(fullPath, json);
-            }
-            catch (Exception e)
-            {
-                NetLogger.LogError("NetConfigEditorWindow", $"写入配置文件失败: {fullPath} | 异常: {e.Message}");
+                NetLogger.LogError("NetConfigEditorWindow", $"保存失败: basePath 为空, Root:{_targetRoot}");
                 return;
             }
 
+            string folderPath = Path.Combine(basePath, NetConfigLoader.ConfigFolderName).Replace("\\", "/");
+            string fullPath = Path.Combine(folderPath, NetConfigLoader.ConfigFileName).Replace("\\", "/");
+
+            if (string.IsNullOrEmpty(folderPath) || string.IsNullOrEmpty(fullPath))
+            {
+                NetLogger.LogError("NetConfigEditorWindow", $"保存失败: 路径非法, Folder:{folderPath}, FullPath:{fullPath}, Root:{_targetRoot}");
+                return;
+            }
+
+            if (!Directory.Exists(folderPath))
+            {
+                Directory.CreateDirectory(folderPath);
+            }
+
+            string json = JsonConvert.SerializeObject(_currentConfig, Formatting.Indented);
+            if (string.IsNullOrEmpty(json))
+            {
+                NetLogger.LogError("NetConfigEditorWindow", $"保存失败: 序列化结果为空, FullPath:{fullPath}");
+                return;
+            }
+
+            File.WriteAllText(fullPath, json);
             AssetDatabase.Refresh();
-            NetLogger.LogInfo("NetConfigEditorWindow", $"配置保存成功! 路径: {fullPath}");
+            NetLogger.LogInfo("NetConfigEditorWindow", $"配置保存成功, Path:{fullPath}");
+        }
+
+        private void NormalizeCurrentConfig()
+        {
+            if (string.IsNullOrWhiteSpace(_currentConfig.Ip))
+            {
+                _currentConfig.Ip = "127.0.0.1";
+            }
+
+            if (_currentConfig.Port == 0)
+            {
+                _currentConfig.Port = 7777;
+            }
+
+            if (_currentConfig.MaxConnections <= 0)
+            {
+                _currentConfig.MaxConnections = 200;
+            }
+
+            if (_currentConfig.TickRate <= 0)
+            {
+                _currentConfig.TickRate = 60;
+            }
+
+            if (_currentConfig.MaxRoomLifetimeHours <= 0)
+            {
+                _currentConfig.MaxRoomLifetimeHours = 24;
+            }
+
+            if (_currentConfig.MaxReplayFiles < 0)
+            {
+                _currentConfig.MaxReplayFiles = 100;
+            }
+
+            if (_currentConfig.OfflineTimeoutLobbyMinutes < 0)
+            {
+                _currentConfig.OfflineTimeoutLobbyMinutes = 5;
+            }
+
+            if (_currentConfig.OfflineTimeoutRoomMinutes < 0)
+            {
+                _currentConfig.OfflineTimeoutRoomMinutes = 60;
+            }
+
+            if (_currentConfig.EmptyRoomTimeoutMinutes < 0)
+            {
+                _currentConfig.EmptyRoomTimeoutMinutes = 5;
+            }
+
+            if (string.IsNullOrWhiteSpace(_currentConfig.MinClientVersion))
+            {
+                _currentConfig.MinClientVersion = "0.0.1";
+            }
         }
 
         private void OpenFolderInExplorer()
@@ -135,18 +198,22 @@ namespace StellarNet.Lite.Editor
                 ? Application.streamingAssetsPath
                 : Application.persistentDataPath;
 
+            if (string.IsNullOrEmpty(basePath))
+            {
+                NetLogger.LogError("NetConfigEditorWindow", $"打开目录失败: basePath 为空, Root:{_targetRoot}");
+                return;
+            }
+
             string folderPath = Path.Combine(basePath, NetConfigLoader.ConfigFolderName).Replace("\\", "/");
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                NetLogger.LogError("NetConfigEditorWindow", $"打开目录失败: folderPath 为空, Root:{_targetRoot}");
+                return;
+            }
+
             if (!Directory.Exists(folderPath))
             {
-                try
-                {
-                    Directory.CreateDirectory(folderPath);
-                }
-                catch (Exception e)
-                {
-                    NetLogger.LogError("NetConfigEditorWindow", $"无法打开目录，创建目录失败: {e.Message}");
-                    return;
-                }
+                Directory.CreateDirectory(folderPath);
             }
 
             EditorUtility.RevealInFinder(folderPath);

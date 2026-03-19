@@ -1,6 +1,6 @@
 ﻿# StellarNet Lite 快速接入指南 (手把手实战版)
 > 面向第一次接入 StellarNet Lite 的开发者  
-> 目标：**从 0 到 1，手把手带你开发全局模块、房间业务组件，并摆脱 Demo 制作属于你自己的正式游戏启动器。**
+> 目标：**从 0 到 1，手把手带你开发全局模块、房间业务组件，掌握 0GC 序列化与 UI 生命周期管理，并摆脱 Demo 制作属于你自己的正式游戏启动器。**
 
 ---
 
@@ -18,7 +18,7 @@
 在写下第一行代码前，请将以下三句话刻在脑子里：
 1. **服务端才是真相**：客户端绝不能自己修改核心数据，只能“发请求 -> 等服务端广播 -> 刷新表现”。
 2. **拒绝巨石类，拥抱组件化与自动装配**：新增房间玩法，绝对不要去改核心类，而是新建独立的 `RoomComponent` 并打上特性，让框架自动扫描装配。
-3. **MSV 架构解耦与 0GC 直抛**：View（MonoBehaviour）只负责播特效和点按钮，绝不能直接解析底层网络包。网络包必须由 ClientComponent 接收，并**直接将协议对象抛给 View**。
+3. **MSV 架构解耦与防泄漏直抛**：View（MonoBehaviour）只负责播特效和点按钮，绝不能直接解析底层网络包。网络包必须由 ClientComponent 接收，并直接抛给 View。View 监听时**必须使用 `UnRegisterWhenMonoDisable`** 防止隐藏后继续响应。
 
 ---
 
@@ -33,16 +33,23 @@ using StellarNet.Lite.Shared.Core;
 namespace StellarNet.Lite.Shared.Protocol
 {
     [NetMsg(800, NetScope.Global, NetDir.C2S)]
-    public sealed class C2S_GlobalBroadcastReq { public string Content; }
+    public sealed class C2S_GlobalBroadcastReq 
+    { 
+        public string Content; 
+    }
 
     [NetMsg(801, NetScope.Global, NetDir.S2C)]
-    public sealed class S2C_GlobalBroadcastSync { public string SenderSessionId; public string Content; }
+    public sealed class S2C_GlobalBroadcastSync 
+    { 
+        public string SenderSessionId; 
+        public string Content; 
+    }
 }
 ```
 
 ### 步骤 2：编写服务端模块 (Server)
 在 `Assets/StellarNetLite/Runtime/Server/Modules/` 下新建 `ServerBroadcastModule.cs`。
-**核心：必须打上 `[GlobalModule]` 特性，并提供接收 `ServerApp` 的单参构造函数。**
+**核心：必须打上 `[ServerModule]` 特性，并提供接收 `ServerApp` 的单参构造函数。**
 ```csharp
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
@@ -51,19 +58,24 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Modules
 {
-    [GlobalModule("ServerBroadcastModule", "全服广播模块")]
+    [ServerModule("ServerBroadcastModule", "全服广播模块")]
     public sealed class ServerBroadcastModule
     {
         private readonly ServerApp _app;
+
         public ServerBroadcastModule(ServerApp app) { _app = app; }
 
         [NetHandler]
         public void OnC2S_GlobalBroadcastReq(Session session, C2S_GlobalBroadcastReq msg)
         {
             if (session == null || msg == null || string.IsNullOrEmpty(msg.Content)) return;
-            
-            var syncMsg = new S2C_GlobalBroadcastSync { SenderSessionId = session.SessionId, Content = msg.Content };
-            
+
+            var syncMsg = new S2C_GlobalBroadcastSync 
+            { 
+                SenderSessionId = session.SessionId, 
+                Content = msg.Content 
+            };
+
             // 遍历所有在线会话进行单播。底层会自动使用 ArrayPool 进行 0GC 发包
             foreach (var kvp in _app.Sessions)
             {
@@ -84,10 +96,11 @@ using StellarNet.Lite.Client.Core.Events;
 
 namespace StellarNet.Lite.Client.Modules
 {
-    [GlobalModule("ClientBroadcastModule", "客户端全服广播")]
+    [ClientModule("ClientBroadcastModule", "客户端全服广播")]
     public sealed class ClientBroadcastModule
     {
         private readonly ClientApp _app;
+
         public ClientBroadcastModule(ClientApp app) { _app = app; }
 
         [NetHandler]
@@ -107,7 +120,7 @@ namespace StellarNet.Lite.Client.Modules
 控制台会提示生成成功。此时，你的模块已经被自动装配到网络引擎中了！
 
 ### 步骤 5：表现层接入 (View)
-在任意 UI 脚本中监听事件并发送请求。
+在任意 UI 脚本中监听事件并发送请求。**注意使用 `UnRegisterWhenMonoDisable`。**
 ```csharp
 using UnityEngine;
 using StellarNet.Lite.Shared.Protocol;
@@ -117,10 +130,11 @@ using StellarNet.Lite.Client.Core;
 
 public class BroadcastView : MonoBehaviour
 {
-    private void Start()
+    private void OnEnable()
     {
+        // 核心规范：绑定 OnDisable 生命周期，防止 UI 隐藏后产生幽灵响应
         GlobalTypeNetEvent.Register<S2C_GlobalBroadcastSync>(HandleGlobalBroadcast)
-            .UnRegisterWhenGameObjectDestroyed(gameObject);
+            .UnRegisterWhenMonoDisable(this);
     }
 
     private void HandleGlobalBroadcast(S2C_GlobalBroadcastSync evt)
@@ -138,22 +152,47 @@ public class BroadcastView : MonoBehaviour
 ---
 
 ## 3. 实战二：开发一个房间业务组件 (房间表情与统计)
-**需求描述**：玩家在房间内发表情。要求回放可见，且重连能恢复表情总数。
+**需求描述**：玩家在房间内发表情。要求高频发送时 0GC，回放可见，且重连能恢复表情总数。
 
 ### 步骤 1：定义协议 (Shared)
+由于表情可能高频发送，我们实现 `ILiteNetSerializable` 接口。
 ```csharp
+using System.IO;
 using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Shared.Protocol
 {
     [NetMsg(900, NetScope.Room, NetDir.C2S)]
-    public sealed class C2S_SendEmojiReq { public int EmojiId; }
+    public sealed class C2S_SendEmojiReq : ILiteNetSerializable
+    { 
+        public int EmojiId; 
+        public void Serialize(BinaryWriter writer) { writer.Write(EmojiId); }
+        public void Deserialize(BinaryReader reader) { EmojiId = reader.ReadInt32(); }
+    }
 
     [NetMsg(901, NetScope.Room, NetDir.S2C)]
-    public sealed class S2C_EmojiSync { public string SessionId; public int EmojiId; }
+    public sealed class S2C_EmojiSync : ILiteNetSerializable
+    { 
+        public string SessionId; 
+        public int EmojiId; 
+        public void Serialize(BinaryWriter writer) 
+        { 
+            writer.Write(SessionId ?? string.Empty); 
+            writer.Write(EmojiId); 
+        }
+        public void Deserialize(BinaryReader reader) 
+        { 
+            SessionId = reader.ReadString(); 
+            EmojiId = reader.ReadInt32(); 
+        }
+    }
 
     [NetMsg(902, NetScope.Room, NetDir.S2C)]
-    public sealed class S2C_EmojiSnapshot { public int TotalEmojiCount; }
+    public sealed class S2C_EmojiSnapshot 
+    { 
+        public int TotalEmojiCount; 
+    }
 }
 ```
 
@@ -180,7 +219,7 @@ namespace StellarNet.Lite.Server.Components
         public void OnC2S_SendEmojiReq(Session session, C2S_SendEmojiReq msg)
         {
             if (session == null || msg == null) return;
-            
+
             _totalEmojiCount++;
             var syncMsg = new S2C_EmojiSync { SessionId = session.SessionId, EmojiId = msg.EmojiId };
             
@@ -257,7 +296,7 @@ NetClient.Send(createReq);
 ---
 
 ## 4. 实战三：摆脱 DemoUI，制作你自己的游戏启动器
-*(可参考 GameLauncher.cs 与 ClientUIRouter.cs 的实现，通过轮询 NetClient.State 或监听 GlobalTypeNetEvent 进行全局 UI 路由控制)*
+*(可参考 GameLauncher.cs 与 GlobalUIRouter.cs 的实现，通过轮询 NetClient.State 或监听 GlobalTypeNetEvent 进行全局 UI 路由控制)*
 
 ## 5. 回放与重连是怎么生效的？(原理解析)
 - **流式回放**：底层采用 `FileStream` 分块下载录像文件并断点续传。播放时，创建一个 `ClientAppState.ReplayRoom` 的沙盒房间，通过 `BinaryReader` 直接读取解压流，按 Tick 抛给 `ClientRoomDispatcher` 重演协议流，杜绝大文件 OOM。
@@ -272,3 +311,7 @@ NetClient.Send(createReq);
 ### 坑 2：建房成功了，但进不去房间？
 - **原因**：你写了 `RoomEmoji` 组件，但**忘记点击菜单重新生成常量表**了，导致客户端本地工厂里没有这个组件。
 - **排查**：看客户端日志，一定会有一句红错：“`[ClientRoomFactory] 装配致命失败: 本地未注册 ComponentId X`”。
+
+### 坑 3：关闭 UI 面板后，后台疯狂报错空引用？
+- **原因**：UI 面板隐藏了，但没有注销网络事件监听，导致收包时仍去刷新已隐藏的 UI 组件。
+- **解决**：在 UI 脚本的 `OnEnable` 中注册事件时，**必须链式调用 `.UnRegisterWhenMonoDisable(this)`**。

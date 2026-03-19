@@ -1,74 +1,97 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using StellarNet.Lite.Shared.Infrastructure;
-using UnityEngine;
+using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Shared.Core
 {
     public static class NetMessageMapper
     {
-        private static readonly Dictionary<Type, NetMsgAttribute> _typeToMetaCache =
-            new Dictionary<Type, NetMsgAttribute>();
-
-        private static bool _isInitialized = false;
+        private static readonly Dictionary<Type, NetMessageMeta> TypeToMetaCache = new Dictionary<Type, NetMessageMeta>();
+        private static readonly Dictionary<int, Type> MsgIdToTypeCache = new Dictionary<int, Type>();
+        private static bool _isInitialized;
 
         public static void Initialize()
         {
-            if (_isInitialized) return;
-            _typeToMetaCache.Clear();
+            if (_isInitialized)
+            {
+                return;
+            }
+
+            TypeToMetaCache.Clear();
+            MsgIdToTypeCache.Clear();
+
+            if (AutoMessageMetaRegistry.TypeToMeta == null || AutoMessageMetaRegistry.MsgIdToType == null)
+            {
+                throw new Exception("[NetMessageMapper] 致命阻断: 自动生成的协议元数据注册表为空，请先重新生成协议常量表。");
+            }
 
             bool hasFatalError = false;
-            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
-            foreach (var assembly in assemblies)
+
+            foreach (KeyValuePair<Type, NetMessageMeta> kv in AutoMessageMetaRegistry.TypeToMeta)
             {
-                if (assembly.FullName.StartsWith("System") || assembly.FullName.StartsWith("UnityEngine") ||
-                    assembly.FullName.StartsWith("UnityEditor") || assembly.FullName.StartsWith("mscorlib"))
+                Type msgType = kv.Key;
+                NetMessageMeta meta = kv.Value;
+
+                if (msgType == null)
                 {
+                    NetLogger.LogError("NetMessageMapper", "静态注册表存在空 Type，已阻断初始化");
+                    hasFatalError = true;
                     continue;
                 }
 
-                try
+                if (TypeToMetaCache.ContainsKey(msgType))
                 {
-                    Type[] types = assembly.GetTypes();
-                    foreach (var type in types)
-                    {
-                        var attr = type.GetCustomAttribute<NetMsgAttribute>();
-                        if (attr != null)
-                        {
-                            if (_typeToMetaCache.ContainsKey(type))
-                            {
-                                NetLogger.LogError("NetMessageMapper", $"致命错误: 发现重复的协议类型 {type.Name}，请检查代码！");
-                                hasFatalError = true;
-                                continue;
-                            }
-
-                            _typeToMetaCache[type] = attr;
-                        }
-                    }
-                }
-                catch (ReflectionTypeLoadException ex)
-                {
-                    NetLogger.LogError("NetMessageMapper", $"扫描程序集 {assembly.FullName} 时发生 ReflectionTypeLoadException，协议扫描可能不完整！");
-                    foreach (var loaderEx in ex.LoaderExceptions)
-                    {
-                        if (loaderEx != null) NetLogger.LogError("NetMessageMapper", $"LoaderException 明细: {loaderEx.Message}");
-                    }
-
+                    NetLogger.LogError("NetMessageMapper", $"协议静态注册冲突: 重复类型注册, Type:{msgType.FullName}");
                     hasFatalError = true;
+                    continue;
                 }
-                catch (Exception e)
+
+                if (MsgIdToTypeCache.TryGetValue(meta.Id, out Type existingType))
                 {
-                    NetLogger.LogError("NetMessageMapper", $"扫描程序集 {assembly.FullName} 时发生未知异常: {e.Message}");
+                    NetLogger.LogError(
+                        "NetMessageMapper",
+                        $"协议静态注册冲突: MsgId 重复, MsgId:{meta.Id}, TypeA:{existingType.FullName}, TypeB:{msgType.FullName}");
+                    hasFatalError = true;
+                    continue;
+                }
+
+                TypeToMetaCache.Add(msgType, meta);
+                MsgIdToTypeCache.Add(meta.Id, msgType);
+            }
+
+            foreach (KeyValuePair<int, Type> kv in AutoMessageMetaRegistry.MsgIdToType)
+            {
+                int msgId = kv.Key;
+                Type msgType = kv.Value;
+
+                if (msgType == null)
+                {
+                    NetLogger.LogError("NetMessageMapper", $"静态注册表存在空 Type, MsgId:{msgId}");
+                    hasFatalError = true;
+                    continue;
+                }
+
+                if (!MsgIdToTypeCache.TryGetValue(msgId, out Type cachedType))
+                {
+                    NetLogger.LogError("NetMessageMapper", $"静态注册表不一致: MsgIdToType 存在孤立项, MsgId:{msgId}, Type:{msgType.FullName}");
+                    hasFatalError = true;
+                    continue;
+                }
+
+                if (cachedType != msgType)
+                {
+                    NetLogger.LogError(
+                        "NetMessageMapper",
+                        $"静态注册表不一致: MsgId 映射不一致, MsgId:{msgId}, TypeA:{cachedType.FullName}, TypeB:{msgType.FullName}");
                     hasFatalError = true;
                 }
             }
 
-            // 核心修复 P0-8：基础设施初始化失败必须阻断，绝不允许带病启动
             if (hasFatalError)
             {
-                throw new Exception("[NetMessageMapper] 协议扫描阶段发生致命异常，已强制阻断服务器/客户端启动，请查看控制台 Error 日志修复冲突！");
+                throw new Exception("[NetMessageMapper] 静态协议注册表存在致命冲突，已强制阻断启动，请查看 Error 日志。");
             }
 
             _isInitialized = true;
@@ -77,43 +100,62 @@ namespace StellarNet.Lite.Shared.Core
 
         private static void GenerateIntegrityReport()
         {
-            int c2sCount = _typeToMetaCache.Values.Count(m => m.Dir == NetDir.C2S);
-            int s2cCount = _typeToMetaCache.Values.Count(m => m.Dir == NetDir.S2C);
-            int globalCount = _typeToMetaCache.Values.Count(m => m.Scope == NetScope.Global);
-            int roomCount = _typeToMetaCache.Values.Count(m => m.Scope == NetScope.Room);
+            int c2sCount = TypeToMetaCache.Values.Count(m => m.Dir == NetDir.C2S);
+            int s2cCount = TypeToMetaCache.Values.Count(m => m.Dir == NetDir.S2C);
+            int globalCount = TypeToMetaCache.Values.Count(m => m.Scope == NetScope.Global);
+            int roomCount = TypeToMetaCache.Values.Count(m => m.Scope == NetScope.Room);
 
-            NetLogger.LogInfo("NetMessageMapper", $"总协议数: {_typeToMetaCache.Count} | C2S: {c2sCount} | S2C: {s2cCount} | Global: {globalCount} | Room: {roomCount}");
+            NetLogger.LogInfo(
+                "NetMessageMapper",
+                $"协议静态注册完成: Total:{TypeToMetaCache.Count}, C2S:{c2sCount}, S2C:{s2cCount}, Global:{globalCount}, Room:{roomCount}");
 
-            bool hasLogin = _typeToMetaCache.Values.Any(m => m.Id == 100);
-            bool hasCreateRoom = _typeToMetaCache.Values.Any(m => m.Id == 200);
-            bool hasJoinRoom = _typeToMetaCache.Values.Any(m => m.Id == 202);
+            bool hasLogin = TypeToMetaCache.Values.Any(m => m.Id == 100);
+            bool hasCreateRoom = TypeToMetaCache.Values.Any(m => m.Id == 200);
+            bool hasJoinRoom = TypeToMetaCache.Values.Any(m => m.Id == 202);
 
             if (!hasLogin || !hasCreateRoom || !hasJoinRoom)
             {
-                // 核心修复 P0-8：核心协议缺失直接抛异常阻断
-                throw new Exception("[NetMessageMapper] 致命阻断: 核心调度协议 (Login/CreateRoom/JoinRoom) 缺失！请检查 MsgIdConst 或协议定义文件是否被意外移除。");
+                throw new Exception("[NetMessageMapper] 致命阻断: 核心协议(Login/CreateRoom/JoinRoom)缺失。");
             }
         }
 
-        public static bool TryGetMeta(Type msgType, out NetMsgAttribute meta)
+        public static bool TryGetMeta(Type msgType, out NetMessageMeta meta)
         {
             if (!_isInitialized)
             {
-                NetLogger.LogError("NetMessageMapper", "尚未初始化，请先调用 Initialize()！");
-                meta = null;
+                NetLogger.LogError("NetMessageMapper", $"查询失败: 系统尚未初始化, MsgType:{msgType?.FullName ?? "null"}");
+                meta = default;
                 return false;
             }
 
             if (msgType == null)
             {
-                NetLogger.LogError("NetMessageMapper", "查询失败: 传入的消息类型为空。");
-                meta = null;
+                NetLogger.LogError("NetMessageMapper", "查询失败: 传入的 msgType 为空");
+                meta = default;
                 return false;
             }
 
-            if (!_typeToMetaCache.TryGetValue(msgType, out meta))
+            if (!TypeToMetaCache.TryGetValue(msgType, out meta))
             {
-                NetLogger.LogError("NetMessageMapper", $"查询失败: 类型 {msgType.Name} 缺失 [NetMsg] 特性，无法进行强类型发包。");
+                NetLogger.LogError("NetMessageMapper", $"查询失败: 类型未注册到静态协议表, MsgType:{msgType.FullName}");
+                return false;
+            }
+
+            return true;
+        }
+
+        public static bool TryGetMessageType(int msgId, out Type msgType)
+        {
+            if (!_isInitialized)
+            {
+                NetLogger.LogError("NetMessageMapper", $"查询失败: 系统尚未初始化, MsgId:{msgId}");
+                msgType = null;
+                return false;
+            }
+
+            if (!MsgIdToTypeCache.TryGetValue(msgId, out msgType))
+            {
+                NetLogger.LogError("NetMessageMapper", $"查询失败: MsgId 未注册到静态协议表, MsgId:{msgId}");
                 return false;
             }
 

@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using StellarNet.Lite.Shared.Core;
-using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Server.Core;
+using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Server.Modules
 {
@@ -21,53 +21,95 @@ namespace StellarNet.Lite.Server.Modules
         [NetHandler]
         public void OnC2S_Login(Session session, C2S_Login msg)
         {
-            if (session == null || msg == null || string.IsNullOrEmpty(msg.AccountId))
+            if (_app == null)
             {
-                NetLogger.LogError("ServerUserModule", "登录失败: 参数非法", "-", session?.SessionId);
+                NetLogger.LogError("ServerUserModule", "登录失败: _app 为空");
                 return;
             }
 
-            if (string.IsNullOrEmpty(msg.ClientVersion))
+            if (session == null || msg == null)
             {
-                NetLogger.LogWarning("ServerUserModule", "登录拦截: 客户端未提供版本号", "-", session.SessionId);
-                var rejectRes = new S2C_LoginResult { Success = false, Reason = "客户端版本过旧，请更新游戏" };
-                _app.SendMessageToSession(session, rejectRes);
+                NetLogger.LogError("ServerUserModule", $"登录失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
                 return;
             }
+
+            if (string.IsNullOrWhiteSpace(msg.AccountId))
+            {
+                NetLogger.LogError("ServerUserModule", "登录失败: AccountId 为空", "-", session.SessionId);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(msg.ClientVersion))
+            {
+                NetLogger.LogWarning("ServerUserModule", "登录拦截: ClientVersion 为空", "-", session.SessionId);
+                _app.SendMessageToSession(session, new S2C_LoginResult
+                {
+                    Success = false,
+                    Reason = "客户端版本过旧，请更新游戏"
+                });
+                return;
+            }
+
+            CleanupInvalidAccountMappings();
+
+            string accountId = msg.AccountId.Trim();
 
             if (Version.TryParse(msg.ClientVersion, out Version clientVer) &&
                 Version.TryParse(_app.Config.MinClientVersion, out Version minVer))
             {
                 if (clientVer < minVer)
                 {
-                    NetLogger.LogWarning("ServerUserModule", $"登录拦截: 客户端版本 {msg.ClientVersion} 低于最低要求 {_app.Config.MinClientVersion}", "-", session.SessionId);
-                    var rejectRes = new S2C_LoginResult { Success = false, Reason = $"客户端版本过旧，请在Unity中更新至 {_app.Config.MinClientVersion} 或以上版本" };
-                    _app.SendMessageToSession(session, rejectRes);
+                    NetLogger.LogWarning(
+                        "ServerUserModule",
+                        $"登录拦截: 客户端版本过低, Client:{msg.ClientVersion}, Min:{_app.Config.MinClientVersion}",
+                        "-",
+                        session.SessionId);
+
+                    _app.SendMessageToSession(session, new S2C_LoginResult
+                    {
+                        Success = false,
+                        Reason = $"客户端版本过旧，请更新至 {_app.Config.MinClientVersion} 或以上版本"
+                    });
                     return;
                 }
             }
-            else if (msg.ClientVersion != _app.Config.MinClientVersion)
+            else if (!string.Equals(msg.ClientVersion, _app.Config.MinClientVersion, StringComparison.Ordinal))
             {
-                NetLogger.LogWarning("ServerUserModule", $"登录拦截: 客户端版本 {msg.ClientVersion} 不匹配要求 {_app.Config.MinClientVersion}", "-", session.SessionId);
-                var rejectRes = new S2C_LoginResult { Success = false, Reason = $"客户端版本不匹配，请更新至 {_app.Config.MinClientVersion}" };
-                _app.SendMessageToSession(session, rejectRes);
+                NetLogger.LogWarning(
+                    "ServerUserModule",
+                    $"登录拦截: 客户端版本不匹配, Client:{msg.ClientVersion}, Min:{_app.Config.MinClientVersion}",
+                    "-",
+                    session.SessionId);
+
+                _app.SendMessageToSession(session, new S2C_LoginResult
+                {
+                    Success = false,
+                    Reason = $"客户端版本不匹配，请更新至 {_app.Config.MinClientVersion}"
+                });
                 return;
             }
 
-            if (_accountToSession.TryGetValue(msg.AccountId, out var oldSession))
+            if (_accountToSession.TryGetValue(accountId, out Session oldSession) && oldSession != null)
             {
-                // 核心修复：防御“自己顶自己”的幽灵包。如果当前会话就是已登录的会话，直接忽略重复请求
                 if (oldSession == session)
                 {
-                    NetLogger.LogWarning("ServerUserModule", "忽略重复的登录请求，防止自踢", "-", session.SessionId);
+                    NetLogger.LogInfo("ServerUserModule", "忽略重复登录请求，返回当前会话结果", oldSession.CurrentRoomId, oldSession.SessionId);
+
+                    bool hasReconnectRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) && _app.GetRoom(oldSession.CurrentRoomId) != null;
+                    _app.SendMessageToSession(oldSession, new S2C_LoginResult
+                    {
+                        Success = true,
+                        SessionId = oldSession.SessionId,
+                        HasReconnectRoom = hasReconnectRoom,
+                        Reason = string.Empty
+                    });
                     return;
                 }
 
                 if (oldSession.IsOnline)
                 {
                     NetLogger.LogWarning("ServerUserModule", "账号在其他设备登录，踢出旧连接", oldSession.CurrentRoomId, oldSession.SessionId);
-                    var kickMsg = new S2C_KickOut { Reason = "账号在其他设备登录" };
-                    _app.SendMessageToSession(oldSession, kickMsg);
+                    _app.SendMessageToSession(oldSession, new S2C_KickOut { Reason = "账号在其他设备登录" });
                     _app.UnbindConnection(oldSession);
                 }
 
@@ -76,41 +118,49 @@ namespace StellarNet.Lite.Server.Modules
                 oldSession.ResetSeq(session.LastReceivedSeq);
 
                 bool hasRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) && _app.GetRoom(oldSession.CurrentRoomId) != null;
-                var reconnectRes = new S2C_LoginResult
+                _app.SendMessageToSession(oldSession, new S2C_LoginResult
                 {
                     Success = true,
                     SessionId = oldSession.SessionId,
                     HasReconnectRoom = hasRoom,
                     Reason = string.Empty
-                };
-                _app.SendMessageToSession(oldSession, reconnectRes);
-                NetLogger.LogInfo("ServerUserModule", "玩家断线重连(顶号)成功，Seq 状态已重置对齐", oldSession.CurrentRoomId, oldSession.SessionId);
+                });
+
+                NetLogger.LogInfo("ServerUserModule", "玩家断线重连(顶号)成功", oldSession.CurrentRoomId, oldSession.SessionId);
                 return;
             }
 
             _app.RemoveSession(session.SessionId);
-            var authSession = new Session(session.SessionId, msg.AccountId, session.ConnectionId);
+
+            var authSession = new Session(session.SessionId, accountId, session.ConnectionId);
             authSession.ResetSeq(session.LastReceivedSeq);
-            _accountToSession[msg.AccountId] = authSession;
+
+            _accountToSession[accountId] = authSession;
             _app.RegisterSession(authSession);
 
-            var res = new S2C_LoginResult
+            _app.SendMessageToSession(authSession, new S2C_LoginResult
             {
                 Success = true,
                 SessionId = authSession.SessionId,
                 HasReconnectRoom = false,
                 Reason = string.Empty
-            };
-            _app.SendMessageToSession(authSession, res);
+            });
+
             NetLogger.LogInfo("ServerUserModule", "玩家全新登录成功", "-", authSession.SessionId);
         }
 
         [NetHandler]
         public void OnC2S_ConfirmReconnect(Session session, C2S_ConfirmReconnect msg)
         {
+            if (_app == null)
+            {
+                NetLogger.LogError("ServerUserModule", "确认重连失败: _app 为空");
+                return;
+            }
+
             if (session == null || msg == null)
             {
-                NetLogger.LogError("ServerUserModule", "收到非法请求: Session 或 Msg 为空");
+                NetLogger.LogError("ServerUserModule", $"确认重连失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
                 return;
             }
 
@@ -125,42 +175,53 @@ namespace StellarNet.Lite.Server.Modules
                 }
 
                 session.UnbindRoom();
-                var rejectRes = new S2C_ReconnectResult { Success = false, Reason = "已放弃重连" };
-                _app.SendMessageToSession(session, rejectRes);
+                _app.SendMessageToSession(session, new S2C_ReconnectResult
+                {
+                    Success = false,
+                    Reason = "已放弃重连"
+                });
                 return;
             }
 
             if (room == null)
             {
                 session.UnbindRoom();
-                var failRes = new S2C_ReconnectResult { Success = false, Reason = "房间已解散" };
-                _app.SendMessageToSession(session, failRes);
+                _app.SendMessageToSession(session, new S2C_ReconnectResult
+                {
+                    Success = false,
+                    Reason = "房间已解散"
+                });
                 return;
             }
 
-            var successRes = new S2C_ReconnectResult
+            _app.SendMessageToSession(session, new S2C_ReconnectResult
             {
                 Success = true,
                 RoomId = room.RoomId,
                 ComponentIds = room.ComponentIds,
                 Reason = string.Empty
-            };
-            _app.SendMessageToSession(session, successRes);
+            });
         }
 
         [NetHandler]
         public void OnC2S_ReconnectReady(Session session, C2S_ReconnectReady msg)
         {
+            if (_app == null)
+            {
+                NetLogger.LogError("ServerUserModule", "重连就绪失败: _app 为空");
+                return;
+            }
+
             if (session == null || msg == null)
             {
-                NetLogger.LogError("ServerUserModule", "收到非法请求: Session 或 Msg 为空");
+                NetLogger.LogError("ServerUserModule", $"重连就绪失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
                 return;
             }
 
             string roomId = session.CurrentRoomId;
             if (string.IsNullOrEmpty(roomId))
             {
-                NetLogger.LogError("ServerUserModule", "握手阻断: 尚未绑定房间，无法下发快照", "-", session.SessionId);
+                NetLogger.LogError("ServerUserModule", "握手阻断: 尚未绑定房间", "-", session.SessionId);
                 return;
             }
 
@@ -173,7 +234,34 @@ namespace StellarNet.Lite.Server.Modules
 
             session.SetRoomReady(true);
             room.TriggerReconnectSnapshot(session);
-            NetLogger.LogInfo("ServerUserModule", "客户端装配就绪，已下发房间全量快照", roomId, session.SessionId);
+            NetLogger.LogInfo("ServerUserModule", "客户端重连装配就绪，已下发快照", roomId, session.SessionId);
+        }
+
+        private void CleanupInvalidAccountMappings()
+        {
+            var invalidAccounts = new List<string>();
+
+            foreach (var kvp in _accountToSession)
+            {
+                string accountId = kvp.Key;
+                Session mappedSession = kvp.Value;
+
+                if (mappedSession == null)
+                {
+                    invalidAccounts.Add(accountId);
+                    continue;
+                }
+
+                if (!_app.Sessions.ContainsKey(mappedSession.SessionId))
+                {
+                    invalidAccounts.Add(accountId);
+                }
+            }
+
+            for (int i = 0; i < invalidAccounts.Count; i++)
+            {
+                _accountToSession.Remove(invalidAccounts[i]);
+            }
         }
     }
 }

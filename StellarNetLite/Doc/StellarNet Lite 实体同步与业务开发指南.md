@@ -1,6 +1,6 @@
 ﻿# StellarNet Lite 实体同步与业务开发指南
 > 面向玩法逻辑开发者的深度实战教程
-> 核心目标：**掌握 ObjectSyncComponent 的底层原理，学会将“空间动画同步”与“纯业务逻辑”完美结合，开发如闯关、生存、赛车等复杂房间玩法。**
+> 核心目标：**掌握 ObjectSyncComponent 的底层原理，学会将“空间动画同步”与“纯业务逻辑”完美结合，并熟练使用 `ILiteNetSerializable` 实现 0GC 极速同步。**
 
 ---
 
@@ -48,7 +48,7 @@
 
 它们之间的唯一纽带是：**`NetId`**。
 - 服务端：`DungeonComponent` 记录 `Dictionary<int, int> MonsterHpDict` (Key 为 NetId，Value 为 HP)。
-- 客户端：UI 监听到 HP 变化协议，通过 `NetId` 找到对应的怪物头顶血条进行刷新。
+- 客户端：UI 监听到 HP 变化协议，通过 `NetId` 找到对应的怪物，利用 `UGUIFollowTarget` 将血条挂载到怪物头顶进行刷新。
 
 这种解耦带来的巨大收益是：物理同步可以降频（如 10Hz），但业务事件（如受到致命一击）可以做到 0 延迟即时下发，且互不干扰。
 
@@ -75,33 +75,63 @@
 **流程**：房主点击开始 -> 服务端生成怪物 -> 玩家发送攻击请求 -> 服务端扣血并同步 -> 血量归零服务端销毁怪物。
 
 ### 4.1 定义业务协议 (Shared 层)
-新建 `DungeonProtocols.cs`。注意，这里只定义业务数据，不定义位置信息。
+新建 `DungeonProtocols.cs`。注意，这里只定义业务数据。**高频业务协议强烈建议实现 `ILiteNetSerializable`。**
+
 ```csharp
+using System.IO;
 using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Game.Shared.Protocol
 {
-    // 玩家请求攻击某个实体
+    // 玩家请求攻击某个实体 (高频，使用二进制序列化)
     [NetMsg(2001, NetScope.Room, NetDir.C2S)]
-    public sealed class C2S_AttackEntityReq
+    public sealed class C2S_AttackEntityReq : ILiteNetSerializable
     {
         public int TargetNetId;
         public int Damage;
+
+        public void Serialize(BinaryWriter writer)
+        {
+            writer.Write(TargetNetId);
+            writer.Write(Damage);
+        }
+
+        public void Deserialize(BinaryReader reader)
+        {
+            TargetNetId = reader.ReadInt32();
+            Damage = reader.ReadInt32();
+        }
     }
 
     // 服务端广播实体血量变化
     [NetMsg(2002, NetScope.Room, NetDir.S2C)]
-    public sealed class S2C_EntityHpChanged
+    public sealed class S2C_EntityHpChanged : ILiteNetSerializable
     {
         public int NetId;
         public int CurrentHp;
         public int MaxHp;
+
+        public void Serialize(BinaryWriter writer)
+        {
+            writer.Write(NetId);
+            writer.Write(CurrentHp);
+            writer.Write(MaxHp);
+        }
+
+        public void Deserialize(BinaryReader reader)
+        {
+            NetId = reader.ReadInt32();
+            CurrentHp = reader.ReadInt32();
+            MaxHp = reader.ReadInt32();
+        }
     }
 }
 ```
 
 ### 4.2 编写服务端业务组件 (Server 层)
 新建 `ServerDungeonComponent.cs`。它将调用 `ServerObjectSyncComponent` 的 API 来生成物理实体，同时自己维护 HP 数据。
+
 ```csharp
 using System.Collections.Generic;
 using UnityEngine;
@@ -139,10 +169,9 @@ namespace StellarNet.Lite.Game.Server.Components
         public override void OnGameStart()
         {
             if (_syncService == null) return;
-            
+
             // 游戏开始，生成一只怪物
             Vector3 spawnPos = new Vector3(0, 0, 5);
-            
             // 调用底座 API 生成实体，指定需要同步 Transform 和 Animator
             var monsterEntity = _syncService.SpawnObject(
                 NetPrefabConsts.NetPrefabs_Monster_Slime, 
@@ -151,7 +180,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 Vector3.zero, 
                 Vector3.zero
             );
-            
+
             // 记录业务数据
             _monsterHpDict[monsterEntity.NetId] = MaxMonsterHp;
             NetLogger.LogInfo("ServerDungeon", $"生成怪物成功，NetId: {monsterEntity.NetId}");
@@ -164,15 +193,15 @@ namespace StellarNet.Lite.Game.Server.Components
             if (Room.State != RoomState.Playing || _syncService == null) return;
 
             int targetId = msg.TargetNetId;
-            
+
             // 1. 校验目标是否存在且存活
             if (!_monsterHpDict.TryGetValue(targetId, out int currentHp)) return;
-            
+
             // 2. 扣除血量 (权威逻辑)
             currentHp -= msg.Damage;
             if (currentHp < 0) currentHp = 0;
             _monsterHpDict[targetId] = currentHp;
-            
+
             // 3. 广播血量变化业务事件
             var hpMsg = new S2C_EntityHpChanged 
             { 
@@ -181,7 +210,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 MaxHp = MaxMonsterHp 
             };
             Room.BroadcastMessage(hpMsg);
-            
+
             // 4. 如果死亡，调用底座 API 销毁物理实体
             if (currentHp <= 0)
             {
@@ -206,11 +235,11 @@ namespace StellarNet.Lite.Game.Server.Components
 
 ### 4.3 编写客户端业务组件 (Client 层)
 新建 `ClientDungeonComponent.cs`。它只负责接收 HP 变化，并抛给 UI 层。怪物的生成和移动已经由底层的 `ObjectSpawnerView` 和 `NetTransformView` 自动处理了！
+
 ```csharp
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Game.Shared.Protocol;
-using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Game.Client.Components
 {
@@ -236,30 +265,31 @@ namespace StellarNet.Lite.Game.Client.Components
 ```
 
 ### 4.4 表现层交互 (View 层)
-在客户端的玩家控制器脚本中，采集输入并发送攻击请求：
+在客户端的 UI 脚本中监听血量变化。注意使用 `UnRegisterWhenMonoDisable` 防止幽灵响应。
+
 ```csharp
-// 伪代码：玩家点击鼠标左键，射线检测点中怪物
-if (Input.GetMouseButtonDown(0))
+using UnityEngine;
+using StellarNet.Lite.Client.Core;
+using StellarNet.Lite.Game.Shared.Protocol;
+
+public class DungeonUIView : MonoBehaviour
 {
-    Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-    if (Physics.Raycast(ray, out RaycastHit hit))
+    private void OnEnable()
     {
-        var identity = hit.collider.GetComponentInParent<NetIdentity>();
-        if (identity != null)
+        if (NetClient.CurrentRoom != null)
         {
-            // 发送攻击请求给服务端
-            NetClient.Send(new C2S_AttackEntityReq 
-            { 
-                TargetNetId = identity.NetId, 
-                Damage = 25 
-            });
+            NetClient.CurrentRoom.NetEventSystem.Register<S2C_EntityHpChanged>(OnHpChanged)
+                .UnRegisterWhenMonoDisable(this); // 核心规范：UI 隐藏时自动注销
         }
+    }
+
+    private void OnHpChanged(S2C_EntityHpChanged msg)
+    {
+        // 利用 UGUIFollowTarget 找到对应的怪物头顶血条并刷新
+        Debug.Log($"怪物 {msg.NetId} 血量变化: {msg.CurrentHp}/{msg.MaxHp}");
     }
 }
 ```
-
-**至此，一个完整的打怪闭环完成！**
-你不需要写任何代码去同步怪物的坐标，也不需要去实例化预制体。`ObjectSyncComponent` 默默在底层处理了物理同步，而你的 `DungeonComponent` 只专注于“谁打了谁，扣了多少血”。
 
 ---
 

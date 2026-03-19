@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using StellarNet.Lite.Shared.Core;
-using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Server.Core;
+using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Server.Components
 {
@@ -39,7 +39,17 @@ namespace StellarNet.Lite.Server.Components
 
         public override void OnMemberJoined(Session session)
         {
-            if (session == null) return;
+            if (session == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"成员加入失败: session 为空, RoomId:{Room?.RoomId ?? "-"}");
+                return;
+            }
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"成员加入失败: Room 为空, SessionId:{session.SessionId}");
+                return;
+            }
 
             if (string.IsNullOrEmpty(_ownerSessionId))
             {
@@ -47,22 +57,30 @@ namespace StellarNet.Lite.Server.Components
             }
 
             _readyStates[session.SessionId] = false;
-
-            var memberInfo = CreateMemberInfo(session, false, session.SessionId == _ownerSessionId);
-            var msg = new S2C_MemberJoined { Member = memberInfo };
-            Room.BroadcastMessage(msg);
+            Room.BroadcastMessage(new S2C_MemberJoined
+            {
+                Member = CreateMemberInfo(session, false, session.SessionId == _ownerSessionId)
+            });
 
             OnSendSnapshot(session);
         }
 
         public override void OnMemberLeft(Session session)
         {
-            if (session == null) return;
+            if (session == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"成员离开失败: session 为空, RoomId:{Room?.RoomId ?? "-"}");
+                return;
+            }
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"成员离开失败: Room 为空, SessionId:{session.SessionId}");
+                return;
+            }
 
             _readyStates.Remove(session.SessionId);
-
-            var msg = new S2C_MemberLeft { SessionId = session.SessionId };
-            Room.BroadcastMessage(msg);
+            Room.BroadcastMessage(new S2C_MemberLeft { SessionId = session.SessionId });
 
             if (_ownerSessionId == session.SessionId)
             {
@@ -72,36 +90,54 @@ namespace StellarNet.Lite.Server.Components
 
         public override void OnMemberOffline(Session session)
         {
-            if (session == null) return;
+            if (session == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"成员离线处理失败: session 为空, RoomId:{Room?.RoomId ?? "-"}");
+                return;
+            }
 
             if (_ownerSessionId == session.SessionId)
             {
-                NetLogger.LogWarning("ServerRoomSettings", "房主异常离线，触发房主移交机制", Room.RoomId, session.SessionId);
+                NetLogger.LogWarning("ServerRoomSettingsComponent", "房主异常离线，触发房主移交", Room?.RoomId ?? "-", session.SessionId);
                 MigrateHost();
             }
         }
 
         private void MigrateHost()
         {
+            if (Room == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", "迁移房主失败: Room 为空");
+                return;
+            }
+
             _ownerSessionId = string.Empty;
             string fallbackSessionId = string.Empty;
 
             foreach (var kvp in _readyStates)
             {
-                var memberSession = Room.GetMember(kvp.Key);
-                if (memberSession != null)
+                Session memberSession = Room.GetMember(kvp.Key);
+                if (memberSession == null)
                 {
-                    if (string.IsNullOrEmpty(fallbackSessionId)) fallbackSessionId = kvp.Key;
+                    continue;
+                }
 
-                    if (memberSession.IsOnline)
-                    {
-                        _ownerSessionId = kvp.Key;
-                        break;
-                    }
+                if (string.IsNullOrEmpty(fallbackSessionId))
+                {
+                    fallbackSessionId = kvp.Key;
+                }
+
+                if (memberSession.IsOnline)
+                {
+                    _ownerSessionId = kvp.Key;
+                    break;
                 }
             }
 
-            if (string.IsNullOrEmpty(_ownerSessionId)) _ownerSessionId = fallbackSessionId;
+            if (string.IsNullOrEmpty(_ownerSessionId))
+            {
+                _ownerSessionId = fallbackSessionId;
+            }
 
             if (!string.IsNullOrEmpty(_ownerSessionId))
             {
@@ -111,105 +147,183 @@ namespace StellarNet.Lite.Server.Components
 
         public override void OnSendSnapshot(Session session)
         {
-            if (session == null) return;
+            if (session == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"发送快照失败: session 为空, RoomId:{Room?.RoomId ?? "-"}");
+                return;
+            }
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"发送快照失败: Room 为空, SessionId:{session.SessionId}");
+                return;
+            }
 
             var members = new List<MemberInfo>();
             foreach (var kvp in _readyStates)
             {
-                var memberSession = Room.GetMember(kvp.Key);
-                if (memberSession != null)
+                Session memberSession = Room.GetMember(kvp.Key);
+                if (memberSession == null)
                 {
-                    members.Add(CreateMemberInfo(memberSession, kvp.Value, kvp.Key == _ownerSessionId));
+                    continue;
                 }
+
+                members.Add(CreateMemberInfo(memberSession, kvp.Value, kvp.Key == _ownerSessionId));
             }
 
-            var msg = new S2C_RoomSnapshot
+            Room.SendMessageTo(session, new S2C_RoomSnapshot
             {
                 RoomName = Room.Config.RoomName,
                 MaxMembers = Room.Config.MaxMembers,
                 IsPrivate = Room.Config.IsPrivate,
                 Members = members.ToArray()
-            };
-
-            Room.SendMessageTo(session, msg);
+            });
 
             if (Room.State == RoomState.Playing)
             {
-                var notify = new S2C_GameStarted { StartUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
-                Room.SendMessageTo(session, notify);
+                Room.SendMessageTo(session, new S2C_GameStarted
+                {
+                    StartUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                });
             }
         }
 
         private void BroadcastSnapshotToAll()
         {
+            if (Room == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", "广播快照失败: Room 为空");
+                return;
+            }
+
             var members = new List<MemberInfo>();
             foreach (var kvp in _readyStates)
             {
-                var memberSession = Room.GetMember(kvp.Key);
-                if (memberSession != null)
+                Session memberSession = Room.GetMember(kvp.Key);
+                if (memberSession == null)
                 {
-                    members.Add(CreateMemberInfo(memberSession, kvp.Value, kvp.Key == _ownerSessionId));
+                    continue;
                 }
+
+                members.Add(CreateMemberInfo(memberSession, kvp.Value, kvp.Key == _ownerSessionId));
             }
 
-            var msg = new S2C_RoomSnapshot
+            Room.BroadcastMessage(new S2C_RoomSnapshot
             {
                 RoomName = Room.Config.RoomName,
                 MaxMembers = Room.Config.MaxMembers,
                 IsPrivate = Room.Config.IsPrivate,
                 Members = members.ToArray()
-            };
-
-            Room.BroadcastMessage(msg);
+            });
         }
 
         [NetHandler]
         public void OnC2S_SetReady(Session session, C2S_SetReady msg)
         {
-            if (session == null || msg == null) return;
-            if (!_readyStates.ContainsKey(session.SessionId)) return;
+            if (session == null || msg == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"设置准备状态失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
+                return;
+            }
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"设置准备状态失败: Room 为空, SessionId:{session.SessionId}");
+                return;
+            }
+
+            if (!_readyStates.ContainsKey(session.SessionId))
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"设置准备状态失败: 成员不存在, SessionId:{session.SessionId}, RoomId:{Room.RoomId}");
+                return;
+            }
 
             _readyStates[session.SessionId] = msg.IsReady;
-
-            var notify = new S2C_MemberReadyChanged { SessionId = session.SessionId, IsReady = msg.IsReady };
-            Room.BroadcastMessage(notify);
+            Room.BroadcastMessage(new S2C_MemberReadyChanged
+            {
+                SessionId = session.SessionId,
+                IsReady = msg.IsReady
+            });
         }
 
         [NetHandler]
         public void OnC2S_StartGame(Session session, C2S_StartGame msg)
         {
-            if (session == null) return;
-            if (session.SessionId != _ownerSessionId) return;
-            if (Room.State != RoomState.Waiting) return;
+            if (session == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", "开始游戏失败: session 为空");
+                return;
+            }
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"开始游戏失败: Room 为空, SessionId:{session.SessionId}");
+                return;
+            }
+
+            if (session.SessionId != _ownerSessionId)
+            {
+                NetLogger.LogWarning("ServerRoomSettingsComponent", "开始游戏被拦截: 当前玩家不是房主", Room.RoomId, session.SessionId);
+                return;
+            }
+
+            if (Room.State != RoomState.Waiting)
+            {
+                NetLogger.LogWarning("ServerRoomSettingsComponent", $"开始游戏被拦截: 房间状态非法, State:{Room.State}", Room.RoomId, session.SessionId);
+                return;
+            }
 
             foreach (var kvp in _readyStates)
             {
-                if (kvp.Key != _ownerSessionId && !kvp.Value) return;
+                if (kvp.Key != _ownerSessionId && !kvp.Value)
+                {
+                    NetLogger.LogWarning("ServerRoomSettingsComponent", $"开始游戏被拦截: 存在未准备成员, MemberSessionId:{kvp.Key}", Room.RoomId, session.SessionId);
+                    return;
+                }
             }
 
             Room.StartGame();
-            var notify = new S2C_GameStarted { StartUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
-            Room.BroadcastMessage(notify);
+            Room.BroadcastMessage(new S2C_GameStarted
+            {
+                StartUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            });
         }
 
         [NetHandler]
         public void OnC2S_EndGame(Session session, C2S_EndGame msg)
         {
-            if (session == null || msg == null) return;
-            if (session.SessionId != _ownerSessionId) return;
-            if (Room.State != RoomState.Playing) return;
+            if (session == null || msg == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"结束游戏失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
+                return;
+            }
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ServerRoomSettingsComponent", $"结束游戏失败: Room 为空, SessionId:{session.SessionId}");
+                return;
+            }
+
+            if (session.SessionId != _ownerSessionId)
+            {
+                NetLogger.LogWarning("ServerRoomSettingsComponent", "结束游戏被拦截: 当前玩家不是房主", Room.RoomId, session.SessionId);
+                return;
+            }
+
+            if (Room.State != RoomState.Playing)
+            {
+                NetLogger.LogWarning("ServerRoomSettingsComponent", $"结束游戏被拦截: 房间状态非法, State:{Room.State}", Room.RoomId, session.SessionId);
+                return;
+            }
 
             Room.EndGame();
 
-            // 核心修复 P0-4：修正编译错误，使用正确的属性名 LastReplayId
-            string rId = Room.LastReplayId ?? string.Empty;
-
-            var notify = new S2C_GameEnded
+            string replayId = Room.LastReplayId ?? string.Empty;
+            Room.BroadcastMessage(new S2C_GameEnded
             {
                 WinnerSessionId = "房主强制中止",
-                ReplayId = rId
-            };
-            Room.BroadcastMessage(notify);
+                ReplayId = replayId
+            });
         }
     }
 }

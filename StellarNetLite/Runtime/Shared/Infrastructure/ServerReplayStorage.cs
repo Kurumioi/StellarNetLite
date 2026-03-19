@@ -1,19 +1,19 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Collections.Generic;
-using UnityEngine;
 using StellarNet.Lite.Shared.Infrastructure;
+using UnityEngine;
 
 namespace StellarNet.Lite.Server.Infrastructure
 {
     public static class ServerReplayStorage
     {
         public const string ReplayFolderName = "Replays";
-        private const uint MagicBytes = 0x50455253; // "SREP"
+        private const uint MagicBytes = 0x50455253;
 
-        private class RecordContext
+        private sealed class RecordContext
         {
             public FileStream FS;
             public GZipStream GZ;
@@ -21,174 +21,246 @@ namespace StellarNet.Lite.Server.Infrastructure
             public string TempFilePath;
         }
 
-        private static readonly Dictionary<string, RecordContext> _activeRecords = new Dictionary<string, RecordContext>();
+        private static readonly Dictionary<string, RecordContext> ActiveRecords = new Dictionary<string, RecordContext>();
 
         public static void StartRecord(string roomId)
         {
-            if (string.IsNullOrEmpty(roomId)) return;
+            if (string.IsNullOrEmpty(roomId))
+            {
+                NetLogger.LogError("ServerReplayStorage", "启动录制失败: roomId 为空");
+                return;
+            }
 
-            string basePath = Application.persistentDataPath;
-            string folderPath = Path.Combine(basePath, ReplayFolderName).Replace("\\", "/");
+            string folderPath = Path.Combine(Application.persistentDataPath, ReplayFolderName).Replace("\\", "/");
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                NetLogger.LogError("ServerReplayStorage", $"启动录制失败: folderPath 为空, RoomId:{roomId}");
+                return;
+            }
+
             if (!Directory.Exists(folderPath))
             {
                 Directory.CreateDirectory(folderPath);
             }
 
+            if (ActiveRecords.TryGetValue(roomId, out RecordContext oldContext) && oldContext != null)
+            {
+                oldContext.Writer?.Dispose();
+                oldContext.GZ?.Dispose();
+                oldContext.FS?.Dispose();
+                ActiveRecords.Remove(roomId);
+            }
+
             string tempPath = Path.Combine(folderPath, $"{roomId}_temp.replay").Replace("\\", "/");
-
-            try
+            if (string.IsNullOrEmpty(tempPath))
             {
-                var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                var gz = new GZipStream(fs, CompressionMode.Compress, true);
-                var writer = new BinaryWriter(gz);
+                NetLogger.LogError("ServerReplayStorage", $"启动录制失败: tempPath 为空, RoomId:{roomId}, Folder:{folderPath}");
+                return;
+            }
 
-                _activeRecords[roomId] = new RecordContext
-                {
-                    FS = fs,
-                    GZ = gz,
-                    Writer = writer,
-                    TempFilePath = tempPath
-                };
-            }
-            catch (Exception e)
+            FileStream fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            var gz = new GZipStream(fs, CompressionMode.Compress, true);
+            var writer = new BinaryWriter(gz);
+
+            ActiveRecords[roomId] = new RecordContext
             {
-                NetLogger.LogError("[ServerReplayStorage]", $"启动流式录制异常: {e.Message}", roomId);
-            }
+                FS = fs,
+                GZ = gz,
+                Writer = writer,
+                TempFilePath = tempPath
+            };
         }
 
         public static void RecordFrame(string roomId, int tick, int msgId, byte[] payloadBuffer, int payloadLength)
         {
-            if (!_activeRecords.TryGetValue(roomId, out var ctx)) return;
-
-            try
+            if (string.IsNullOrEmpty(roomId))
             {
-                ctx.Writer.Write(tick);
-                ctx.Writer.Write(msgId);
-                ctx.Writer.Write(payloadLength);
-
-                if (payloadLength > 0 && payloadBuffer != null)
-                {
-                    ctx.Writer.Write(payloadBuffer, 0, payloadLength);
-                }
+                NetLogger.LogError("ServerReplayStorage", $"记录帧失败: roomId 为空, Tick:{tick}, MsgId:{msgId}");
+                return;
             }
-            catch (Exception e)
+
+            if (!ActiveRecords.TryGetValue(roomId, out RecordContext ctx) || ctx == null || ctx.Writer == null)
             {
-                NetLogger.LogError("[ServerReplayStorage]", $"写入帧数据异常: {e.Message}", roomId);
+                return;
+            }
+
+            if (payloadLength < 0)
+            {
+                NetLogger.LogError("ServerReplayStorage", $"记录帧失败: payloadLength 非法, RoomId:{roomId}, Tick:{tick}, MsgId:{msgId}, PayloadLength:{payloadLength}");
+                return;
+            }
+
+            if (payloadLength > 0 && (payloadBuffer == null || payloadLength > payloadBuffer.Length))
+            {
+                NetLogger.LogError(
+                    "ServerReplayStorage",
+                    $"记录帧失败: payloadBuffer 非法, RoomId:{roomId}, Tick:{tick}, MsgId:{msgId}, PayloadLength:{payloadLength}, BufferLength:{payloadBuffer?.Length ?? 0}");
+                return;
+            }
+
+            ctx.Writer.Write(tick);
+            ctx.Writer.Write(msgId);
+            ctx.Writer.Write(payloadLength);
+
+            if (payloadLength > 0)
+            {
+                ctx.Writer.Write(payloadBuffer, 0, payloadLength);
             }
         }
 
-        // 核心升级：接收 totalTicks 参数，并将其写入 Version 2 格式的 Header 与文件名中
         public static void StopRecordAndSave(string roomId, string replayId, string displayName, int[] componentIds, NetConfig config, int totalTicks)
         {
-            if (!_activeRecords.TryGetValue(roomId, out var ctx)) return;
-
-            _activeRecords.Remove(roomId);
-
-            try
+            if (string.IsNullOrEmpty(roomId))
             {
-                ctx.Writer.Dispose();
-                ctx.GZ.Dispose();
-                ctx.FS.Dispose();
+                NetLogger.LogError("ServerReplayStorage", $"结束录制失败: roomId 为空, ReplayId:{replayId}");
+                return;
+            }
 
-                string folderPath = Path.Combine(Application.persistentDataPath, ReplayFolderName).Replace("\\", "/");
-                string safeBase64Name = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(displayName))
-                    .Replace('+', '-').Replace('/', '_');
+            if (!ActiveRecords.TryGetValue(roomId, out RecordContext ctx) || ctx == null)
+            {
+                NetLogger.LogWarning("ServerReplayStorage", $"结束录制跳过: 不存在活跃上下文, RoomId:{roomId}, ReplayId:{replayId}");
+                return;
+            }
 
-                string finalPath = Path.Combine(folderPath, $"{replayId}@{safeBase64Name}@{totalTicks}.replay").Replace("\\", "/");
+            ActiveRecords.Remove(roomId);
 
-                using (var finalFs = new FileStream(finalPath, FileMode.Create, FileAccess.Write))
+            ctx.Writer?.Dispose();
+            ctx.GZ?.Dispose();
+            ctx.FS?.Dispose();
+
+            string folderPath = Path.Combine(Application.persistentDataPath, ReplayFolderName).Replace("\\", "/");
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                NetLogger.LogError("ServerReplayStorage", $"结束录制失败: folderPath 为空, RoomId:{roomId}, ReplayId:{replayId}");
+                TryDeleteTempFile(ctx.TempFilePath);
+                return;
+            }
+
+            if (!Directory.Exists(folderPath))
+            {
+                Directory.CreateDirectory(folderPath);
+            }
+
+            string finalDisplayName = string.IsNullOrWhiteSpace(displayName) ? "未命名录像" : displayName.Trim();
+            string safeBase64Name = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(finalDisplayName))
+                .Replace('+', '-')
+                .Replace('/', '_');
+
+            string finalPath = Path.Combine(folderPath, $"{replayId}@{safeBase64Name}@{totalTicks}.replay").Replace("\\", "/");
+            if (string.IsNullOrEmpty(finalPath))
+            {
+                NetLogger.LogError("ServerReplayStorage", $"结束录制失败: finalPath 为空, RoomId:{roomId}, ReplayId:{replayId}, Folder:{folderPath}");
+                TryDeleteTempFile(ctx.TempFilePath);
+                return;
+            }
+
+            byte[] headerBytes;
+            using (var ms = new MemoryStream())
+            using (var headerWriter = new BinaryWriter(ms))
+            {
+                headerWriter.Write(MagicBytes);
+                headerWriter.Write((byte)2);
+                headerWriter.Write(finalDisplayName);
+                headerWriter.Write(roomId);
+
+                int compCount = componentIds?.Length ?? 0;
+                headerWriter.Write(compCount);
+                for (int i = 0; i < compCount; i++)
                 {
-                    byte[] headerBytes;
-                    using (var ms = new MemoryStream())
-                    using (var headerWriter = new BinaryWriter(ms))
-                    {
-                        headerWriter.Write(MagicBytes);
-                        headerWriter.Write((byte)2);
-                        headerWriter.Write(displayName ?? "");
-                        headerWriter.Write(roomId ?? "");
-
-                        int compCount = componentIds?.Length ?? 0;
-                        headerWriter.Write(compCount);
-                        for (int i = 0; i < compCount; i++)
-                        {
-                            headerWriter.Write(componentIds[i]);
-                        }
-
-                        headerWriter.Write(totalTicks);
-                        headerWriter.Flush();
-                        headerBytes = ms.ToArray();
-                    }
-
-                    byte[] lengthBytes = BitConverter.GetBytes(headerBytes.Length);
-                    finalFs.Write(lengthBytes, 0, 4);
-                    finalFs.Write(headerBytes, 0, headerBytes.Length);
-
-                    using (var tempFs = new FileStream(ctx.TempFilePath, FileMode.Open, FileAccess.Read))
-                    {
-                        tempFs.CopyTo(finalFs);
-                    }
+                    headerWriter.Write(componentIds[i]);
                 }
 
-                // 核心修复：防御性删除，杜绝无意义的死代码引发异常
-                if (File.Exists(ctx.TempFilePath))
+                headerWriter.Write(totalTicks);
+                headerWriter.Flush();
+                headerBytes = ms.ToArray();
+            }
+
+            using (var finalFs = new FileStream(finalPath, FileMode.Create, FileAccess.Write))
+            {
+                byte[] lengthBytes = BitConverter.GetBytes(headerBytes.Length);
+                finalFs.Write(lengthBytes, 0, 4);
+                finalFs.Write(headerBytes, 0, headerBytes.Length);
+
+                if (string.IsNullOrEmpty(ctx.TempFilePath) || !File.Exists(ctx.TempFilePath))
                 {
-                    File.Delete(ctx.TempFilePath);
+                    NetLogger.LogError("ServerReplayStorage", $"结束录制失败: 临时文件不存在, RoomId:{roomId}, ReplayId:{replayId}, TempPath:{ctx.TempFilePath}");
+                    return;
                 }
 
-                NetLogger.LogInfo("[ServerReplayStorage]", $"流式录像保存成功: {replayId}@{safeBase64Name}@{totalTicks}.replay", roomId);
-                EnforceRollingLimit(folderPath, config.MaxReplayFiles);
+                using (var tempFs = new FileStream(ctx.TempFilePath, FileMode.Open, FileAccess.Read))
+                {
+                    tempFs.CopyTo(finalFs);
+                }
             }
-            catch (Exception e)
-            {
-                NetLogger.LogError("[ServerReplayStorage]", $"合并录像文件异常: {e.Message}", roomId);
-            }
+
+            TryDeleteTempFile(ctx.TempFilePath);
+
+            NetLogger.LogInfo("ServerReplayStorage", $"录像保存成功: {Path.GetFileName(finalPath)}", roomId);
+            EnforceRollingLimit(folderPath, config != null ? config.MaxReplayFiles : 100);
         }
 
         public static void AbortRecord(string roomId)
         {
-            if (!_activeRecords.TryGetValue(roomId, out var ctx)) return;
-
-            _activeRecords.Remove(roomId);
-
-            try
+            if (string.IsNullOrEmpty(roomId))
             {
-                ctx.Writer.Dispose();
-                ctx.GZ.Dispose();
-                ctx.FS.Dispose();
+                NetLogger.LogError("ServerReplayStorage", "中止录制失败: roomId 为空");
+                return;
+            }
 
-                if (File.Exists(ctx.TempFilePath))
-                {
-                    File.Delete(ctx.TempFilePath);
-                }
-            }
-            catch (Exception e)
+            if (!ActiveRecords.TryGetValue(roomId, out RecordContext ctx) || ctx == null)
             {
-                NetLogger.LogError("[ServerReplayStorage]", $"中止录像异常: {e.Message}", roomId);
+                return;
             }
+
+            ActiveRecords.Remove(roomId);
+
+            ctx.Writer?.Dispose();
+            ctx.GZ?.Dispose();
+            ctx.FS?.Dispose();
+
+            TryDeleteTempFile(ctx.TempFilePath);
         }
 
         private static void EnforceRollingLimit(string folderPath, int maxFiles)
         {
-            if (maxFiles <= 0) return;
-
-            try
+            if (string.IsNullOrEmpty(folderPath) || maxFiles <= 0 || !Directory.Exists(folderPath))
             {
-                var dirInfo = new DirectoryInfo(folderPath);
-                var files = dirInfo.GetFiles("*.replay");
+                return;
+            }
 
-                if (files.Length <= maxFiles) return;
+            FileInfo[] files = new DirectoryInfo(folderPath).GetFiles("*.replay");
+            if (files.Length <= maxFiles)
+            {
+                return;
+            }
 
-                var sortedFiles = files.OrderByDescending(f => f.CreationTimeUtc).ToList();
-                for (int i = maxFiles; i < sortedFiles.Count; i++)
+            List<FileInfo> sortedFiles = files.OrderByDescending(f => f.CreationTimeUtc).ToList();
+            for (int i = maxFiles; i < sortedFiles.Count; i++)
+            {
+                FileInfo file = sortedFiles[i];
+                if (file == null)
                 {
-                    sortedFiles[i].Delete();
-                    NetLogger.LogInfo("[ServerReplayStorage]", $"滚动清理: 已删除过期录像文件 {sortedFiles[i].Name}");
+                    continue;
                 }
+
+                file.Delete();
+                NetLogger.LogInfo("ServerReplayStorage", $"滚动清理: 已删除过期录像 {file.Name}");
             }
-            catch (Exception e)
+        }
+
+        private static void TryDeleteTempFile(string tempPath)
+        {
+            if (string.IsNullOrEmpty(tempPath))
             {
-                NetLogger.LogError("[ServerReplayStorage]", $"滚动清理异常: {e.Message}");
+                return;
             }
+
+            if (!File.Exists(tempPath))
+            {
+                return;
+            }
+
+            File.Delete(tempPath);
         }
     }
 }

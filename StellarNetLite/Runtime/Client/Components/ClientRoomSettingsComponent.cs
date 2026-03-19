@@ -1,10 +1,10 @@
 ﻿using System.Collections.Generic;
-using UnityEngine;
-using StellarNet.Lite.Shared.Core;
-using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Client.Core;
-using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Game.Client.Infrastructure;
+using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Shared.Protocol;
+using UnityEngine;
 
 namespace StellarNet.Lite.Client.Components
 {
@@ -12,16 +12,14 @@ namespace StellarNet.Lite.Client.Components
     public sealed class ClientRoomSettingsComponent : ClientRoomComponent
     {
         private readonly ClientApp _app;
-        public readonly Dictionary<string, MemberInfo> Members = new Dictionary<string, MemberInfo>();
 
+        public readonly Dictionary<string, MemberInfo> Members = new Dictionary<string, MemberInfo>();
         public bool IsGameStarted { get; private set; }
         public string RoomName { get; private set; } = string.Empty;
-        public int MaxMembers { get; private set; } = 0;
-        public bool IsPrivate { get; private set; } = false;
+        public int MaxMembers { get; private set; }
+        public bool IsPrivate { get; private set; }
 
         private GameObject _viewRoot;
-
-        // 缓存路由引用，用于显式解绑
         private RoomUIRouterBase<ClientRoomSettingsComponent> _activeRouter;
 
         public ClientRoomSettingsComponent(ClientApp app)
@@ -31,14 +29,32 @@ namespace StellarNet.Lite.Client.Components
 
         public override void OnInit()
         {
+            if (Room == null)
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", "初始化失败: Room 为空");
+                return;
+            }
+
             Members.Clear();
             IsGameStarted = false;
             RoomName = string.Empty;
             MaxMembers = 0;
             IsPrivate = false;
 
+            if (_viewRoot != null)
+            {
+                NetLogger.LogWarning("ClientRoomSettingsComponent", $"重复初始化已忽略: RoomId:{Room.RoomId}");
+                return;
+            }
+
             _viewRoot = new GameObject($"[View] RoomSettings_{Room.RoomId}");
             Object.DontDestroyOnLoad(_viewRoot);
+
+            if (_app == null)
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", $"初始化失败: _app 为空, RoomId:{Room.RoomId}");
+                return;
+            }
 
             if (_app.State == ClientAppState.OnlineRoom)
             {
@@ -56,7 +72,6 @@ namespace StellarNet.Lite.Client.Components
 
         public override void OnDestroy()
         {
-            // 核心修复：在销毁 ViewRoot 之前，主动通知 Router 立即清理 UI
             if (_activeRouter != null)
             {
                 _activeRouter.Unbind();
@@ -68,45 +83,80 @@ namespace StellarNet.Lite.Client.Components
                 Object.Destroy(_viewRoot);
                 _viewRoot = null;
             }
+
+            Members.Clear();
         }
 
         [NetHandler]
         public void OnS2C_RoomSnapshot(S2C_RoomSnapshot msg)
         {
-            if (msg == null || msg.Members == null) return;
-            RoomName = msg.RoomName;
-            MaxMembers = msg.MaxMembers;
-            IsPrivate = msg.IsPrivate;
-            Members.Clear();
-            foreach (var m in msg.Members)
+            if (msg == null || msg.Members == null)
             {
-                if (m != null)
-                {
-                    Members[m.SessionId] = m;
-                }
+                NetLogger.LogError("ClientRoomSettingsComponent", $"处理房间快照失败: msg 或 members 为空, RoomId:{Room?.RoomId ?? "-"}");
+                return;
             }
 
-            NetLogger.LogInfo($"[ClientRoomSettings]", $"收到房间快照, 房间名: {RoomName}, 当前人数: {Members.Count}/{MaxMembers}");
+            RoomName = msg.RoomName ?? string.Empty;
+            MaxMembers = msg.MaxMembers;
+            IsPrivate = msg.IsPrivate;
+
+            Members.Clear();
+            for (int i = 0; i < msg.Members.Length; i++)
+            {
+                MemberInfo member = msg.Members[i];
+                if (member == null || string.IsNullOrEmpty(member.SessionId))
+                {
+                    continue;
+                }
+
+                Members[member.SessionId] = member;
+            }
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", "处理房间快照失败: Room 为空");
+                return;
+            }
+
+            NetLogger.LogInfo("ClientRoomSettingsComponent", $"收到房间快照, RoomId:{Room.RoomId}, RoomName:{RoomName}, Members:{Members.Count}/{MaxMembers}");
             Room.NetEventSystem.Broadcast(msg);
         }
 
         [NetHandler]
         public void OnS2C_MemberJoined(S2C_MemberJoined msg)
         {
-            if (msg == null || msg.Member == null || string.IsNullOrEmpty(msg.Member.SessionId)) return;
+            if (msg == null || msg.Member == null || string.IsNullOrEmpty(msg.Member.SessionId))
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", $"处理成员加入失败: 参数非法, RoomId:{Room?.RoomId ?? "-"}");
+                return;
+            }
+
             Members[msg.Member.SessionId] = msg.Member;
-            NetLogger.LogInfo($"[ClientRoomSettings]", $"成员加入: {msg.Member.DisplayName} (UID: {msg.Member.Uid})");
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", "处理成员加入失败: Room 为空");
+                return;
+            }
+
             Room.NetEventSystem.Broadcast(msg);
         }
 
         [NetHandler]
         public void OnS2C_MemberLeft(S2C_MemberLeft msg)
         {
-            if (msg == null || string.IsNullOrEmpty(msg.SessionId)) return;
-            if (Members.TryGetValue(msg.SessionId, out var leftMember))
+            if (msg == null || string.IsNullOrEmpty(msg.SessionId))
             {
-                NetLogger.LogInfo($"[ClientRoomSettings]", $"成员离开: {leftMember.DisplayName} (UID: {leftMember.Uid})");
-                Members.Remove(msg.SessionId);
+                NetLogger.LogError("ClientRoomSettingsComponent", $"处理成员离开失败: 参数非法, RoomId:{Room?.RoomId ?? "-"}");
+                return;
+            }
+
+            Members.Remove(msg.SessionId);
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", "处理成员离开失败: Room 为空");
+                return;
             }
 
             Room.NetEventSystem.Broadcast(msg);
@@ -115,11 +165,21 @@ namespace StellarNet.Lite.Client.Components
         [NetHandler]
         public void OnS2C_MemberReadyChanged(S2C_MemberReadyChanged msg)
         {
-            if (msg == null || string.IsNullOrEmpty(msg.SessionId)) return;
-            if (Members.TryGetValue(msg.SessionId, out var member))
+            if (msg == null || string.IsNullOrEmpty(msg.SessionId))
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", $"处理准备状态变更失败: 参数非法, RoomId:{Room?.RoomId ?? "-"}");
+                return;
+            }
+
+            if (Members.TryGetValue(msg.SessionId, out MemberInfo member))
             {
                 member.IsReady = msg.IsReady;
-                NetLogger.LogInfo($"[ClientRoomSettings]", $"成员准备状态变更: {member.DisplayName} -> {msg.IsReady}");
+            }
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", "处理准备状态变更失败: Room 为空");
+                return;
             }
 
             Room.NetEventSystem.Broadcast(msg);
@@ -128,17 +188,48 @@ namespace StellarNet.Lite.Client.Components
         [NetHandler]
         public void OnS2C_GameStarted(S2C_GameStarted msg)
         {
-            if (msg == null) return;
+            if (msg == null)
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", $"处理游戏开始失败: msg 为空, RoomId:{Room?.RoomId ?? "-"}");
+                return;
+            }
+
             IsGameStarted = true;
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", "处理游戏开始失败: Room 为空");
+                return;
+            }
+
             Room.NetEventSystem.Broadcast(msg);
         }
 
         [NetHandler]
         public void OnS2C_GameEnded(S2C_GameEnded msg)
         {
-            if (msg == null) return;
+            if (msg == null)
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", $"处理游戏结束失败: msg 为空, RoomId:{Room?.RoomId ?? "-"}");
+                return;
+            }
+
             IsGameStarted = false;
-            foreach (var kvp in Members) kvp.Value.IsReady = false;
+
+            foreach (var kvp in Members)
+            {
+                if (kvp.Value != null)
+                {
+                    kvp.Value.IsReady = false;
+                }
+            }
+
+            if (Room == null)
+            {
+                NetLogger.LogError("ClientRoomSettingsComponent", "处理游戏结束失败: Room 为空");
+                return;
+            }
+
             Room.NetEventSystem.Broadcast(msg);
         }
     }

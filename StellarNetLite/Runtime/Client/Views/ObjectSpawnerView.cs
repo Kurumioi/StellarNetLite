@@ -1,14 +1,14 @@
 ﻿using System.Collections.Generic;
-using UnityEngine;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.Protocol;
+using UnityEngine;
 
 namespace StellarNet.Lite.Client.Components.Views
 {
     /// <summary>
-    /// 全局网络实体生成视图 (View 层)
+    /// 全局网络实体生成视图。
     /// </summary>
     public class ObjectSpawnerView : MonoBehaviour
     {
@@ -16,31 +16,46 @@ namespace StellarNet.Lite.Client.Components.Views
         private ClientObjectSyncComponent _syncService;
         private readonly Dictionary<int, GameObject> _prefabMap = new Dictionary<int, GameObject>();
         private readonly Dictionary<int, GameObject> _spawnedObjects = new Dictionary<int, GameObject>();
+        private bool _isInitialized;
 
         public void Init(ClientRoom room)
         {
             if (room == null)
             {
-                NetLogger.LogError("ObjectSpawnerView", "初始化失败: 传入的 ClientRoom 为空，无法建立事件监听。");
+                NetLogger.LogError("ObjectSpawnerView", $"初始化失败: room 为空, Object:{name}");
                 return;
+            }
+
+            if (_isInitialized)
+            {
+                if (_room == room)
+                {
+                    NetLogger.LogWarning("ObjectSpawnerView", $"重复初始化已忽略: RoomId:{room.RoomId}, Object:{name}");
+                    return;
+                }
+
+                Clear();
             }
 
             _room = room;
             _syncService = _room.GetComponent<ClientObjectSyncComponent>();
             if (_syncService == null)
             {
-                NetLogger.LogError("ObjectSpawnerView", "初始化失败: 无法在 Room 中找到 ClientObjectSyncComponent 服务。");
+                NetLogger.LogError("ObjectSpawnerView", $"初始化失败: 缺失 ClientObjectSyncComponent, RoomId:{room.RoomId}, Object:{name}");
+                _room = null;
                 return;
             }
 
             _room.NetEventSystem.Register<Local_ObjectSpawned>(OnLocalObjectSpawned);
             _room.NetEventSystem.Register<Local_ObjectDestroyed>(OnLocalObjectDestroyed);
-            NetLogger.LogInfo("ObjectSpawnerView", "网络实体生成视图初始化完毕，开始监听实体生命周期。");
+            _isInitialized = true;
+
+            NetLogger.LogInfo("ObjectSpawnerView", $"初始化完成，开始监听实体生命周期。RoomId:{room.RoomId}, Object:{name}");
         }
 
         public void Clear()
         {
-            if (_room != null && _room.NetEventSystem != null)
+            if (_room != null)
             {
                 _room.NetEventSystem.UnRegister<Local_ObjectSpawned>(OnLocalObjectSpawned);
                 _room.NetEventSystem.UnRegister<Local_ObjectDestroyed>(OnLocalObjectDestroyed);
@@ -48,10 +63,14 @@ namespace StellarNet.Lite.Client.Components.Views
 
             _room = null;
             _syncService = null;
+            _isInitialized = false;
 
             foreach (var kvp in _spawnedObjects)
             {
-                if (kvp.Value != null) Destroy(kvp.Value);
+                if (kvp.Value != null)
+                {
+                    Destroy(kvp.Value);
+                }
             }
 
             _spawnedObjects.Clear();
@@ -63,7 +82,6 @@ namespace StellarNet.Lite.Client.Components.Views
             _prefabMap.Clear();
         }
 
-        // 核心修复：暴露表现层实体，供 SocialRoomView 获取真实的平滑插值坐标
         public GameObject GetSpawnedObject(int netId)
         {
             _spawnedObjects.TryGetValue(netId, out GameObject obj);
@@ -77,37 +95,42 @@ namespace StellarNet.Lite.Client.Components.Views
                 return cachedPrefab;
             }
 
-            if (NetPrefabConsts.HashToPathMap.TryGetValue(prefabHash, out string resPath))
+            if (!NetPrefabConsts.HashToPathMap.TryGetValue(prefabHash, out string resPath))
             {
-                GameObject loadedPrefab = Resources.Load<GameObject>(resPath);
-                if (loadedPrefab != null)
-                {
-                    _prefabMap.Add(prefabHash, loadedPrefab);
-                    return loadedPrefab;
-                }
-                else
-                {
-                    NetLogger.LogError("ObjectSpawnerView", $"加载失败: 无法在 Resources/{resPath} 找到预制体。");
-                }
-            }
-            else
-            {
-                NetLogger.LogError("ObjectSpawnerView", $"加载失败: 未知的 PrefabHash {prefabHash}，请检查是否已重新生成常量表。");
+                NetLogger.LogError("ObjectSpawnerView", $"加载失败: 未知 PrefabHash:{prefabHash}, Object:{name}");
+                return null;
             }
 
-            return null;
+            GameObject loadedPrefab = Resources.Load<GameObject>(resPath);
+            if (loadedPrefab == null)
+            {
+                NetLogger.LogError("ObjectSpawnerView", $"加载失败: Resources/{resPath} 不存在, Object:{name}");
+                return null;
+            }
+
+            _prefabMap.Add(prefabHash, loadedPrefab);
+            return loadedPrefab;
         }
 
         private void OnLocalObjectSpawned(Local_ObjectSpawned evt)
         {
+            if (_syncService == null)
+            {
+                NetLogger.LogError("ObjectSpawnerView", $"生成失败: _syncService 为空, NetId:{evt.NetId}, Object:{name}");
+                return;
+            }
+
             if (_spawnedObjects.ContainsKey(evt.NetId))
             {
-                NetLogger.LogError("ObjectSpawnerView", $"生成失败: NetId {evt.NetId} 的实体已存在，拒绝重复生成，防止内存泄漏。");
+                NetLogger.LogError("ObjectSpawnerView", $"生成失败: NetId 已存在, NetId:{evt.NetId}, Object:{name}");
                 return;
             }
 
             GameObject prefab = GetOrLoadPrefab(evt.PrefabHash);
-            if (prefab == null) return;
+            if (prefab == null)
+            {
+                return;
+            }
 
             Vector3 spawnPos = new Vector3(evt.PosX, evt.PosY, evt.PosZ);
             Quaternion spawnRot = Quaternion.Euler(evt.RotX, evt.RotY, evt.RotZ);
@@ -116,21 +139,33 @@ namespace StellarNet.Lite.Client.Components.Views
             GameObject instance = Instantiate(prefab, spawnPos, spawnRot);
             instance.transform.localScale = spawnScale;
 
-            var identity = instance.GetComponent<NetIdentity>();
-            if (identity == null) identity = instance.AddComponent<NetIdentity>();
+            NetIdentity identity = instance.GetComponent<NetIdentity>();
+            if (identity == null)
+            {
+                identity = instance.AddComponent<NetIdentity>();
+            }
+
             identity.Init(evt.NetId, _syncService);
 
             if ((evt.Mask & (byte)EntitySyncMask.Transform) != 0)
             {
-                var transView = instance.GetComponent<NetTransformView>();
-                if (transView == null) transView = instance.AddComponent<NetTransformView>();
+                NetTransformView transView = instance.GetComponent<NetTransformView>();
+                if (transView == null)
+                {
+                    transView = instance.AddComponent<NetTransformView>();
+                }
+
                 transView.HardSetInitialState(spawnPos, spawnRot, spawnScale);
             }
 
             if ((evt.Mask & (byte)EntitySyncMask.Animator) != 0)
             {
-                var animView = instance.GetComponent<NetAnimatorView>();
-                if (animView == null) animView = instance.AddComponent<NetAnimatorView>();
+                NetAnimatorView animView = instance.GetComponent<NetAnimatorView>();
+                if (animView == null)
+                {
+                    animView = instance.AddComponent<NetAnimatorView>();
+                }
+
                 animView.HardSetInitialState(evt.AnimStateHash, evt.AnimNormalizedTime, evt.FloatParam1, evt.FloatParam2, evt.FloatParam3);
             }
 
@@ -141,7 +176,7 @@ namespace StellarNet.Lite.Client.Components.Views
         {
             if (!_spawnedObjects.TryGetValue(evt.NetId, out GameObject instance))
             {
-                NetLogger.LogWarning("ObjectSpawnerView", $"销毁失败: 找不到 NetId {evt.NetId} 对应的表现层实例。可能已被意外销毁。");
+                NetLogger.LogWarning("ObjectSpawnerView", $"销毁跳过: 找不到 NetId 对应实例, NetId:{evt.NetId}, Object:{name}");
                 return;
             }
 

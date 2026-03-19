@@ -1,12 +1,8 @@
 ﻿using System;
 using StellarFramework;
-using StellarFramework.Event;
 using StellarFramework.UI;
-using StellarNet.Lite.Client.Core;
-using StellarNet.Lite.Client.Core.Events;
-using StellarNet.Lite.Shared.Infrastructure;
-using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Game.Client.Infrastructure;
+using StellarNet.Lite.Shared.Infrastructure;
 using UnityEngine;
 
 public enum ENetMode
@@ -20,16 +16,23 @@ public enum ENetMode
 public class GameLauncher : MonoSingleton<GameLauncher>
 {
     [SerializeField] private StellarNetMirrorManager netManager;
-    public static StellarNetMirrorManager NetManager => Instance.netManager;
+
+    public static StellarNetMirrorManager NetManager => Instance != null ? Instance.netManager : null;
 
     public ENetMode netMode = ENetMode.None;
 
     protected override void Awake()
     {
         base.Awake();
+
         if (netMode != ENetMode.Server)
         {
             UIKit.Instance.Init();
+        }
+
+        if (netManager == null)
+        {
+            NetLogger.LogError("GameLauncher", $"Awake 初始化失败: netManager 未绑定, Object:{name}, NetMode:{netMode}");
         }
     }
 
@@ -37,7 +40,6 @@ public class GameLauncher : MonoSingleton<GameLauncher>
     {
         StellarNetMirrorManager.OnClientConnectedEvent += OnClientConnected;
         StellarNetMirrorManager.OnClientDisconnectedEvent += OnClientDisconnected;
-
         LauncherNetAsync(netMode);
     }
 
@@ -50,12 +52,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
 
     private void OnClientConnected()
     {
-        // 全局路由依然需要常驻，负责大厅和登录的流转
         GlobalUIRouter.Instance.Init();
-
-        // 核心重构：移除了所有 EnsureRouter 相关的硬编码挂载。
-        // 现在业务 UI 路由和 3D 表现层全部由对应的 ClientRoomComponent 在 OnInit 中动态生成。
-
         UIKit.OpenPanel<Panel_GlobalNetMonitor>();
         UIKit.OpenPanel<Panel_StellarNetLogin>();
     }
@@ -70,42 +67,75 @@ public class GameLauncher : MonoSingleton<GameLauncher>
 
     private async void LauncherNetAsync(ENetMode eNetMode)
     {
-        if (eNetMode == ENetMode.None) return;
+        if (eNetMode == ENetMode.None)
+        {
+            NetLogger.LogWarning("GameLauncher", "启动中止: ENetMode 为 None");
+            return;
+        }
 
-        try
+        if (netManager == null)
         {
-            var config = await NetConfigLoader.LoadAsync(ConfigRootPath.StreamingAssets);
-            if (NetManager != null)
-            {
-                NetManager.ApplyConfig(config);
-            }
+            NetLogger.LogError("GameLauncher", $"启动失败: netManager 为空, NetMode:{eNetMode}, Object:{name}");
+            return;
         }
-        catch (Exception e)
+
+        NetConfig config = await NetConfigLoader.LoadAsync(ConfigRootPath.StreamingAssets);
+        if (config == null)
         {
-            NetLogger.LogError("GameLauncher", $"异步加载网络配置失败: {e.Message}");
+            NetLogger.LogError("GameLauncher", $"配置加载失败: 返回 config 为空, NetMode:{eNetMode}");
+            return;
         }
+
+        netManager.ApplyConfig(config);
 
         switch (eNetMode)
         {
-            case ENetMode.Client: StartClient(); break;
-            case ENetMode.Server: StartServer(); break;
-            case ENetMode.Host: StartHost(); break;
+            case ENetMode.Client:
+                StartClient();
+                break;
+            case ENetMode.Server:
+                StartServer();
+                break;
+            case ENetMode.Host:
+                StartHost();
+                break;
+            default:
+                NetLogger.LogError("GameLauncher", $"启动失败: 未知 NetMode:{eNetMode}");
+                break;
         }
     }
 
     [ContextMenu("启动客户端")]
     private void StartClient()
     {
-        NetManager.StartClient();
+        if (netManager == null)
+        {
+            NetLogger.LogError("GameLauncher", $"启动客户端失败: netManager 为空, Object:{name}");
+            return;
+        }
+
+        netManager.StartClient();
     }
 
     private void StartServer()
     {
-        NetManager.StartServer();
+        if (netManager == null)
+        {
+            NetLogger.LogError("GameLauncher", $"启动服务端失败: netManager 为空, Object:{name}");
+            return;
+        }
+
+        netManager.StartServer();
     }
 
     private void StartHost()
     {
-        NetManager.StartHost();
+        if (netManager == null)
+        {
+            NetLogger.LogError("GameLauncher", $"启动 Host 失败: netManager 为空, Object:{name}");
+            return;
+        }
+
+        netManager.StartHost();
     }
 }

@@ -1,6 +1,4 @@
-﻿using System;
-using Cysharp.Threading.Tasks;
-using StellarFramework;
+﻿using Cysharp.Threading.Tasks;
 using StellarFramework.UI;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
@@ -20,9 +18,10 @@ public class Panel_StellarNetLogin : UIPanelBase
     public override void OnInit()
     {
         base.OnInit();
+
         if (NetClient.App == null)
         {
-            LogKit.LogError("Panel_StellarNetLogin", "OnInit 失败: NetClient 尚未初始化");
+            Debug.LogError($"[Panel_StellarNetLogin] 初始化失败: NetClient.App 为空, Object:{name}");
             return;
         }
 
@@ -31,80 +30,140 @@ public class Panel_StellarNetLogin : UIPanelBase
         reconnectCancelBtn.onClick.AddListener(OnReconnectCancelBtnClick);
 
         GlobalTypeNetEvent.Register<S2C_LoginResult>(OnS2C_LoginResult).UnRegisterWhenGameObjectDestroyed(gameObject);
-
-        // 核心修复 P0-3：移除此处对 Local_RoomEntered 的监听，统一交由 ClientUIRouter 处理跳转
     }
 
     public override async UniTask OnOpen(object uiData = null)
     {
         await base.OnOpen(uiData);
-        reconnectGroupTrans.gameObject.SetActive(false);
-        loginBtn.interactable = true;
-        reconnectBtn.interactable = true;
-        reconnectCancelBtn.interactable = true;
+
+        if (reconnectGroupTrans != null)
+        {
+            reconnectGroupTrans.gameObject.SetActive(false);
+        }
+
+        if (loginBtn != null)
+        {
+            loginBtn.interactable = true;
+        }
+
+        if (reconnectBtn != null)
+        {
+            reconnectBtn.interactable = true;
+        }
+
+        if (reconnectCancelBtn != null)
+        {
+            reconnectCancelBtn.interactable = true;
+        }
     }
 
     private void OnDestroy()
     {
-        loginBtn.onClick.RemoveAllListeners();
-        reconnectBtn.onClick.RemoveAllListeners();
-        reconnectCancelBtn.onClick.RemoveAllListeners();
-    }
+        if (loginBtn != null)
+        {
+            loginBtn.onClick.RemoveAllListeners();
+        }
 
-    #region 玩家交互请求 (C2S)
+        if (reconnectBtn != null)
+        {
+            reconnectBtn.onClick.RemoveAllListeners();
+        }
+
+        if (reconnectCancelBtn != null)
+        {
+            reconnectCancelBtn.onClick.RemoveAllListeners();
+        }
+    }
 
     private void OnLoginBtnClick()
     {
-        var accountId = accountIpt.text;
-        if (string.IsNullOrEmpty(accountId))
+        if (NetClient.App == null || NetClient.Session == null)
         {
-            LogKit.LogError("Panel_StellarNetLogin", "登录失败: 账号不能为空");
+            Debug.LogError($"[Panel_StellarNetLogin] 登录失败: NetClient 未初始化, Object:{name}");
             return;
         }
 
-        loginBtn.interactable = false;
-        var msg = new C2S_Login()
+        string accountId = accountIpt != null ? accountIpt.text : string.Empty;
+        if (string.IsNullOrWhiteSpace(accountId))
         {
-            AccountId = accountId,
+            Debug.LogError($"[Panel_StellarNetLogin] 登录失败: 账号为空, Object:{name}");
+            return;
+        }
+
+        string safeAccountId = accountId.Trim();
+        NetClient.Session.SetAccountId(safeAccountId);
+
+        if (loginBtn != null)
+        {
+            loginBtn.interactable = false;
+        }
+
+        var msg = new C2S_Login
+        {
+            AccountId = safeAccountId,
             ClientVersion = Application.version
         };
+
         NetClient.Send(msg);
     }
 
     private void OnReconnectBtnClick()
     {
-        reconnectBtn.interactable = false;
-        reconnectCancelBtn.interactable = false;
-        NetClient.Send(new C2S_ConfirmReconnect() { Accept = true });
+        if (reconnectBtn != null)
+        {
+            reconnectBtn.interactable = false;
+        }
+
+        if (reconnectCancelBtn != null)
+        {
+            reconnectCancelBtn.interactable = false;
+        }
+
+        NetClient.Send(new C2S_ConfirmReconnect { Accept = true });
     }
 
     private void OnReconnectCancelBtnClick()
     {
-        reconnectBtn.interactable = false;
-        reconnectCancelBtn.interactable = false;
-        NetClient.Send(new C2S_ConfirmReconnect() { Accept = false });
+        if (reconnectBtn != null)
+        {
+            reconnectBtn.interactable = false;
+        }
+
+        if (reconnectCancelBtn != null)
+        {
+            reconnectCancelBtn.interactable = false;
+        }
+
+        NetClient.Send(new C2S_ConfirmReconnect { Accept = false });
     }
-
-    #endregion
-
-    #region 服务端回执监听 (S2C)
 
     private void OnS2C_LoginResult(S2C_LoginResult msg)
     {
+        if (msg == null)
+        {
+            Debug.LogError($"[Panel_StellarNetLogin] 处理登录结果失败: msg 为空, Object:{name}");
+            return;
+        }
+
         if (!msg.Success)
         {
-            loginBtn.interactable = true;
-            LogKit.LogError("Panel_StellarNetLogin", $"登录失败: {msg.Reason}");
+            if (loginBtn != null)
+            {
+                loginBtn.interactable = true;
+            }
+
+            Debug.LogError($"[Panel_StellarNetLogin] 登录失败: Reason:{msg.Reason}, Object:{name}");
             return;
         }
 
         if (msg.HasReconnectRoom)
         {
-            reconnectGroupTrans.gameObject.SetActive(true);
-            LogKit.Log("Panel_StellarNetLogin", $"登录成功: {msg.SessionId}，请选择是否重连房间");
-        }
-        // 成功且无重连的跳转逻辑已移交 ClientUIRouter
-    }
+            if (reconnectGroupTrans != null)
+            {
+                reconnectGroupTrans.gameObject.SetActive(true);
+            }
 
-    #endregion
+            return;
+        }
+    }
 }

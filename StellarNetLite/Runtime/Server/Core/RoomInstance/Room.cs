@@ -1,8 +1,9 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
+using StellarNet.Lite.Server.Infrastructure;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
-using StellarNet.Lite.Server.Infrastructure;
 
 namespace StellarNet.Lite.Server.Core
 {
@@ -19,7 +20,6 @@ namespace StellarNet.Lite.Server.Core
         public RoomConfigModel Config { get; } = new RoomConfigModel();
         public string RoomName => Config.RoomName;
         public RoomDispatcher Dispatcher { get; }
-
         public bool IsRecording { get; private set; }
         public int CurrentTick { get; private set; }
         public DateTime CreateTime { get; }
@@ -27,7 +27,6 @@ namespace StellarNet.Lite.Server.Core
         public int[] ComponentIds { get; private set; }
         public int MemberCount => _members.Count;
         public RoomState State { get; private set; } = RoomState.Waiting;
-
         public string LastReplayId { get; private set; }
 
         private readonly Dictionary<string, Session> _members = new Dictionary<string, Session>();
@@ -35,13 +34,12 @@ namespace StellarNet.Lite.Server.Core
 
         private readonly List<RoomComponent> _components = new List<RoomComponent>();
         private readonly List<ITickableComponent> _tickableComponents = new List<ITickableComponent>();
-
         private readonly INetworkTransport _transport;
         private readonly INetSerializer _serializer;
         private readonly NetConfig _netConfig;
-
-        private int _finishedTickCount = 0;
-        private int _recordStartTick = 0;
+        private int _finishedTickCount;
+        private int _recordStartTick;
+        private bool _isDestroyed;
 
         public Room(string roomId, INetworkTransport transport, INetSerializer serializer, NetConfig config)
         {
@@ -58,15 +56,38 @@ namespace StellarNet.Lite.Server.Core
 
         public void SetComponentIds(int[] ids)
         {
-            if (ids == null) return;
+            if (_isDestroyed)
+            {
+                NetLogger.LogError("Room", $"设置组件清单失败: 房间已销毁, RoomId:{RoomId}");
+                return;
+            }
+
+            if (ids == null)
+            {
+                NetLogger.LogWarning("Room", "设置组件清单失败: ids 为空", RoomId);
+                return;
+            }
+
             ComponentIds = ids;
         }
 
         public void AddComponent(RoomComponent component)
         {
-            if (component == null) return;
+            if (_isDestroyed)
+            {
+                NetLogger.LogError("Room", $"添加组件失败: 房间已销毁, RoomId:{RoomId}, Component:{component?.GetType().FullName ?? "null"}");
+                return;
+            }
+
+            if (component == null)
+            {
+                NetLogger.LogError("Room", "添加组件失败: component 为空", RoomId);
+                return;
+            }
+
             component.Room = this;
             _components.Add(component);
+
             if (component is ITickableComponent tickable)
             {
                 _tickableComponents.Add(tickable);
@@ -88,23 +109,51 @@ namespace StellarNet.Lite.Server.Core
 
         public void InitializeComponents()
         {
+            if (_isDestroyed)
+            {
+                NetLogger.LogError("Room", $"初始化组件失败: 房间已销毁, RoomId:{RoomId}");
+                return;
+            }
+
             for (int i = 0; i < _components.Count; i++)
             {
+                if (_components[i] == null)
+                {
+                    NetLogger.LogError("Room", $"初始化组件失败: 第 {i} 个组件为空", RoomId);
+                    continue;
+                }
+
                 _components[i].OnInit();
             }
         }
 
         public void AddMember(Session session)
         {
-            if (session == null || _members.ContainsKey(session.SessionId)) return;
-
-            if (State == RoomState.Finished)
+            if (_isDestroyed)
             {
-                NetLogger.LogWarning("Room", "拦截加入: 房间已结束，拒绝加入", RoomId, session.SessionId);
+                NetLogger.LogError("Room", $"加入房间失败: 房间已销毁, RoomId:{RoomId}, SessionId:{session?.SessionId ?? "null"}");
                 return;
             }
 
-            _members[session.SessionId] = session;
+            if (session == null)
+            {
+                NetLogger.LogError("Room", "加入房间失败: session 为空", RoomId);
+                return;
+            }
+
+            if (_members.ContainsKey(session.SessionId))
+            {
+                NetLogger.LogWarning("Room", $"加入房间跳过: 会话已存在, SessionId:{session.SessionId}", RoomId, session.SessionId);
+                return;
+            }
+
+            if (State == RoomState.Finished)
+            {
+                NetLogger.LogWarning("Room", "拦截加入: 房间已结束", RoomId, session.SessionId);
+                return;
+            }
+
+            _members.Add(session.SessionId, session);
             session.BindRoom(RoomId);
             EmptySince = DateTime.MaxValue;
 
@@ -116,7 +165,21 @@ namespace StellarNet.Lite.Server.Core
 
         public void RemoveMember(Session session)
         {
-            if (session == null || !_members.ContainsKey(session.SessionId)) return;
+            if (_isDestroyed)
+            {
+                return;
+            }
+
+            if (session == null)
+            {
+                NetLogger.LogError("Room", "移出房间失败: session 为空", RoomId);
+                return;
+            }
+
+            if (!_members.ContainsKey(session.SessionId))
+            {
+                return;
+            }
 
             for (int i = 0; i < _components.Count; i++)
             {
@@ -134,14 +197,27 @@ namespace StellarNet.Lite.Server.Core
 
         public Session GetMember(string sessionId)
         {
-            if (string.IsNullOrEmpty(sessionId)) return null;
-            _members.TryGetValue(sessionId, out var session);
+            if (string.IsNullOrEmpty(sessionId))
+            {
+                return null;
+            }
+
+            _members.TryGetValue(sessionId, out Session session);
             return session;
         }
 
         public void NotifyMemberOffline(Session session)
         {
-            if (session == null || !_members.ContainsKey(session.SessionId)) return;
+            if (_isDestroyed)
+            {
+                return;
+            }
+
+            if (session == null || !_members.ContainsKey(session.SessionId))
+            {
+                return;
+            }
+
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnMemberOffline(session);
@@ -150,11 +226,19 @@ namespace StellarNet.Lite.Server.Core
 
         public void NotifyMemberOnline(Session session)
         {
-            if (session == null || !_members.ContainsKey(session.SessionId)) return;
+            if (_isDestroyed)
+            {
+                return;
+            }
+
+            if (session == null || !_members.ContainsKey(session.SessionId))
+            {
+                return;
+            }
 
             if (State == RoomState.Finished)
             {
-                NetLogger.LogWarning("Room", "拦截重连: 房间已结束，强制将重连玩家移出房间", RoomId, session.SessionId);
+                NetLogger.LogWarning("Room", "拦截重连: 房间已结束，强制移出成员", RoomId, session.SessionId);
                 RemoveMember(session);
                 return;
             }
@@ -167,7 +251,16 @@ namespace StellarNet.Lite.Server.Core
 
         public void TriggerReconnectSnapshot(Session session)
         {
-            if (session == null || !_members.ContainsKey(session.SessionId)) return;
+            if (_isDestroyed)
+            {
+                return;
+            }
+
+            if (session == null || !_members.ContainsKey(session.SessionId))
+            {
+                return;
+            }
+
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnSendSnapshot(session);
@@ -176,7 +269,17 @@ namespace StellarNet.Lite.Server.Core
 
         public void StartGame()
         {
-            if (State != RoomState.Waiting) return;
+            if (_isDestroyed)
+            {
+                NetLogger.LogError("Room", $"开始游戏失败: 房间已销毁, RoomId:{RoomId}");
+                return;
+            }
+
+            if (State != RoomState.Waiting)
+            {
+                NetLogger.LogWarning("Room", $"开始游戏失败: 当前状态非法, State:{State}", RoomId);
+                return;
+            }
 
             State = RoomState.Playing;
             LastReplayId = string.Empty;
@@ -190,7 +293,16 @@ namespace StellarNet.Lite.Server.Core
 
         public void EndGame(string replayDisplayName = "")
         {
-            if (State != RoomState.Playing) return;
+            if (_isDestroyed)
+            {
+                return;
+            }
+
+            if (State != RoomState.Playing)
+            {
+                NetLogger.LogWarning("Room", $"结束游戏失败: 当前状态非法, State:{State}", RoomId);
+                return;
+            }
 
             State = RoomState.Finished;
             _finishedTickCount = 0;
@@ -209,24 +321,53 @@ namespace StellarNet.Lite.Server.Core
 
         public void BroadcastMessage<T>(T msg, bool recordToReplay = true) where T : class
         {
-            if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta))
+            if (_isDestroyed)
             {
-                NetLogger.LogError("Room", $"广播失败: 未找到类型 {typeof(T).Name} 的网络元数据", RoomId);
+                NetLogger.LogError("Room", $"广播失败: 房间已销毁, RoomId:{RoomId}, Type:{typeof(T).FullName}");
+                return;
+            }
+
+            if (msg == null)
+            {
+                NetLogger.LogError("Room", $"广播失败: msg 为空, Type:{typeof(T).FullName}", RoomId);
+                return;
+            }
+
+            if (_serializer == null)
+            {
+                NetLogger.LogError("Room", $"广播失败: _serializer 为空, Type:{typeof(T).FullName}", RoomId);
+                return;
+            }
+
+            if (_transport == null)
+            {
+                NetLogger.LogError("Room", $"广播失败: _transport 为空, Type:{typeof(T).FullName}", RoomId);
+                return;
+            }
+
+            if (!NetMessageMapper.TryGetMeta(typeof(T), out NetMessageMeta meta))
+            {
+                NetLogger.LogError("Room", $"广播失败: 未找到静态网络元数据, Type:{typeof(T).FullName}", RoomId);
                 return;
             }
 
             if (meta.Dir != NetDir.S2C)
             {
-                NetLogger.LogError("Room", $"广播阻断: 协议 {meta.Id} 方向为 {meta.Dir}，服务端只能发送 S2C", RoomId);
+                NetLogger.LogError("Room", $"广播阻断: 协议方向非法, MsgId:{meta.Id}, Dir:{meta.Dir}", RoomId);
                 return;
             }
 
-            // 核心修复：将 Buffer 提升至 128KB
-            byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(131072);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(131072);
             try
             {
                 int length = _serializer.Serialize(msg, buffer);
-                var packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, length);
+                if (length <= 0)
+                {
+                    NetLogger.LogError("Room", $"广播失败: 序列化结果长度非法, MsgId:{meta.Id}, Type:{typeof(T).FullName}, Length:{length}", RoomId);
+                    return;
+                }
+
+                var packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, 0, length);
 
                 if (recordToReplay && IsRecording)
                 {
@@ -234,43 +375,89 @@ namespace StellarNet.Lite.Server.Core
                     ServerReplayStorage.RecordFrame(RoomId, relativeTick, meta.Id, buffer, length);
                 }
 
-                foreach (var kvp in _members)
+                foreach (KeyValuePair<string, Session> kvp in _members)
                 {
-                    var session = kvp.Value;
-                    if (session.IsOnline && session.IsRoomReady)
+                    Session session = kvp.Value;
+                    if (session == null)
                     {
-                        _transport?.SendToClient(session.ConnectionId, packet);
+                        continue;
                     }
+
+                    if (!session.IsOnline || !session.IsRoomReady)
+                    {
+                        continue;
+                    }
+
+                    _transport.SendToClient(session.ConnectionId, packet);
                 }
             }
             finally
             {
-                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
 
         public void SendMessageTo<T>(Session session, T msg, bool recordToReplay = false) where T : class
         {
-            if (session == null || !session.IsOnline) return;
-
-            if (!NetMessageMapper.TryGetMeta(typeof(T), out var meta))
+            if (_isDestroyed)
             {
-                NetLogger.LogError("Room", $"发送失败: 未找到类型 {typeof(T).Name} 的网络元数据", RoomId, session.SessionId);
+                NetLogger.LogError("Room", $"发送失败: 房间已销毁, RoomId:{RoomId}, Type:{typeof(T).FullName}, SessionId:{session?.SessionId ?? "null"}");
+                return;
+            }
+
+            if (session == null)
+            {
+                NetLogger.LogError("Room", $"发送失败: session 为空, Type:{typeof(T).FullName}", RoomId);
+                return;
+            }
+
+            if (!session.IsOnline)
+            {
+                NetLogger.LogWarning("Room", $"发送跳过: session 离线, Type:{typeof(T).FullName}", RoomId, session.SessionId);
+                return;
+            }
+
+            if (msg == null)
+            {
+                NetLogger.LogError("Room", $"发送失败: msg 为空, Type:{typeof(T).FullName}", RoomId, session.SessionId);
+                return;
+            }
+
+            if (_serializer == null)
+            {
+                NetLogger.LogError("Room", $"发送失败: _serializer 为空, Type:{typeof(T).FullName}", RoomId, session.SessionId);
+                return;
+            }
+
+            if (_transport == null)
+            {
+                NetLogger.LogError("Room", $"发送失败: _transport 为空, Type:{typeof(T).FullName}", RoomId, session.SessionId);
+                return;
+            }
+
+            if (!NetMessageMapper.TryGetMeta(typeof(T), out NetMessageMeta meta))
+            {
+                NetLogger.LogError("Room", $"发送失败: 未找到静态网络元数据, Type:{typeof(T).FullName}", RoomId, session.SessionId);
                 return;
             }
 
             if (meta.Dir != NetDir.S2C)
             {
-                NetLogger.LogError("Room", $"发送阻断: 协议 {meta.Id} 方向为 {meta.Dir}，服务端只能发送 S2C", RoomId, session.SessionId);
+                NetLogger.LogError("Room", $"发送阻断: 协议方向非法, MsgId:{meta.Id}, Dir:{meta.Dir}", RoomId, session.SessionId);
                 return;
             }
 
-            // 核心修复：将 Buffer 提升至 128KB
-            byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(131072);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(131072);
             try
             {
                 int length = _serializer.Serialize(msg, buffer);
-                var packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, length);
+                if (length <= 0)
+                {
+                    NetLogger.LogError("Room", $"发送失败: 序列化结果长度非法, MsgId:{meta.Id}, Type:{typeof(T).FullName}, Length:{length}", RoomId, session.SessionId);
+                    return;
+                }
+
+                var packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, 0, length);
 
                 if (recordToReplay && IsRecording)
                 {
@@ -278,16 +465,22 @@ namespace StellarNet.Lite.Server.Core
                     ServerReplayStorage.RecordFrame(RoomId, relativeTick, meta.Id, buffer, length);
                 }
 
-                _transport?.SendToClient(session.ConnectionId, packet);
+                _transport.SendToClient(session.ConnectionId, packet);
             }
             finally
             {
-                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
 
         public void StartRecord()
         {
+            if (_isDestroyed)
+            {
+                NetLogger.LogError("Room", $"启动录制失败: 房间已销毁, RoomId:{RoomId}");
+                return;
+            }
+
             IsRecording = true;
             _recordStartTick = CurrentTick;
             ServerReplayStorage.StartRecord(RoomId);
@@ -303,6 +496,11 @@ namespace StellarNet.Lite.Server.Core
 
         public void Tick()
         {
+            if (_isDestroyed)
+            {
+                return;
+            }
+
             CurrentTick++;
 
             for (int i = 0; i < _tickableComponents.Count; i++)
@@ -310,25 +508,43 @@ namespace StellarNet.Lite.Server.Core
                 _tickableComponents[i].OnTick();
             }
 
-            if (State == RoomState.Finished)
+            if (State != RoomState.Finished)
             {
-                _finishedTickCount++;
-                if (_finishedTickCount > 18000 && _members.Count > 0)
+                return;
+            }
+
+            _finishedTickCount++;
+            if (_finishedTickCount <= 18000 || _members.Count <= 0)
+            {
+                return;
+            }
+
+            NetLogger.LogWarning("Room", $"僵尸清理: 结算超时，强制清空残留玩家数:{_members.Count}", RoomId);
+            var sessionsToKick = new List<Session>(_members.Values);
+
+            for (int i = 0; i < sessionsToKick.Count; i++)
+            {
+                Session session = sessionsToKick[i];
+                if (session == null)
                 {
-                    NetLogger.LogWarning("Room", $"僵尸清理: 结算已超时(5分钟)，强制清空残留的 {_members.Count} 名玩家", RoomId);
-                    var sessionsToKick = new System.Collections.Generic.List<Session>(_members.Values);
-                    foreach (var s in sessionsToKick)
-                    {
-                        var kickMsg = new StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult { Success = true };
-                        SendMessageTo(s, kickMsg);
-                        RemoveMember(s);
-                    }
+                    continue;
                 }
+
+                var kickMsg = new StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult { Success = true };
+                SendMessageTo(session, kickMsg);
+                RemoveMember(session);
             }
         }
 
         public void Destroy()
         {
+            if (_isDestroyed)
+            {
+                return;
+            }
+
+            _isDestroyed = true;
+
             if (State == RoomState.Playing)
             {
                 EndGame();
@@ -337,19 +553,32 @@ namespace StellarNet.Lite.Server.Core
             if (IsRecording)
             {
                 ServerReplayStorage.AbortRecord(RoomId);
+                IsRecording = false;
             }
 
             for (int i = 0; i < _components.Count; i++)
             {
-                _components[i].OnDestroy();
+                RoomComponent component = _components[i];
+                if (component == null)
+                {
+                    continue;
+                }
+
+                component.OnDestroy();
             }
 
             _components.Clear();
             _tickableComponents.Clear();
 
-            foreach (var kvp in _members)
+            foreach (KeyValuePair<string, Session> kvp in _members)
             {
-                kvp.Value.UnbindRoom();
+                Session session = kvp.Value;
+                if (session == null)
+                {
+                    continue;
+                }
+
+                session.UnbindRoom();
             }
 
             _members.Clear();

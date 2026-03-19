@@ -1,22 +1,24 @@
-﻿using UnityEngine;
-using StellarFramework;
+﻿using StellarFramework;
 using StellarFramework.UI;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
-using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.Protocol;
+using UnityEngine;
 
 namespace StellarNet.Lite.Game.Client.Infrastructure
 {
     public class GlobalUIRouter : MonoSingleton<GlobalUIRouter>
     {
         private ClientAppState _lastClientState = ClientAppState.InLobby;
-        private bool _isInitialized = false;
+        private bool _isInitialized;
 
         public void Init()
         {
-            if (_isInitialized) return;
+            if (_isInitialized)
+            {
+                return;
+            }
 
             GlobalTypeNetEvent.Register<Local_RoomEntered>(OnRoomEntered).UnRegisterWhenGameObjectDestroyed(gameObject);
             GlobalTypeNetEvent.Register<Local_RoomLeft>(OnRoomLeft).UnRegisterWhenGameObjectDestroyed(gameObject);
@@ -26,7 +28,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnReplayDownloaded).UnRegisterWhenGameObjectDestroyed(gameObject);
 
             _isInitialized = true;
-            NetLogger.LogInfo("GlobalUIRouter", "全局 UI 路由中心初始化完毕，已接管大厅与登录流转");
+            NetLogger.LogInfo("GlobalUIRouter", "全局 UI 路由初始化完成");
         }
 
         protected override void OnDestroy()
@@ -38,16 +40,19 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
         private void Update()
         {
-            if (NetClient.App == null) return;
+            if (NetClient.App == null)
+            {
+                return;
+            }
 
-            var currentState = NetClient.State;
-
-            bool isDroppedFromRoom = (_lastClientState == ClientAppState.OnlineRoom || _lastClientState == ClientAppState.ConnectionSuspended)
-                                     && currentState == ClientAppState.InLobby;
+            ClientAppState currentState = NetClient.State;
+            bool isDroppedFromRoom =
+                (_lastClientState == ClientAppState.OnlineRoom || _lastClientState == ClientAppState.ConnectionSuspended) &&
+                currentState == ClientAppState.InLobby;
 
             if (isDroppedFromRoom)
             {
-                NetLogger.LogWarning("GlobalUIRouter", "检测到网络状态跌落，执行全局 UI 路由回退");
+                NetLogger.LogWarning("GlobalUIRouter", "检测到状态跌落，执行 UI 回退");
                 UIKit.ClosePanel<Panel_SetRoomConfig>();
 
                 if (NetClient.Session != null && NetClient.Session.IsLoggedIn)
@@ -73,26 +78,57 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
         private void OnLoginResult(S2C_LoginResult msg)
         {
-            if (!msg.Success) return;
-
-            if (!msg.HasReconnectRoom)
+            if (msg == null)
             {
-                UIKit.ClosePanel<Panel_StellarNetLogin>();
-                UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData { uid = NetClient.Session.SessionId });
+                NetLogger.LogError("GlobalUIRouter", "处理登录结果失败: msg 为空");
+                return;
             }
+
+            if (!msg.Success)
+            {
+                return;
+            }
+
+            if (msg.HasReconnectRoom)
+            {
+                return;
+            }
+
+            UIKit.ClosePanel<Panel_StellarNetLogin>();
+            UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData
+            {
+                uid = NetClient.Session != null ? NetClient.Session.SessionId : string.Empty
+            });
         }
 
         private void OnReconnectResult(S2C_ReconnectResult msg)
         {
-            if (!msg.Success)
+            if (msg == null)
             {
-                UIKit.ClosePanel<Panel_StellarNetLogin>();
-                UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData { uid = NetClient.Session.SessionId });
+                NetLogger.LogError("GlobalUIRouter", "处理重连结果失败: msg 为空");
+                return;
             }
+
+            if (msg.Success)
+            {
+                return;
+            }
+
+            UIKit.ClosePanel<Panel_StellarNetLogin>();
+            UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData
+            {
+                uid = NetClient.Session != null ? NetClient.Session.SessionId : string.Empty
+            });
         }
 
         private void OnKickOut(S2C_KickOut msg)
         {
+            if (msg == null)
+            {
+                NetLogger.LogError("GlobalUIRouter", "处理踢下线失败: msg 为空");
+                return;
+            }
+
             UIKit.CloseAllPanels();
             UIKit.OpenPanel<Panel_GlobalNetMonitor>();
             UIKit.OpenPanel<Panel_StellarNetLogin>();
@@ -107,33 +143,44 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
         private void OnRoomLeft(Local_RoomLeft evt)
         {
-            if (evt.IsSilent) return;
-
-            if (!evt.IsSuspended)
+            if (evt.IsSilent)
             {
-                NetLogger.LogInfo("GlobalUIRouter", "离开房间，执行全局 UI 路由回退至大厅");
+                return;
+            }
 
-                // 修复：防御性关闭回放面板，确保任何异常离房都能清理 UI 栈
-                UIKit.ClosePanel<Panel_StellarNetReplay>();
+            if (evt.IsSuspended)
+            {
+                return;
+            }
 
-                if (NetClient.Session != null && NetClient.Session.IsLoggedIn)
-                {
-                    UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData { uid = NetClient.Session.SessionId });
-                }
-                else
-                {
-                    UIKit.OpenPanel<Panel_StellarNetLogin>();
-                }
+            NetLogger.LogInfo("GlobalUIRouter", "离开房间，回退至大厅");
+            UIKit.ClosePanel<Panel_StellarNetReplay>();
+
+            if (NetClient.Session != null && NetClient.Session.IsLoggedIn)
+            {
+                UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData { uid = NetClient.Session.SessionId });
+            }
+            else
+            {
+                UIKit.OpenPanel<Panel_StellarNetLogin>();
             }
         }
 
         private void OnReplayDownloaded(S2C_DownloadReplayResult msg)
         {
-            if (msg.Success && !string.IsNullOrEmpty(msg.ReplayFileData))
+            if (msg == null)
             {
-                UIKit.ClosePanel<Panel_StellarNetLobby>();
-                UIKit.OpenPanel<Panel_StellarNetReplay>(msg.ReplayFileData);
+                NetLogger.LogError("GlobalUIRouter", "处理录像下载结果失败: msg 为空");
+                return;
             }
+
+            if (!msg.Success || string.IsNullOrEmpty(msg.ReplayFileData))
+            {
+                return;
+            }
+
+            UIKit.ClosePanel<Panel_StellarNetLobby>();
+            UIKit.OpenPanel<Panel_StellarNetReplay>(msg.ReplayFileData);
         }
     }
 }

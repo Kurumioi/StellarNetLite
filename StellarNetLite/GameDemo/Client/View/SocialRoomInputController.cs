@@ -1,34 +1,64 @@
-﻿using UnityEngine;
-using UnityEngine.EventSystems;
+﻿using StellarNet.Lite.Client.Components;
 using StellarNet.Lite.Client.Core;
+using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Game.Shared.Protocol;
 using StellarNet.Lite.Shared.Infrastructure;
-using StellarNet.Lite.Client.Core.Events;
-using StellarNet.Lite.Client.Components;
 using StellarNet.Lite.Shared.Protocol;
+using UnityEngine;
+using UnityEngine.EventSystems;
 
 namespace StellarNet.Lite.Game.Client.Views
 {
     /// <summary>
-    /// 交友房间输入控制器 (Controller 层)
+    /// 交友房间输入控制器。
     /// </summary>
     public class SocialRoomInputController : MonoBehaviour
     {
         private ClientRoom _boundRoom;
-        private bool _isInputBlockedByWeakNet = false;
+        private bool _isInputBlockedByWeakNet;
         private Vector2 _lastInput = Vector2.zero;
+        private bool _isInitialized;
+        private IUnRegister _networkQualityToken;
 
         public void Init(ClientRoom room)
         {
+            if (room == null)
+            {
+                NetLogger.LogError("SocialRoomInputController", $"初始化失败: room 为空, Object:{name}");
+                return;
+            }
+
+            if (_isInitialized)
+            {
+                if (_boundRoom == room)
+                {
+                    NetLogger.LogWarning("SocialRoomInputController", $"重复初始化已忽略: RoomId:{room.RoomId}, Object:{name}");
+                    return;
+                }
+
+                Clear();
+            }
+
             _boundRoom = room;
             _lastInput = Vector2.zero;
-            GlobalTypeNetEvent.Register<Local_NetworkQualityChanged>(HandleNetworkQualityChanged)
-                .UnRegisterWhenGameObjectDestroyed(gameObject);
+            _isInputBlockedByWeakNet = false;
+            _networkQualityToken = GlobalTypeNetEvent.Register<Local_NetworkQualityChanged>(HandleNetworkQualityChanged);
+            _isInitialized = true;
         }
 
         public void Clear()
         {
+            _networkQualityToken?.UnRegister();
+            _networkQualityToken = null;
             _boundRoom = null;
+            _lastInput = Vector2.zero;
+            _isInputBlockedByWeakNet = false;
+            _isInitialized = false;
+        }
+
+        private void OnDestroy()
+        {
+            Clear();
         }
 
         private void HandleNetworkQualityChanged(Local_NetworkQualityChanged evt)
@@ -38,25 +68,65 @@ namespace StellarNet.Lite.Game.Client.Views
 
         public void SendChatBubble(string content)
         {
-            if (string.IsNullOrEmpty(content) || _boundRoom == null) return;
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                return;
+            }
+
+            if (_boundRoom == null)
+            {
+                NetLogger.LogError("SocialRoomInputController", $"发送聊天失败: _boundRoom 为空, Content:{content}, Object:{name}");
+                return;
+            }
+
             NetClient.Send(new C2S_SocialBubbleReq { Content = content });
         }
 
         public void RequestEndGame()
         {
-            if (_boundRoom == null) return;
-            var settingsComp = _boundRoom.GetComponent<ClientRoomSettingsComponent>();
-            if (settingsComp != null && settingsComp.Members.TryGetValue(NetClient.Session.SessionId, out var myInfo) && myInfo.IsOwner)
+            if (_boundRoom == null)
             {
-                NetLogger.LogInfo("SocialRoomInputController", "房主请求强制结束交友对局");
-                NetClient.Send(new C2S_EndGame());
+                NetLogger.LogError("SocialRoomInputController", $"结束对局失败: _boundRoom 为空, Object:{name}");
+                return;
             }
+
+            ClientRoomSettingsComponent settingsComp = _boundRoom.GetComponent<ClientRoomSettingsComponent>();
+            if (settingsComp == null)
+            {
+                NetLogger.LogError("SocialRoomInputController", $"结束对局失败: 缺失 ClientRoomSettingsComponent, RoomId:{_boundRoom.RoomId}, Object:{name}");
+                return;
+            }
+
+            if (NetClient.Session == null || string.IsNullOrEmpty(NetClient.Session.SessionId))
+            {
+                NetLogger.LogError("SocialRoomInputController", $"结束对局失败: Session 非法, RoomId:{_boundRoom.RoomId}, Object:{name}");
+                return;
+            }
+
+            if (!settingsComp.Members.TryGetValue(NetClient.Session.SessionId, out var myInfo))
+            {
+                NetLogger.LogError("SocialRoomInputController", $"结束对局失败: 当前成员信息不存在, SessionId:{NetClient.Session.SessionId}, RoomId:{_boundRoom.RoomId}, Object:{name}");
+                return;
+            }
+
+            if (!myInfo.IsOwner)
+            {
+                NetLogger.LogWarning("SocialRoomInputController", $"结束对局被拦截: 当前玩家不是房主, SessionId:{NetClient.Session.SessionId}, RoomId:{_boundRoom.RoomId}");
+                return;
+            }
+
+            NetLogger.LogInfo("SocialRoomInputController", $"房主请求强制结束对局, RoomId:{_boundRoom.RoomId}, SessionId:{NetClient.Session.SessionId}");
+            NetClient.Send(new C2S_EndGame());
         }
 
         private void Update()
         {
-            if (_boundRoom == null) return;
-            var settingsComp = _boundRoom.GetComponent<ClientRoomSettingsComponent>();
+            if (_boundRoom == null)
+            {
+                return;
+            }
+
+            ClientRoomSettingsComponent settingsComp = _boundRoom.GetComponent<ClientRoomSettingsComponent>();
             bool isGameStarted = settingsComp != null && settingsComp.IsGameStarted;
 
             if (NetClient.State == ClientAppState.OnlineRoom && isGameStarted)
@@ -67,10 +137,11 @@ namespace StellarNet.Lite.Game.Client.Views
 
         private void ProcessInput()
         {
-            if (_isInputBlockedByWeakNet) return;
+            if (_isInputBlockedByWeakNet)
+            {
+                return;
+            }
 
-            // 核心修复：彻底废弃 GUI.GetNameOfFocusedControl，采用 EventSystem 适配 UGUI 焦点。
-            // 防止玩家在聊天输入框打字时，WASD 键穿透导致角色乱跑。
             if (EventSystem.current != null && EventSystem.current.currentSelectedGameObject != null)
             {
                 var tmpInput = EventSystem.current.currentSelectedGameObject.GetComponent<TMPro.TMP_InputField>();
@@ -79,7 +150,7 @@ namespace StellarNet.Lite.Game.Client.Views
                     if (_lastInput != Vector2.zero)
                     {
                         _lastInput = Vector2.zero;
-                        NetClient.Send(new C2S_SocialMoveReq { DirX = 0, DirZ = 0 });
+                        NetClient.Send(new C2S_SocialMoveReq { DirX = 0f, DirZ = 0f });
                     }
 
                     return;
@@ -93,7 +164,11 @@ namespace StellarNet.Lite.Game.Client.Views
             if (currentInput != _lastInput)
             {
                 _lastInput = currentInput;
-                NetClient.Send(new C2S_SocialMoveReq { DirX = currentInput.x, DirZ = currentInput.y });
+                NetClient.Send(new C2S_SocialMoveReq
+                {
+                    DirX = currentInput.x,
+                    DirZ = currentInput.y
+                });
             }
 
             if (Input.GetKeyDown(KeyCode.Alpha1))

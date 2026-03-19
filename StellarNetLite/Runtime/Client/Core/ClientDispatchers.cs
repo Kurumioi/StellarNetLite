@@ -13,33 +13,30 @@ namespace StellarNet.Lite.Client.Core
         {
             if (handler == null)
             {
-                NetLogger.LogError("ClientGlobalDispatcher", $"注册失败: 传入的 handler 为空，MsgId: {msgId}");
+                NetLogger.LogError("ClientGlobalDispatcher", $"注册失败: handler 为空, MsgId:{msgId}");
                 return;
             }
 
-            if (_handlers.TryGetValue(msgId, out var existingHandler))
+            if (_handlers.ContainsKey(msgId))
             {
-                _handlers[msgId] = existingHandler + handler;
+                NetLogger.LogError("ClientGlobalDispatcher", $"注册失败: MsgId 重复注册会导致重复分发, MsgId:{msgId}");
+                return;
             }
-            else
-            {
-                _handlers[msgId] = handler;
-            }
+
+            _handlers.Add(msgId, handler);
         }
 
         public void Dispatch(Packet packet)
         {
-            if (_handlers.TryGetValue(packet.MsgId, out var handler))
+            if (_handlers.TryGetValue(packet.MsgId, out Action<Packet> handler))
             {
-                handler?.Invoke(packet);
+                handler.Invoke(packet);
+                return;
             }
-            else
-            {
-                NetLogger.LogWarning("ClientGlobalDispatcher", $"未找到 MsgId {packet.MsgId} 的处理函数，消息已忽略");
-            }
+
+            NetLogger.LogWarning("ClientGlobalDispatcher", $"未找到 MsgId 对应处理函数，消息已忽略。MsgId:{packet.MsgId}");
         }
 
-        // 核心修复 P0-4：补充 Clear 机制
         public void Clear()
         {
             _handlers.Clear();
@@ -60,30 +57,28 @@ namespace StellarNet.Lite.Client.Core
         {
             if (handler == null)
             {
-                NetLogger.LogError("ClientRoomDispatcher", $"注册失败: 传入的 handler 为空，RoomId: {_roomId}, MsgId: {msgId}");
+                NetLogger.LogError("ClientRoomDispatcher", $"注册失败: handler 为空, RoomId:{_roomId}, MsgId:{msgId}");
                 return;
             }
 
-            if (_handlers.TryGetValue(msgId, out var existingHandler))
+            if (_handlers.ContainsKey(msgId))
             {
-                _handlers[msgId] = existingHandler + handler;
+                NetLogger.LogError("ClientRoomDispatcher", $"注册失败: MsgId 重复注册会导致重复分发, RoomId:{_roomId}, MsgId:{msgId}");
+                return;
             }
-            else
-            {
-                _handlers[msgId] = handler;
-            }
+
+            _handlers.Add(msgId, handler);
         }
 
         public void Dispatch(Packet packet)
         {
-            if (_handlers.TryGetValue(packet.MsgId, out var handler))
+            if (_handlers.TryGetValue(packet.MsgId, out Action<Packet> handler))
             {
-                handler?.Invoke(packet);
+                handler.Invoke(packet);
+                return;
             }
-            else
-            {
-                NetLogger.LogWarning("ClientRoomDispatcher", $"未找到 MsgId {packet.MsgId} 的处理函数，RoomId: {_roomId}，消息已忽略");
-            }
+
+            NetLogger.LogWarning("ClientRoomDispatcher", $"未找到 MsgId 对应处理函数，消息已忽略。RoomId:{_roomId}, MsgId:{packet.MsgId}");
         }
 
         public void Clear()

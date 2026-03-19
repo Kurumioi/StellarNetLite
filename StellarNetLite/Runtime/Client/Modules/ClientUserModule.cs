@@ -1,9 +1,8 @@
-﻿using System;
-using StellarNet.Lite.Shared.Core;
-using StellarNet.Lite.Shared.Protocol;
-using StellarNet.Lite.Client.Core;
-using StellarNet.Lite.Shared.Infrastructure;
+﻿using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
+using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Client.Modules
 {
@@ -28,8 +27,18 @@ namespace StellarNet.Lite.Client.Modules
 
             if (msg.Success)
             {
-                _app.Session.OnLoginSuccess(msg.SessionId, "UID_PLACEHOLDER");
-                NetLogger.LogInfo("ClientUserModule", $"登录成功, SessionId: {msg.SessionId}");
+                string safeUid = !string.IsNullOrEmpty(_app?.Session?.AccountId)
+                    ? _app.Session.AccountId
+                    : msg.SessionId;
+
+                if (_app == null)
+                {
+                    NetLogger.LogError("ClientUserModule", $"处理登录成功失败: _app 为空, SessionId:{msg.SessionId}");
+                    return;
+                }
+
+                _app.Session.OnLoginSuccess(msg.SessionId, safeUid);
+                NetLogger.LogInfo("ClientUserModule", $"登录成功, SessionId:{msg.SessionId}, Uid:{safeUid}");
 
                 if (msg.HasReconnectRoom)
                 {
@@ -54,7 +63,7 @@ namespace StellarNet.Lite.Client.Modules
             }
             else
             {
-                if (_app.State == ClientAppState.ConnectionSuspended)
+                if (_app != null && _app.State == ClientAppState.ConnectionSuspended)
                 {
                     _app.AbortConnection();
                 }
@@ -72,21 +81,40 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
-            if (_app.State == ClientAppState.ReplayRoom) return;
+            if (_app == null)
+            {
+                NetLogger.LogError("ClientUserModule", $"处理重连结果失败: _app 为空, Success:{msg.Success}, RoomId:{msg.RoomId}");
+                return;
+            }
+
+            if (_app.State == ClientAppState.ReplayRoom)
+            {
+                NetLogger.LogWarning("ClientUserModule", "拦截: 当前处于回放模式，忽略重连结果");
+                return;
+            }
 
             if (msg.Success)
             {
                 _app.EnterOnlineRoom(msg.RoomId);
+                if (_app.CurrentRoom == null)
+                {
+                    NetLogger.LogError("ClientUserModule", $"重连失败: CurrentRoom 创建失败, RoomId:{msg.RoomId}");
+                    _app.LeaveRoom();
+                    GlobalTypeNetEvent.Broadcast(msg);
+                    return;
+                }
+
                 bool buildSuccess = ClientRoomFactory.BuildComponents(_app.CurrentRoom, msg.ComponentIds);
                 if (!buildSuccess)
                 {
-                    NetLogger.LogError("ClientUserModule", $"重连房间 {msg.RoomId} 本地装配失败，已强制销毁本地实例并终止重连握手");
+                    NetLogger.LogError("ClientUserModule", $"重连房间本地装配失败，已强制销毁本地实例并终止重连握手。RoomId:{msg.RoomId}");
                     _app.LeaveRoom();
+                    GlobalTypeNetEvent.Broadcast(msg);
                     return;
                 }
 
                 GlobalTypeNetEvent.Broadcast(new Local_RoomEntered { Room = _app.CurrentRoom });
-                NetLogger.LogInfo("ClientUserModule", $"重连房间 {msg.RoomId} 本地装配完毕，准备发送就绪握手");
+                NetLogger.LogInfo("ClientUserModule", $"重连房间本地装配完毕，准备发送就绪握手。RoomId:{msg.RoomId}");
 
                 var readyMsg = new C2S_ReconnectReady();
                 _app.SendMessage(readyMsg);
@@ -114,6 +142,12 @@ namespace StellarNet.Lite.Client.Modules
             if (msg == null)
             {
                 NetLogger.LogError("ClientUserModule", "收到非法同步包: Msg 为空");
+                return;
+            }
+
+            if (_app == null)
+            {
+                NetLogger.LogError("ClientUserModule", $"处理踢下线失败: _app 为空, Reason:{msg.Reason}");
                 return;
             }
 

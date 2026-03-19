@@ -52,7 +52,6 @@ namespace StellarNet.Lite.Shared.Core
             DisplayName = string.IsNullOrEmpty(displayName) ? name : displayName;
         }
     }
-    
 
     [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
     public sealed class ServerModuleAttribute : Attribute
@@ -77,6 +76,24 @@ namespace StellarNet.Lite.Shared.Core
         {
             Name = name;
             DisplayName = string.IsNullOrEmpty(displayName) ? name : displayName;
+        }
+    }
+
+    /// <summary>
+    /// 运行时静态协议元数据。
+    /// 我在 Editor 阶段扫描特性后，将协议信息固化为纯值类型结构，避免 Runtime 反射读取 Attribute。
+    /// </summary>
+    public readonly struct NetMessageMeta
+    {
+        public readonly int Id;
+        public readonly NetScope Scope;
+        public readonly NetDir Dir;
+
+        public NetMessageMeta(int id, NetScope scope, NetDir dir)
+        {
+            Id = id;
+            Scope = scope;
+            Dir = dir;
         }
     }
 

@@ -14,39 +14,36 @@ namespace StellarNet.Lite.Server.Core
         {
             if (handler == null)
             {
-                NetLogger.LogError("GlobalDispatcher", $"注册失败: 传入的 handler 为空，MsgId: {msgId}");
+                NetLogger.LogError("GlobalDispatcher", $"注册失败: handler 为空, MsgId:{msgId}");
                 return;
             }
 
-            if (_handlers.TryGetValue(msgId, out var existingHandler))
+            if (_handlers.ContainsKey(msgId))
             {
-                _handlers[msgId] = existingHandler + handler;
+                NetLogger.LogError("GlobalDispatcher", $"注册失败: MsgId 重复注册会导致重复分发, MsgId:{msgId}");
+                return;
             }
-            else
-            {
-                _handlers[msgId] = handler;
-            }
+
+            _handlers.Add(msgId, handler);
         }
 
         public void Dispatch(Session session, Packet packet)
         {
             if (session == null)
             {
-                NetLogger.LogError("GlobalDispatcher", "分发失败: session 为空");
+                NetLogger.LogError("GlobalDispatcher", $"分发失败: session 为空, MsgId:{packet.MsgId}");
                 return;
             }
 
-            if (_handlers.TryGetValue(packet.MsgId, out var handler))
+            if (_handlers.TryGetValue(packet.MsgId, out Action<Session, Packet> handler))
             {
-                handler?.Invoke(session, packet);
+                handler.Invoke(session, packet);
+                return;
             }
-            else
-            {
-                NetLogger.LogWarning("GlobalDispatcher", $"未找到 MsgId {packet.MsgId} 的处理函数");
-            }
+
+            NetLogger.LogWarning("GlobalDispatcher", $"未找到 MsgId 对应处理函数，消息已忽略。MsgId:{packet.MsgId}, SessionId:{session.SessionId}");
         }
 
-        // 核心修复 P0-4：补充 Clear 机制
         public void Clear()
         {
             _handlers.Clear();
@@ -69,36 +66,34 @@ namespace StellarNet.Lite.Server.Core
         {
             if (handler == null)
             {
-                NetLogger.LogError("RoomDispatcher", $"注册失败: 传入的 handler 为空，RoomId: {_roomId}, MsgId: {msgId}");
+                NetLogger.LogError("RoomDispatcher", $"注册失败: handler 为空, RoomId:{_roomId}, MsgId:{msgId}");
                 return;
             }
 
-            if (_handlers.TryGetValue(msgId, out var existingHandler))
+            if (_handlers.ContainsKey(msgId))
             {
-                _handlers[msgId] = existingHandler + handler;
+                NetLogger.LogError("RoomDispatcher", $"注册失败: MsgId 重复注册会导致重复分发, RoomId:{_roomId}, MsgId:{msgId}");
+                return;
             }
-            else
-            {
-                _handlers[msgId] = handler;
-            }
+
+            _handlers.Add(msgId, handler);
         }
 
         public void Dispatch(Session session, Packet packet)
         {
             if (session == null)
             {
-                NetLogger.LogError("RoomDispatcher", $"分发失败: session 为空，RoomId: {_roomId}");
+                NetLogger.LogError("RoomDispatcher", $"分发失败: session 为空, RoomId:{_roomId}, MsgId:{packet.MsgId}");
                 return;
             }
 
-            if (_handlers.TryGetValue(packet.MsgId, out var handler))
+            if (_handlers.TryGetValue(packet.MsgId, out Action<Session, Packet> handler))
             {
-                handler?.Invoke(session, packet);
+                handler.Invoke(session, packet);
+                return;
             }
-            else
-            {
-                NetLogger.LogWarning("RoomDispatcher", $"未找到 MsgId {packet.MsgId} 的处理函数，RoomId: {_roomId}");
-            }
+
+            NetLogger.LogWarning("RoomDispatcher", $"未找到 MsgId 对应处理函数，消息已忽略。RoomId:{_roomId}, MsgId:{packet.MsgId}, SessionId:{session.SessionId}");
         }
 
         public void Clear()
