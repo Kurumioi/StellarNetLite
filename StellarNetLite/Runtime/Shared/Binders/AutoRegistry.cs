@@ -23,43 +23,6 @@ namespace StellarNet.Lite.Shared.Binders
         public static void RegisterServer(ServerApp serverApp, Func<byte[], int, int, Type, object> deserializeFunc)
         {
             ServerRoomFactory.Clear();
-            var mod_StellarNet_Lite_Server_Modules_ServerReplayModule = new StellarNet.Lite.Server.Modules.ServerReplayModule(serverApp);
-            serverApp.GlobalDispatcher.Register(600, (session, packet) => {
-                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.C2S_GetReplayList)) is StellarNet.Lite.Shared.Protocol.C2S_GetReplayList msg) {
-                    mod_StellarNet_Lite_Server_Modules_ServerReplayModule.OnC2S_GetReplayList(session, msg);
-                }
-                else
-                {
-                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.C2S_GetReplayList, MsgId:600");
-                }
-            });
-            serverApp.GlobalDispatcher.Register(607, (session, packet) => {
-                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.C2S_RenameReplay)) is StellarNet.Lite.Shared.Protocol.C2S_RenameReplay msg) {
-                    mod_StellarNet_Lite_Server_Modules_ServerReplayModule.OnC2S_RenameReplay(session, msg);
-                }
-                else
-                {
-                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.C2S_RenameReplay, MsgId:607");
-                }
-            });
-            serverApp.GlobalDispatcher.Register(602, (session, packet) => {
-                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.C2S_DownloadReplay)) is StellarNet.Lite.Shared.Protocol.C2S_DownloadReplay msg) {
-                    mod_StellarNet_Lite_Server_Modules_ServerReplayModule.OnC2S_DownloadReplay(session, msg);
-                }
-                else
-                {
-                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.C2S_DownloadReplay, MsgId:602");
-                }
-            });
-            serverApp.GlobalDispatcher.Register(606, (session, packet) => {
-                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.C2S_DownloadReplayChunkAck)) is StellarNet.Lite.Shared.Protocol.C2S_DownloadReplayChunkAck msg) {
-                    mod_StellarNet_Lite_Server_Modules_ServerReplayModule.OnC2S_DownloadReplayChunkAck(session, msg);
-                }
-                else
-                {
-                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.C2S_DownloadReplayChunkAck, MsgId:606");
-                }
-            });
             var mod_StellarNet_Lite_Server_Modules_ServerUserModule = new StellarNet.Lite.Server.Modules.ServerUserModule(serverApp);
             serverApp.GlobalDispatcher.Register(100, (session, packet) => {
                 if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.C2S_Login)) is StellarNet.Lite.Shared.Protocol.C2S_Login msg) {
@@ -135,6 +98,43 @@ namespace StellarNet.Lite.Shared.Binders
                     StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.C2S_GetRoomList, MsgId:210");
                 }
             });
+            var mod_StellarNet_Lite_Server_Modules_ServerReplayModule = new StellarNet.Lite.Server.Modules.ServerReplayModule(serverApp);
+            serverApp.GlobalDispatcher.Register(600, (session, packet) => {
+                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.C2S_GetReplayList)) is StellarNet.Lite.Shared.Protocol.C2S_GetReplayList msg) {
+                    mod_StellarNet_Lite_Server_Modules_ServerReplayModule.OnC2S_GetReplayList(session, msg);
+                }
+                else
+                {
+                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.C2S_GetReplayList, MsgId:600");
+                }
+            });
+            serverApp.GlobalDispatcher.Register(607, (session, packet) => {
+                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.C2S_RenameReplay)) is StellarNet.Lite.Shared.Protocol.C2S_RenameReplay msg) {
+                    mod_StellarNet_Lite_Server_Modules_ServerReplayModule.OnC2S_RenameReplay(session, msg);
+                }
+                else
+                {
+                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.C2S_RenameReplay, MsgId:607");
+                }
+            });
+            serverApp.GlobalDispatcher.Register(602, (session, packet) => {
+                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.C2S_DownloadReplay)) is StellarNet.Lite.Shared.Protocol.C2S_DownloadReplay msg) {
+                    mod_StellarNet_Lite_Server_Modules_ServerReplayModule.OnC2S_DownloadReplay(session, msg);
+                }
+                else
+                {
+                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.C2S_DownloadReplay, MsgId:602");
+                }
+            });
+            serverApp.GlobalDispatcher.Register(606, (session, packet) => {
+                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.C2S_DownloadReplayChunkAck)) is StellarNet.Lite.Shared.Protocol.C2S_DownloadReplayChunkAck msg) {
+                    mod_StellarNet_Lite_Server_Modules_ServerReplayModule.OnC2S_DownloadReplayChunkAck(session, msg);
+                }
+                else
+                {
+                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.C2S_DownloadReplayChunkAck, MsgId:606");
+                }
+            });
             ServerRoomFactory.Register(102, () => new StellarNet.Lite.Game.Server.Components.ServerSocialRoomComponent(serverApp));
             ServerRoomFactory.Register(1, () => new StellarNet.Lite.Server.Components.ServerRoomSettingsComponent(serverApp));
             ServerRoomFactory.Register(200, () => new StellarNet.Lite.Server.Components.ServerObjectSyncComponent(serverApp));
@@ -208,32 +208,14 @@ namespace StellarNet.Lite.Shared.Binders
         public static void RegisterClient(ClientApp clientApp, Func<byte[], int, int, Type, object> deserializeFunc)
         {
             ClientRoomFactory.Clear();
-            var mod_StellarNet_Lite_Client_Modules_ClientUserModule = new StellarNet.Lite.Client.Modules.ClientUserModule(clientApp);
-            clientApp.GlobalDispatcher.Register(101, (packet) => {
-                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_LoginResult)) is StellarNet.Lite.Shared.Protocol.S2C_LoginResult msg) {
-                    mod_StellarNet_Lite_Client_Modules_ClientUserModule.OnS2C_LoginResult(msg);
+            var mod_StellarNet_Lite_Client_Modules_ClientLobbyModule = new StellarNet.Lite.Client.Modules.ClientLobbyModule(clientApp);
+            clientApp.GlobalDispatcher.Register(211, (packet) => {
+                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_RoomListResponse)) is StellarNet.Lite.Shared.Protocol.S2C_RoomListResponse msg) {
+                    mod_StellarNet_Lite_Client_Modules_ClientLobbyModule.OnS2C_RoomListResponse(msg);
                 }
                 else
                 {
-                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_LoginResult, MsgId:101");
-                }
-            });
-            clientApp.GlobalDispatcher.Register(104, (packet) => {
-                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_ReconnectResult)) is StellarNet.Lite.Shared.Protocol.S2C_ReconnectResult msg) {
-                    mod_StellarNet_Lite_Client_Modules_ClientUserModule.OnS2C_ReconnectResult(msg);
-                }
-                else
-                {
-                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_ReconnectResult, MsgId:104");
-                }
-            });
-            clientApp.GlobalDispatcher.Register(102, (packet) => {
-                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_KickOut)) is StellarNet.Lite.Shared.Protocol.S2C_KickOut msg) {
-                    mod_StellarNet_Lite_Client_Modules_ClientUserModule.OnS2C_KickOut(msg);
-                }
-                else
-                {
-                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_KickOut, MsgId:102");
+                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_RoomListResponse, MsgId:211");
                 }
             });
             var mod_StellarNet_Lite_Client_Modules_ClientRoomModule = new StellarNet.Lite.Client.Modules.ClientRoomModule(clientApp);
@@ -301,25 +283,83 @@ namespace StellarNet.Lite.Shared.Binders
                     StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_DownloadReplayResult, MsgId:603");
                 }
             });
-            var mod_StellarNet_Lite_Client_Modules_ClientLobbyModule = new StellarNet.Lite.Client.Modules.ClientLobbyModule(clientApp);
-            clientApp.GlobalDispatcher.Register(211, (packet) => {
-                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_RoomListResponse)) is StellarNet.Lite.Shared.Protocol.S2C_RoomListResponse msg) {
-                    mod_StellarNet_Lite_Client_Modules_ClientLobbyModule.OnS2C_RoomListResponse(msg);
+            var mod_StellarNet_Lite_Client_Modules_ClientUserModule = new StellarNet.Lite.Client.Modules.ClientUserModule(clientApp);
+            clientApp.GlobalDispatcher.Register(101, (packet) => {
+                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_LoginResult)) is StellarNet.Lite.Shared.Protocol.S2C_LoginResult msg) {
+                    mod_StellarNet_Lite_Client_Modules_ClientUserModule.OnS2C_LoginResult(msg);
                 }
                 else
                 {
-                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_RoomListResponse, MsgId:211");
+                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_LoginResult, MsgId:101");
                 }
             });
-            ClientRoomFactory.Register(1, () => new StellarNet.Lite.Client.Components.ClientRoomSettingsComponent(clientApp));
+            clientApp.GlobalDispatcher.Register(104, (packet) => {
+                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_ReconnectResult)) is StellarNet.Lite.Shared.Protocol.S2C_ReconnectResult msg) {
+                    mod_StellarNet_Lite_Client_Modules_ClientUserModule.OnS2C_ReconnectResult(msg);
+                }
+                else
+                {
+                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_ReconnectResult, MsgId:104");
+                }
+            });
+            clientApp.GlobalDispatcher.Register(102, (packet) => {
+                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_KickOut)) is StellarNet.Lite.Shared.Protocol.S2C_KickOut msg) {
+                    mod_StellarNet_Lite_Client_Modules_ClientUserModule.OnS2C_KickOut(msg);
+                }
+                else
+                {
+                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_KickOut, MsgId:102");
+                }
+            });
             ClientRoomFactory.Register(102, () => new StellarNet.Lite.Game.Client.Components.ClientSocialRoomComponent(clientApp));
             ClientRoomFactory.Register(200, () => new StellarNet.Lite.Client.Components.ClientObjectSyncComponent(clientApp));
+            ClientRoomFactory.Register(1, () => new StellarNet.Lite.Client.Components.ClientRoomSettingsComponent(clientApp));
         }
 
         public static void BindClientComponent(StellarNet.Lite.Client.Core.ClientRoomComponent comp, StellarNet.Lite.Client.Core.ClientRoomDispatcher dispatcher, Func<byte[], int, int, Type, object> deserializeFunc)
         {
             switch (comp)
             {
+                case StellarNet.Lite.Game.Client.Components.ClientSocialRoomComponent c_102:
+                    dispatcher.Register(1304, (packet) => {
+                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Game.Shared.Protocol.S2C_SocialBubbleSync)) is StellarNet.Lite.Game.Shared.Protocol.S2C_SocialBubbleSync msg) {
+                            c_102.OnS2C_SocialBubbleSync(msg);
+                        }
+                        else
+                        {
+                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Game.Shared.Protocol.S2C_SocialBubbleSync, MsgId:1304");
+                        }
+                    });
+                    break;
+                case StellarNet.Lite.Client.Components.ClientObjectSyncComponent c_200:
+                    dispatcher.Register(1100, (packet) => {
+                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_ObjectSpawn)) is StellarNet.Lite.Shared.Protocol.S2C_ObjectSpawn msg) {
+                            c_200.OnS2C_ObjectSpawn(msg);
+                        }
+                        else
+                        {
+                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_ObjectSpawn, MsgId:1100");
+                        }
+                    });
+                    dispatcher.Register(1101, (packet) => {
+                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_ObjectDestroy)) is StellarNet.Lite.Shared.Protocol.S2C_ObjectDestroy msg) {
+                            c_200.OnS2C_ObjectDestroy(msg);
+                        }
+                        else
+                        {
+                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_ObjectDestroy, MsgId:1101");
+                        }
+                    });
+                    dispatcher.Register(1102, (packet) => {
+                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_ObjectSync)) is StellarNet.Lite.Shared.Protocol.S2C_ObjectSync msg) {
+                            c_200.OnS2C_ObjectSync(msg);
+                        }
+                        else
+                        {
+                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_ObjectSync, MsgId:1102");
+                        }
+                    });
+                    break;
                 case StellarNet.Lite.Client.Components.ClientRoomSettingsComponent c_1:
                     dispatcher.Register(300, (packet) => {
                         if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_RoomSnapshot)) is StellarNet.Lite.Shared.Protocol.S2C_RoomSnapshot msg) {
@@ -373,46 +413,6 @@ namespace StellarNet.Lite.Shared.Binders
                         else
                         {
                             StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_GameEnded, MsgId:503");
-                        }
-                    });
-                    break;
-                case StellarNet.Lite.Game.Client.Components.ClientSocialRoomComponent c_102:
-                    dispatcher.Register(1304, (packet) => {
-                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Game.Shared.Protocol.S2C_SocialBubbleSync)) is StellarNet.Lite.Game.Shared.Protocol.S2C_SocialBubbleSync msg) {
-                            c_102.OnS2C_SocialBubbleSync(msg);
-                        }
-                        else
-                        {
-                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Game.Shared.Protocol.S2C_SocialBubbleSync, MsgId:1304");
-                        }
-                    });
-                    break;
-                case StellarNet.Lite.Client.Components.ClientObjectSyncComponent c_200:
-                    dispatcher.Register(1100, (packet) => {
-                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_ObjectSpawn)) is StellarNet.Lite.Shared.Protocol.S2C_ObjectSpawn msg) {
-                            c_200.OnS2C_ObjectSpawn(msg);
-                        }
-                        else
-                        {
-                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_ObjectSpawn, MsgId:1100");
-                        }
-                    });
-                    dispatcher.Register(1101, (packet) => {
-                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_ObjectDestroy)) is StellarNet.Lite.Shared.Protocol.S2C_ObjectDestroy msg) {
-                            c_200.OnS2C_ObjectDestroy(msg);
-                        }
-                        else
-                        {
-                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_ObjectDestroy, MsgId:1101");
-                        }
-                    });
-                    dispatcher.Register(1102, (packet) => {
-                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof(StellarNet.Lite.Shared.Protocol.S2C_ObjectSync)) is StellarNet.Lite.Shared.Protocol.S2C_ObjectSync msg) {
-                            c_200.OnS2C_ObjectSync(msg);
-                        }
-                        else
-                        {
-                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", $"反序列化失败: StellarNet.Lite.Shared.Protocol.S2C_ObjectSync, MsgId:1102");
                         }
                     });
                     break;

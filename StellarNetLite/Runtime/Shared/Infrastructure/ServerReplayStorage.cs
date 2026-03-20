@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Shared.Replay;
 using UnityEngine;
 
 namespace StellarNet.Lite.Server.Infrastructure
@@ -11,8 +12,11 @@ namespace StellarNet.Lite.Server.Infrastructure
     public static class ServerReplayStorage
     {
         public const string ReplayFolderName = "Replays";
-        private const uint MagicBytes = 0x50455253;
+        private const int MessageFrameMsgIdPlaceholder = 0;
 
+        /// <summary>
+        /// 录制上下文。
+        /// </summary>
         private sealed class RecordContext
         {
             public FileStream FS;
@@ -59,9 +63,8 @@ namespace StellarNet.Lite.Server.Infrastructure
             }
 
             FileStream fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
-            var gz = new GZipStream(fs, CompressionMode.Compress, true);
-            var writer = new BinaryWriter(gz);
-
+            GZipStream gz = new GZipStream(fs, CompressionMode.Compress, true);
+            BinaryWriter writer = new BinaryWriter(gz);
             ActiveRecords[roomId] = new RecordContext
             {
                 FS = fs,
@@ -71,6 +74,11 @@ namespace StellarNet.Lite.Server.Infrastructure
             };
         }
 
+        /// <summary>
+        /// 记录普通消息帧。
+        /// 我保留你现有调用面不变，只在底层帧格式里补入 FrameKind 和占位 MsgId，
+        /// 这样现有 Room.BroadcastMessage(recordToReplay) 逻辑不用整体重写。
+        /// </summary>
         public static void RecordFrame(string roomId, int tick, int msgId, byte[] payloadBuffer, int payloadLength)
         {
             if (string.IsNullOrEmpty(roomId))
@@ -81,6 +89,12 @@ namespace StellarNet.Lite.Server.Infrastructure
 
             if (!ActiveRecords.TryGetValue(roomId, out RecordContext ctx) || ctx == null || ctx.Writer == null)
             {
+                return;
+            }
+
+            if (tick < 0)
+            {
+                NetLogger.LogError("ServerReplayStorage", $"记录帧失败: tick 非法, RoomId:{roomId}, Tick:{tick}, MsgId:{msgId}");
                 return;
             }
 
@@ -98,13 +112,55 @@ namespace StellarNet.Lite.Server.Infrastructure
                 return;
             }
 
-            ctx.Writer.Write(tick);
-            ctx.Writer.Write(msgId);
-            ctx.Writer.Write(payloadLength);
+            WriteFrameHeader(ctx.Writer, ReplayFrameKind.Message, tick, msgId, payloadLength);
 
             if (payloadLength > 0)
             {
                 ctx.Writer.Write(payloadBuffer, 0, payloadLength);
+            }
+        }
+
+        /// <summary>
+        /// 记录对象关键帧。
+        /// 我新增独立入口而不是复用普通消息帧写法，是为了明确区分“协议事件流”和“世界恢复点”两种完全不同的录像语义。
+        /// </summary>
+        public static void RecordObjectSnapshotFrame(string roomId, ReplayObjectSnapshotFrame snapshotFrame)
+        {
+            if (string.IsNullOrEmpty(roomId))
+            {
+                NetLogger.LogError("ServerReplayStorage", "记录对象关键帧失败: roomId 为空");
+                return;
+            }
+
+            if (snapshotFrame == null)
+            {
+                NetLogger.LogError("ServerReplayStorage", $"记录对象关键帧失败: snapshotFrame 为空, RoomId:{roomId}");
+                return;
+            }
+
+            if (!ActiveRecords.TryGetValue(roomId, out RecordContext ctx) || ctx == null || ctx.Writer == null)
+            {
+                return;
+            }
+
+            if (snapshotFrame.Tick < 0)
+            {
+                NetLogger.LogError("ServerReplayStorage", $"记录对象关键帧失败: Tick 非法, RoomId:{roomId}, Tick:{snapshotFrame.Tick}");
+                return;
+            }
+
+            byte[] payload = EncodeSnapshotFrame(snapshotFrame);
+            if (payload == null)
+            {
+                NetLogger.LogError("ServerReplayStorage", $"记录对象关键帧失败: payload 为空, RoomId:{roomId}, Tick:{snapshotFrame.Tick}");
+                return;
+            }
+
+            WriteFrameHeader(ctx.Writer, ReplayFrameKind.ObjectSnapshot, snapshotFrame.Tick, MessageFrameMsgIdPlaceholder, payload.Length);
+
+            if (payload.Length > 0)
+            {
+                ctx.Writer.Write(payload, 0, payload.Length);
             }
         }
 
@@ -155,11 +211,11 @@ namespace StellarNet.Lite.Server.Infrastructure
             }
 
             byte[] headerBytes;
-            using (var ms = new MemoryStream())
-            using (var headerWriter = new BinaryWriter(ms))
+            using (MemoryStream ms = new MemoryStream())
+            using (BinaryWriter headerWriter = new BinaryWriter(ms))
             {
-                headerWriter.Write(MagicBytes);
-                headerWriter.Write((byte)2);
+                headerWriter.Write(ReplayFormatDefines.MagicBytes);
+                headerWriter.Write(ReplayFormatDefines.VersionWithObjectSnapshot);
                 headerWriter.Write(finalDisplayName);
                 headerWriter.Write(roomId);
 
@@ -175,7 +231,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                 headerBytes = ms.ToArray();
             }
 
-            using (var finalFs = new FileStream(finalPath, FileMode.Create, FileAccess.Write))
+            using (FileStream finalFs = new FileStream(finalPath, FileMode.Create, FileAccess.Write))
             {
                 byte[] lengthBytes = BitConverter.GetBytes(headerBytes.Length);
                 finalFs.Write(lengthBytes, 0, 4);
@@ -187,14 +243,13 @@ namespace StellarNet.Lite.Server.Infrastructure
                     return;
                 }
 
-                using (var tempFs = new FileStream(ctx.TempFilePath, FileMode.Open, FileAccess.Read))
+                using (FileStream tempFs = new FileStream(ctx.TempFilePath, FileMode.Open, FileAccess.Read))
                 {
                     tempFs.CopyTo(finalFs);
                 }
             }
 
             TryDeleteTempFile(ctx.TempFilePath);
-
             NetLogger.LogInfo("ServerReplayStorage", $"录像保存成功: {Path.GetFileName(finalPath)}", roomId);
             EnforceRollingLimit(folderPath, config != null ? config.MaxReplayFiles : 100);
         }
@@ -213,12 +268,49 @@ namespace StellarNet.Lite.Server.Infrastructure
             }
 
             ActiveRecords.Remove(roomId);
-
             ctx.Writer?.Dispose();
             ctx.GZ?.Dispose();
             ctx.FS?.Dispose();
-
             TryDeleteTempFile(ctx.TempFilePath);
+        }
+
+        /// <summary>
+        /// 统一写入录像帧头。
+        /// 我显式把 FrameKind 写到每一帧头部，是为了让播放器顺序扫 Raw 文件时能区分“普通协议补播”和“对象世界恢复点”。
+        /// </summary>
+        private static void WriteFrameHeader(BinaryWriter writer, ReplayFrameKind frameKind, int tick, int msgId, int payloadLength)
+        {
+            if (writer == null)
+            {
+                NetLogger.LogError("ServerReplayStorage", $"写入帧头失败: writer 为空, FrameKind:{frameKind}, Tick:{tick}, MsgId:{msgId}, PayloadLength:{payloadLength}");
+                return;
+            }
+
+            writer.Write((byte)frameKind);
+            writer.Write(tick);
+            writer.Write(msgId);
+            writer.Write(payloadLength);
+        }
+
+        /// <summary>
+        /// 我先在内存中编码关键帧，再一次性写入 Raw 流，
+        /// 是为了让录像底层保持“统一帧头 + 原始 payload”的简单布局，便于客户端后续建索引和快速 Seek。
+        /// </summary>
+        private static byte[] EncodeSnapshotFrame(ReplayObjectSnapshotFrame snapshotFrame)
+        {
+            if (snapshotFrame == null)
+            {
+                NetLogger.LogError("ServerReplayStorage", "编码对象关键帧失败: snapshotFrame 为空");
+                return null;
+            }
+
+            using (MemoryStream ms = new MemoryStream(2048))
+            using (BinaryWriter writer = new BinaryWriter(ms))
+            {
+                snapshotFrame.Serialize(writer);
+                writer.Flush();
+                return ms.ToArray();
+            }
         }
 
         private static void EnforceRollingLimit(string folderPath, int maxFiles)

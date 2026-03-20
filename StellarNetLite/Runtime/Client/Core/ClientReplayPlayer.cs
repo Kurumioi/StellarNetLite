@@ -3,9 +3,12 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using StellarNet.Lite.Client.Components;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Shared.ObjectSync;
+using StellarNet.Lite.Shared.Replay;
 using UnityEngine;
 
 namespace StellarNet.Lite.Client.Core
@@ -22,18 +25,23 @@ namespace StellarNet.Lite.Client.Core
         private float _tickAccumulator;
         private const float TickInterval = 1f / 60f;
         private float _lastReportedTimeScale = -1f;
+
         private string _replayFilePath;
         private string _rawFilePath;
         private FileStream _rawFs;
         private BinaryReader _rawReader;
         private string _roomId;
         private int[] _componentIds;
-        private int _realTotalTicks = 108000;
-        private readonly Dictionary<int, long> _frameIndex = new Dictionary<int, long>();
+        private int _realTotalTicks = ReplayFormatDefines.DefaultTotalTicksFallback;
+        private byte _replayVersion = ReplayFormatDefines.VersionLegacy;
+
+        private readonly Dictionary<int, long> _messageFrameIndex = new Dictionary<int, long>();
+        private readonly SortedDictionary<int, long> _snapshotFrameIndex = new SortedDictionary<int, long>();
         private const int SparseIndexIntervalTicks = 300;
 
         private struct ReplayFrameData
         {
+            public ReplayFrameKind FrameKind;
             public int Tick;
             public int MsgId;
             public byte[] Payload;
@@ -106,151 +114,152 @@ namespace StellarNet.Lite.Client.Core
                 return false;
             }
 
-            try
+            using (FileStream fs = new FileStream(_replayFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                using (var fs = new FileStream(_replayFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                byte[] lengthBytes = new byte[4];
+                int headerLengthBytesRead = fs.Read(lengthBytes, 0, 4);
+                if (headerLengthBytesRead < 4)
                 {
-                    byte[] lengthBytes = new byte[4];
-                    int headerLengthBytesRead = fs.Read(lengthBytes, 0, 4);
-                    if (headerLengthBytesRead < 4)
-                    {
-                        NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: Header 长度字段读取不足, FilePath:{_replayFilePath}, Read:{headerLengthBytesRead}");
-                        return false;
-                    }
-
-                    int headerLength = BitConverter.ToInt32(lengthBytes, 0);
-                    if (headerLength <= 0)
-                    {
-                        NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: HeaderLength 非法, FilePath:{_replayFilePath}, HeaderLength:{headerLength}");
-                        return false;
-                    }
-
-                    byte[] headerBytes = new byte[headerLength];
-                    int actualHeaderRead = ReadFull(fs, headerBytes, 0, headerLength);
-                    if (actualHeaderRead != headerLength)
-                    {
-                        NetLogger.LogError(
-                            "ClientReplayPlayer",
-                            $"初始化录像流失败: Header 读取不足, FilePath:{_replayFilePath}, Expected:{headerLength}, Actual:{actualHeaderRead}");
-                        return false;
-                    }
-
-                    using (var ms = new MemoryStream(headerBytes))
-                    using (var headerReader = new BinaryReader(ms))
-                    {
-                        uint magic = headerReader.ReadUInt32();
-                        if (magic != 0x50455253)
-                        {
-                            NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: 魔数错误, FilePath:{_replayFilePath}, Magic:{magic}");
-                            return false;
-                        }
-
-                        byte version = headerReader.ReadByte();
-                        string displayName = headerReader.ReadString();
-                        _roomId = headerReader.ReadString();
-                        int compCount = headerReader.ReadInt32();
-
-                        if (compCount < 0)
-                        {
-                            NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: compCount 非法, FilePath:{_replayFilePath}, CompCount:{compCount}");
-                            return false;
-                        }
-
-                        _componentIds = new int[compCount];
-                        for (int i = 0; i < compCount; i++)
-                        {
-                            _componentIds[i] = headerReader.ReadInt32();
-                        }
-
-                        _realTotalTicks = version >= 2 ? headerReader.ReadInt32() : 108000;
-                        if (_realTotalTicks < 0)
-                        {
-                            NetLogger.LogWarning("ClientReplayPlayer", $"录像总 Tick 非法，已回退为 0, FilePath:{_replayFilePath}, TotalTicks:{_realTotalTicks}");
-                            _realTotalTicks = 0;
-                        }
-
-                        if (string.IsNullOrEmpty(_roomId))
-                        {
-                            NetLogger.LogError(
-                                "ClientReplayPlayer",
-                                $"初始化录像流失败: RoomId 为空, FilePath:{_replayFilePath}, DisplayName:{displayName}, Version:{version}");
-                            return false;
-                        }
-                    }
-
-                    _rawFilePath = _replayFilePath + ".raw";
-                    if (!File.Exists(_rawFilePath))
-                    {
-                        NetLogger.LogInfo("ClientReplayPlayer", $"首次播放录像，开始解压 Raw 缓存文件。Replay:{_replayFilePath}");
-
-                        using (var gz = new GZipStream(fs, CompressionMode.Decompress))
-                        using (var rawFs = new FileStream(_rawFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
-                        {
-                            gz.CopyTo(rawFs);
-                        }
-                    }
-                }
-
-                if (!File.Exists(_rawFilePath))
-                {
-                    NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: Raw 缓存文件不存在, RawPath:{_rawFilePath}");
+                    NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: Header 长度字段读取不足, FilePath:{_replayFilePath}, Read:{headerLengthBytesRead}");
                     return false;
                 }
 
-                _rawFs = new FileStream(_rawFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                _rawReader = new BinaryReader(_rawFs);
-                BuildSparseIndex();
-                ResetStreamToStart();
-                return true;
+                int headerLength = BitConverter.ToInt32(lengthBytes, 0);
+                if (headerLength <= 0)
+                {
+                    NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: HeaderLength 非法, FilePath:{_replayFilePath}, HeaderLength:{headerLength}");
+                    return false;
+                }
+
+                byte[] headerBytes = new byte[headerLength];
+                int actualHeaderRead = ReadFull(fs, headerBytes, 0, headerLength);
+                if (actualHeaderRead != headerLength)
+                {
+                    NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: Header 读取不足, FilePath:{_replayFilePath}, Expected:{headerLength}, Actual:{actualHeaderRead}");
+                    return false;
+                }
+
+                using (MemoryStream ms = new MemoryStream(headerBytes))
+                using (BinaryReader headerReader = new BinaryReader(ms))
+                {
+                    uint magic = headerReader.ReadUInt32();
+                    if (magic != ReplayFormatDefines.MagicBytes)
+                    {
+                        NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: 魔数错误, FilePath:{_replayFilePath}, Magic:{magic}");
+                        return false;
+                    }
+
+                    _replayVersion = headerReader.ReadByte();
+                    string displayName = headerReader.ReadString();
+                    _roomId = headerReader.ReadString();
+
+                    int compCount = headerReader.ReadInt32();
+                    if (compCount < 0)
+                    {
+                        NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: compCount 非法, FilePath:{_replayFilePath}, CompCount:{compCount}");
+                        return false;
+                    }
+
+                    _componentIds = new int[compCount];
+                    for (int i = 0; i < compCount; i++)
+                    {
+                        _componentIds[i] = headerReader.ReadInt32();
+                    }
+
+                    _realTotalTicks = _replayVersion >= ReplayFormatDefines.VersionLegacy
+                        ? headerReader.ReadInt32()
+                        : ReplayFormatDefines.DefaultTotalTicksFallback;
+
+                    if (_realTotalTicks < 0)
+                    {
+                        NetLogger.LogWarning("ClientReplayPlayer", $"录像总 Tick 非法，已回退为 0, FilePath:{_replayFilePath}, TotalTicks:{_realTotalTicks}");
+                        _realTotalTicks = 0;
+                    }
+
+                    if (string.IsNullOrEmpty(_roomId))
+                    {
+                        NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: RoomId 为空, FilePath:{_replayFilePath}, DisplayName:{displayName}, Version:{_replayVersion}");
+                        return false;
+                    }
+                }
+
+                _rawFilePath = _replayFilePath + ".raw";
+                if (!File.Exists(_rawFilePath))
+                {
+                    NetLogger.LogInfo("ClientReplayPlayer", $"首次播放录像，开始解压 Raw 缓存文件。Replay:{_replayFilePath}");
+                    using (GZipStream gz = new GZipStream(fs, CompressionMode.Decompress))
+                    using (FileStream rawFs = new FileStream(_rawFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    {
+                        gz.CopyTo(rawFs);
+                    }
+                }
             }
-            catch (Exception ex)
+
+            if (!File.Exists(_rawFilePath))
             {
-                NetLogger.LogError(
-                    "ClientReplayPlayer",
-                    $"初始化录像流失败: FilePath:{_replayFilePath}, Exception:{ex.GetType().Name}, Message:{ex.Message}");
-                CleanupStream();
+                NetLogger.LogError("ClientReplayPlayer", $"初始化录像流失败: Raw 缓存文件不存在, RawPath:{_rawFilePath}");
                 return false;
             }
+
+            _rawFs = new FileStream(_rawFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            _rawReader = new BinaryReader(_rawFs);
+
+            BuildIndices();
+            ResetStreamToStart();
+            return true;
         }
 
-        private void BuildSparseIndex()
+        /// <summary>
+        /// 构建消息稀疏索引与关键帧索引。
+        /// 我把两类索引分开维护，是为了让顺序播放和 Seek 恢复各自走最合适的路径，而不是所有帧都强行共用一种索引语义。
+        /// </summary>
+        private void BuildIndices()
         {
             if (_rawFs == null || _rawReader == null)
             {
-                NetLogger.LogError("ClientReplayPlayer", "构建稀疏索引失败: 录像流为空");
+                NetLogger.LogError("ClientReplayPlayer", "构建索引失败: 录像流为空");
                 return;
             }
 
-            _frameIndex.Clear();
-            _rawFs.Position = 0;
+            _messageFrameIndex.Clear();
+            _snapshotFrameIndex.Clear();
 
+            _rawFs.Position = 0;
             while (_rawFs.Position < _rawFs.Length)
             {
                 long offset = _rawFs.Position;
 
-                if (!TryReadFrameHeader(_rawReader, out int tick, out int msgId, out int len))
+                if (!TryReadFrameHeader(_rawReader, _replayVersion, out ReplayFrameKind frameKind, out int tick, out int msgId, out int len))
                 {
-                    NetLogger.LogWarning("ClientReplayPlayer", $"构建稀疏索引提前结束: 帧头读取失败, RawPath:{_rawFilePath}, Offset:{offset}");
+                    NetLogger.LogWarning("ClientReplayPlayer", $"构建索引提前结束: 帧头读取失败, RawPath:{_rawFilePath}, Offset:{offset}");
                     break;
                 }
 
                 if (len < 0)
                 {
-                    NetLogger.LogError("ClientReplayPlayer", $"构建稀疏索引失败: PayloadLength 非法, Tick:{tick}, MsgId:{msgId}, Len:{len}, Offset:{offset}");
+                    NetLogger.LogError("ClientReplayPlayer", $"构建索引失败: PayloadLength 非法, Tick:{tick}, MsgId:{msgId}, Len:{len}, Offset:{offset}, FrameKind:{frameKind}");
                     break;
                 }
 
-                if (tick % SparseIndexIntervalTicks == 0 && !_frameIndex.ContainsKey(tick))
+                if (frameKind == ReplayFrameKind.ObjectSnapshot)
                 {
-                    _frameIndex.Add(tick, offset);
+                    if (!_snapshotFrameIndex.ContainsKey(tick))
+                    {
+                        _snapshotFrameIndex.Add(tick, offset);
+                    }
+                }
+                else if (frameKind == ReplayFrameKind.Message)
+                {
+                    if (tick % SparseIndexIntervalTicks == 0 && !_messageFrameIndex.ContainsKey(tick))
+                    {
+                        _messageFrameIndex.Add(tick, offset);
+                    }
                 }
 
                 long nextPosition = _rawFs.Position + len;
                 if (nextPosition > _rawFs.Length)
                 {
-                    NetLogger.LogWarning(
-                        "ClientReplayPlayer",
-                        $"构建稀疏索引提前结束: 帧越界, Tick:{tick}, MsgId:{msgId}, Len:{len}, Position:{_rawFs.Position}, Length:{_rawFs.Length}");
+                    NetLogger.LogWarning("ClientReplayPlayer", $"构建索引提前结束: 帧越界, Tick:{tick}, MsgId:{msgId}, Len:{len}, Position:{_rawFs.Position}, Length:{_rawFs.Length}");
                     break;
                 }
 
@@ -352,10 +361,18 @@ namespace StellarNet.Lite.Client.Core
                 RestartSandbox();
             }
 
-            int anchorTick = (targetTick / SparseIndexIntervalTicks) * SparseIndexIntervalTicks;
-            if (anchorTick > CurrentTick && _frameIndex.TryGetValue(anchorTick, out long anchorOffset))
+            int snapshotTick = FindNearestSnapshotTick(targetTick);
+            if (snapshotTick >= 0 && _snapshotFrameIndex.TryGetValue(snapshotTick, out long snapshotOffset))
             {
-                ResetRoomToIndexedPosition(anchorTick, anchorOffset);
+                ResetRoomToSnapshotPosition(snapshotTick, snapshotOffset);
+            }
+            else
+            {
+                int anchorTick = (targetTick / SparseIndexIntervalTicks) * SparseIndexIntervalTicks;
+                if (anchorTick > CurrentTick && _messageFrameIndex.TryGetValue(anchorTick, out long anchorOffset))
+                {
+                    ResetRoomToIndexedPosition(anchorTick, anchorOffset);
+                }
             }
 
             int safeGuard = 0;
@@ -446,6 +463,98 @@ namespace StellarNet.Lite.Client.Core
             _nextFrame = null;
         }
 
+        /// <summary>
+        /// 跳转到关键帧并恢复对象世界。
+        /// 我先尝试应用关键帧对象态，如果当前房间不带对象同步组件，就把关键帧当成可选增强信息直接跳过，
+        /// 因为对象关键帧不是所有房间的基础能力，不能因此阻断整个回放 Seek。
+        /// </summary>
+        private void ResetRoomToSnapshotPosition(int tick, long offset)
+        {
+            RestartSandbox();
+
+            if (_rawFs == null || _rawReader == null)
+            {
+                NetLogger.LogError("ClientReplayPlayer", $"关键帧跳转失败: 录像流为空, Tick:{tick}, Offset:{offset}");
+                return;
+            }
+
+            if (_app == null || _app.CurrentRoom == null)
+            {
+                NetLogger.LogError("ClientReplayPlayer", $"关键帧跳转失败: CurrentRoom 为空, Tick:{tick}, Offset:{offset}");
+                return;
+            }
+
+            if (offset < 0 || offset > _rawFs.Length)
+            {
+                NetLogger.LogError("ClientReplayPlayer", $"关键帧跳转失败: Offset 非法, Tick:{tick}, Offset:{offset}, Length:{_rawFs.Length}");
+                return;
+            }
+
+            _rawFs.Position = offset;
+
+            if (!TryReadFrameHeader(_rawReader, _replayVersion, out ReplayFrameKind frameKind, out int frameTick, out int msgId, out int payloadLength))
+            {
+                NetLogger.LogError("ClientReplayPlayer", $"关键帧跳转失败: 帧头读取失败, Tick:{tick}, Offset:{offset}");
+                return;
+            }
+
+            if (frameKind != ReplayFrameKind.ObjectSnapshot)
+            {
+                NetLogger.LogError("ClientReplayPlayer", $"关键帧跳转失败: 帧类型错误, Expected:{ReplayFrameKind.ObjectSnapshot}, Actual:{frameKind}, Tick:{frameTick}, Offset:{offset}");
+                return;
+            }
+
+            if (payloadLength < 0)
+            {
+                NetLogger.LogError("ClientReplayPlayer", $"关键帧跳转失败: payloadLength 非法, Tick:{frameTick}, PayloadLength:{payloadLength}");
+                return;
+            }
+
+            byte[] payload = payloadLength > 0 ? ArrayPool<byte>.Shared.Rent(payloadLength) : Array.Empty<byte>();
+            try
+            {
+                if (payloadLength > 0)
+                {
+                    int actualRead = ReadFull(_rawFs, payload, 0, payloadLength);
+                    if (actualRead != payloadLength)
+                    {
+                        NetLogger.LogError("ClientReplayPlayer", $"关键帧跳转失败: Payload 读取不足, Tick:{frameTick}, Expected:{payloadLength}, Actual:{actualRead}");
+                        return;
+                    }
+                }
+
+                ReplayObjectSnapshotFrame snapshotFrame = DecodeSnapshotFrame(payload, payloadLength);
+                if (snapshotFrame == null)
+                {
+                    NetLogger.LogError("ClientReplayPlayer", $"关键帧跳转失败: snapshotFrame 为空, Tick:{frameTick}, PayloadLength:{payloadLength}");
+                    return;
+                }
+
+                ClientObjectSyncComponent objectSyncComponent = _app.CurrentRoom.GetComponent<ClientObjectSyncComponent>();
+                if (objectSyncComponent != null)
+                {
+                    objectSyncComponent.ApplyReplaySnapshot(snapshotFrame.States);
+                }
+
+                CurrentTick = frameTick;
+                _tickAccumulator = 0f;
+
+                if (_nextFrame.HasValue && _nextFrame.Value.Payload != null)
+                {
+                    ArrayPool<byte>.Shared.Return(_nextFrame.Value.Payload);
+                }
+
+                _nextFrame = null;
+            }
+            finally
+            {
+                if (payloadLength > 0 && payload != null && payload.Length > 0)
+                {
+                    ArrayPool<byte>.Shared.Return(payload);
+                }
+            }
+        }
+
         private void ResetStreamToStart()
         {
             if (_rawFs == null)
@@ -480,8 +589,7 @@ namespace StellarNet.Lite.Client.Core
             }
 
             long offset = _rawFs.Position;
-
-            if (!TryReadFrameHeader(_rawReader, out int tick, out int msgId, out int len))
+            if (!TryReadFrameHeader(_rawReader, _replayVersion, out ReplayFrameKind frameKind, out int tick, out int msgId, out int len))
             {
                 NetLogger.LogWarning("ClientReplayPlayer", $"读取下一帧失败: 帧头读取失败, Offset:{offset}, RawPath:{_rawFilePath}");
                 _nextFrame = null;
@@ -490,7 +598,7 @@ namespace StellarNet.Lite.Client.Core
 
             if (len < 0)
             {
-                NetLogger.LogError("ClientReplayPlayer", $"读取下一帧失败: PayloadLength 非法, Tick:{tick}, MsgId:{msgId}, Len:{len}");
+                NetLogger.LogError("ClientReplayPlayer", $"读取下一帧失败: PayloadLength 非法, Tick:{tick}, MsgId:{msgId}, Len:{len}, FrameKind:{frameKind}");
                 _nextFrame = null;
                 return;
             }
@@ -502,10 +610,7 @@ namespace StellarNet.Lite.Client.Core
                 int actualBytesRead = ReadFull(_rawFs, payload, 0, len);
                 if (actualBytesRead != len)
                 {
-                    NetLogger.LogWarning(
-                        "ClientReplayPlayer",
-                        $"读取下一帧失败: Payload 读取不足, Tick:{tick}, MsgId:{msgId}, Expected:{len}, Actual:{actualBytesRead}");
-
+                    NetLogger.LogWarning("ClientReplayPlayer", $"读取下一帧失败: Payload 读取不足, Tick:{tick}, MsgId:{msgId}, Expected:{len}, Actual:{actualBytesRead}");
                     ArrayPool<byte>.Shared.Return(payload);
                     _nextFrame = null;
                     return;
@@ -514,6 +619,7 @@ namespace StellarNet.Lite.Client.Core
 
             _nextFrame = new ReplayFrameData
             {
+                FrameKind = frameKind,
                 Tick = tick,
                 MsgId = msgId,
                 Payload = payload,
@@ -547,8 +653,28 @@ namespace StellarNet.Lite.Client.Core
                 }
 
                 ReplayFrameData frame = _nextFrame.Value;
-                var packet = new Packet(0, frame.MsgId, NetScope.Room, _roomId, frame.Payload ?? Array.Empty<byte>(), 0, frame.PayloadLength);
-                _app.CurrentRoom.Dispatcher.Dispatch(packet);
+
+                if (frame.FrameKind == ReplayFrameKind.Message)
+                {
+                    Packet packet = new Packet(0, frame.MsgId, NetScope.Room, _roomId, frame.Payload ?? Array.Empty<byte>(), 0, frame.PayloadLength);
+                    _app.CurrentRoom.Dispatcher.Dispatch(packet);
+                }
+                else if (frame.FrameKind == ReplayFrameKind.ObjectSnapshot)
+                {
+                    ReplayObjectSnapshotFrame snapshotFrame = DecodeSnapshotFrame(frame.Payload, frame.PayloadLength);
+                    if (snapshotFrame != null)
+                    {
+                        ClientObjectSyncComponent objectSyncComponent = _app.CurrentRoom.GetComponent<ClientObjectSyncComponent>();
+                        if (objectSyncComponent != null)
+                        {
+                            objectSyncComponent.ApplyReplaySnapshot(snapshotFrame.States);
+                        }
+                    }
+                }
+                else
+                {
+                    NetLogger.LogWarning("ClientReplayPlayer", $"未知录像帧类型，已忽略。FrameKind:{frame.FrameKind}, Tick:{frame.Tick}, MsgId:{frame.MsgId}");
+                }
 
                 if (frame.Payload != null)
                 {
@@ -561,8 +687,13 @@ namespace StellarNet.Lite.Client.Core
             CurrentTick++;
         }
 
-        private static bool TryReadFrameHeader(BinaryReader reader, out int tick, out int msgId, out int len)
+        /// <summary>
+        /// 按版本读取录像帧头。
+        /// 我兼容旧格式和新格式，是为了避免你工程里已有旧录像在升级代码后完全无法播放。
+        /// </summary>
+        private static bool TryReadFrameHeader(BinaryReader reader, byte replayVersion, out ReplayFrameKind frameKind, out int tick, out int msgId, out int len)
         {
+            frameKind = ReplayFrameKind.None;
             tick = 0;
             msgId = 0;
             len = 0;
@@ -578,15 +709,82 @@ namespace StellarNet.Lite.Client.Core
                 return false;
             }
 
+            if (replayVersion >= ReplayFormatDefines.VersionWithObjectSnapshot)
+            {
+                if (baseStream.Position + 13 > baseStream.Length)
+                {
+                    return false;
+                }
+
+                frameKind = (ReplayFrameKind)reader.ReadByte();
+                tick = reader.ReadInt32();
+                msgId = reader.ReadInt32();
+                len = reader.ReadInt32();
+                return true;
+            }
+
             if (baseStream.Position + 12 > baseStream.Length)
             {
                 return false;
             }
 
+            frameKind = ReplayFrameKind.Message;
             tick = reader.ReadInt32();
             msgId = reader.ReadInt32();
             len = reader.ReadInt32();
             return true;
+        }
+
+        private static ReplayObjectSnapshotFrame DecodeSnapshotFrame(byte[] payload, int payloadLength)
+        {
+            if (payloadLength < 0)
+            {
+                NetLogger.LogError("ClientReplayPlayer", $"解码对象关键帧失败: payloadLength 非法, PayloadLength:{payloadLength}");
+                return null;
+            }
+
+            if (payloadLength == 0)
+            {
+                return new ReplayObjectSnapshotFrame
+                {
+                    Tick = 0,
+                    States = Array.Empty<ObjectSpawnState>()
+                };
+            }
+
+            if (payload == null)
+            {
+                NetLogger.LogError("ClientReplayPlayer", $"解码对象关键帧失败: payload 为空, PayloadLength:{payloadLength}");
+                return null;
+            }
+
+            using (MemoryStream ms = new MemoryStream(payload, 0, payloadLength, false))
+            using (BinaryReader reader = new BinaryReader(ms))
+            {
+                ReplayObjectSnapshotFrame frame = new ReplayObjectSnapshotFrame();
+                frame.Deserialize(reader);
+                return frame;
+            }
+        }
+
+        /// <summary>
+        /// 查找不晚于目标 Tick 的最近关键帧。
+        /// 我采用从小到大扫描有序表，是因为关键帧数量远小于消息帧数量，这里优先保持逻辑稳定和可读性。
+        /// </summary>
+        private int FindNearestSnapshotTick(int targetTick)
+        {
+            int nearest = -1;
+            foreach (KeyValuePair<int, long> kvp in _snapshotFrameIndex)
+            {
+                if (kvp.Key > targetTick)
+                {
+                    break;
+                }
+
+                nearest = kvp.Key;
+            }
+
+            return nearest;
         }
 
         private static int ReadFull(Stream stream, byte[] buffer, int offset, int length)

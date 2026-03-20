@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
+using StellarNet.Lite.Server.Components;
 using StellarNet.Lite.Server.Infrastructure;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Shared.Replay;
 
 namespace StellarNet.Lite.Server.Core
 {
@@ -16,6 +18,8 @@ namespace StellarNet.Lite.Server.Core
 
     public sealed class Room
     {
+        private const int ReplaySnapshotIntervalTicks = 150;
+
         public string RoomId { get; }
         public RoomConfigModel Config { get; } = new RoomConfigModel();
         public string RoomName => Config.RoomName;
@@ -37,9 +41,11 @@ namespace StellarNet.Lite.Server.Core
         private readonly INetworkTransport _transport;
         private readonly INetSerializer _serializer;
         private readonly NetConfig _netConfig;
+
         private int _finishedTickCount;
         private int _recordStartTick;
         private bool _isDestroyed;
+        private bool _hasWrittenInitialReplaySnapshot;
 
         public Room(string roomId, INetworkTransport transport, INetSerializer serializer, NetConfig config)
         {
@@ -283,12 +289,16 @@ namespace StellarNet.Lite.Server.Core
 
             State = RoomState.Playing;
             LastReplayId = string.Empty;
+            _hasWrittenInitialReplaySnapshot = false;
+
             StartRecord();
 
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnGameStart();
             }
+
+            TryRecordInitialReplaySnapshot();
         }
 
         public void EndGame(string replayDisplayName = "")
@@ -303,6 +313,8 @@ namespace StellarNet.Lite.Server.Core
                 NetLogger.LogWarning("Room", $"结束游戏失败: 当前状态非法, State:{State}", RoomId);
                 return;
             }
+
+            TryRecordFinalReplaySnapshot();
 
             State = RoomState.Finished;
             _finishedTickCount = 0;
@@ -367,7 +379,7 @@ namespace StellarNet.Lite.Server.Core
                     return;
                 }
 
-                var packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, 0, length);
+                Packet packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, 0, length);
 
                 if (recordToReplay && IsRecording)
                 {
@@ -457,7 +469,7 @@ namespace StellarNet.Lite.Server.Core
                     return;
                 }
 
-                var packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, 0, length);
+                Packet packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, 0, length);
 
                 if (recordToReplay && IsRecording)
                 {
@@ -483,6 +495,7 @@ namespace StellarNet.Lite.Server.Core
 
             IsRecording = true;
             _recordStartTick = CurrentTick;
+            _hasWrittenInitialReplaySnapshot = false;
             ServerReplayStorage.StartRecord(RoomId);
         }
 
@@ -503,6 +516,8 @@ namespace StellarNet.Lite.Server.Core
 
             CurrentTick++;
 
+            TryRecordPeriodicReplaySnapshot();
+
             for (int i = 0; i < _tickableComponents.Count; i++)
             {
                 _tickableComponents[i].OnTick();
@@ -520,8 +535,7 @@ namespace StellarNet.Lite.Server.Core
             }
 
             NetLogger.LogWarning("Room", $"僵尸清理: 结算超时，强制清空残留玩家数:{_members.Count}", RoomId);
-            var sessionsToKick = new List<Session>(_members.Values);
-
+            List<Session> sessionsToKick = new List<Session>(_members.Values);
             for (int i = 0; i < sessionsToKick.Count; i++)
             {
                 Session session = sessionsToKick[i];
@@ -530,7 +544,7 @@ namespace StellarNet.Lite.Server.Core
                     continue;
                 }
 
-                var kickMsg = new StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult { Success = true };
+                StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult kickMsg = new StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult { Success = true };
                 SendMessageTo(session, kickMsg);
                 RemoveMember(session);
             }
@@ -584,5 +598,153 @@ namespace StellarNet.Lite.Server.Core
             _members.Clear();
             Dispatcher.Clear();
         }
+
+        #region ================= 回放关键帧录制 =================
+
+        /// <summary>
+        /// 开局关键帧。
+        /// 我只在当前房间存在对象同步组件时才写对象关键帧，
+        /// 是为了明确“对象关键帧是增强能力而不是基础能力”，避免聊天室这类房间被误判成录制异常。
+        /// </summary>
+        private void TryRecordInitialReplaySnapshot()
+        {
+            if (!IsRecording)
+            {
+                return;
+            }
+
+            if (_hasWrittenInitialReplaySnapshot)
+            {
+                return;
+            }
+
+            if (!HasReplaySnapshotSupport())
+            {
+                return;
+            }
+
+            bool recorded = RecordReplaySnapshotAtCurrentTick();
+            if (!recorded)
+            {
+                NetLogger.LogError("Room", $"记录开局关键帧失败, RoomId:{RoomId}, CurrentTick:{CurrentTick}, IsRecording:{IsRecording}");
+                return;
+            }
+
+            _hasWrittenInitialReplaySnapshot = true;
+        }
+
+        /// <summary>
+        /// 周期关键帧。
+        /// 我先做组件能力判定再决定是否采样，是为了让房间层只对“支持对象世界恢复”的房间启用关键帧策略。
+        /// </summary>
+        private void TryRecordPeriodicReplaySnapshot()
+        {
+            if (!IsRecording)
+            {
+                return;
+            }
+
+            if (State != RoomState.Playing)
+            {
+                return;
+            }
+
+            if (!HasReplaySnapshotSupport())
+            {
+                return;
+            }
+
+            if (ReplaySnapshotIntervalTicks <= 0)
+            {
+                NetLogger.LogError("Room", $"记录周期关键帧失败: ReplaySnapshotIntervalTicks 非法, RoomId:{RoomId}, Interval:{ReplaySnapshotIntervalTicks}");
+                return;
+            }
+
+            int relativeTick = CurrentTick - _recordStartTick;
+            if (relativeTick <= 0)
+            {
+                return;
+            }
+
+            if (relativeTick % ReplaySnapshotIntervalTicks != 0)
+            {
+                return;
+            }
+
+            bool recorded = RecordReplaySnapshotAtCurrentTick();
+            if (!recorded)
+            {
+                NetLogger.LogError("Room", $"记录周期关键帧失败, RoomId:{RoomId}, CurrentTick:{CurrentTick}, RelativeTick:{relativeTick}");
+            }
+        }
+
+        /// <summary>
+        /// 终局关键帧。
+        /// 我只对支持对象世界的房间补终局恢复点，避免无对象房间在结算阶段产生无意义错误日志。
+        /// </summary>
+        private void TryRecordFinalReplaySnapshot()
+        {
+            if (!IsRecording)
+            {
+                return;
+            }
+
+            if (!HasReplaySnapshotSupport())
+            {
+                return;
+            }
+
+            bool recorded = RecordReplaySnapshotAtCurrentTick();
+            if (!recorded)
+            {
+                NetLogger.LogError("Room", $"记录终局关键帧失败, RoomId:{RoomId}, CurrentTick:{CurrentTick}, IsRecording:{IsRecording}");
+            }
+        }
+
+        /// <summary>
+        /// 判断当前房间是否具备对象关键帧录制能力。
+        /// 我把这层判定抽出来，是为了把“缺少 ObjectSync 组件”明确表达成合法能力缺省，而不是错误状态。
+        /// </summary>
+        private bool HasReplaySnapshotSupport()
+        {
+            ServerObjectSyncComponent objectSyncComponent = GetComponent<ServerObjectSyncComponent>();
+            return objectSyncComponent != null;
+        }
+
+        /// <summary>
+        /// 记录当前 Tick 的对象关键帧。
+        /// 我在这里保留真正的异常校验，但对“房间不支持对象快照”直接静默跳过，避免把可选能力缺失误报成故障。
+        /// </summary>
+        private bool RecordReplaySnapshotAtCurrentTick()
+        {
+            if (!IsRecording)
+            {
+                return false;
+            }
+
+            ServerObjectSyncComponent objectSyncComponent = GetComponent<ServerObjectSyncComponent>();
+            if (objectSyncComponent == null)
+            {
+                return false;
+            }
+
+            int relativeTick = CurrentTick - _recordStartTick;
+            if (relativeTick < 0)
+            {
+                NetLogger.LogError("Room", $"记录对象关键帧失败: relativeTick 非法, RoomId:{RoomId}, CurrentTick:{CurrentTick}, RecordStartTick:{_recordStartTick}");
+                return false;
+            }
+
+            ReplayObjectSnapshotFrame snapshotFrame = new ReplayObjectSnapshotFrame
+            {
+                Tick = relativeTick,
+                States = objectSyncComponent.ExportSpawnStates()
+            };
+
+            ServerReplayStorage.RecordObjectSnapshotFrame(RoomId, snapshotFrame);
+            return true;
+        }
+
+        #endregion
     }
 }
