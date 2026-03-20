@@ -4,7 +4,8 @@
 > 核心理念：**服务端权威、协议事件驱动、房间组件化、流式回放沙盒、Editor 扫描生成 + Runtime 0反射静态装配**
 
 ---
-![Uploading image.png…]()
+<img width="777" height="644" alt="3c2ba2e5-8415-45b8-a321-2819e6c4dc77" src="https://github.com/user-attachments/assets/d739808e-61d5-4f0d-8198-4fd176e39bd2" />
+
 
 ## 项目简介
 
