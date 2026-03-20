@@ -1,9 +1,10 @@
 ﻿// ========================================================
-// 自动生成的协议 ID 常量聚合表。
+// 自动生成的分片协议 ID 常量表。
+// 请勿手动修改！由 LiteProtocolScanner 自动生成。
 // ========================================================
-namespace StellarNet.Lite.Shared.Protocol
+namespace StellarNet.Lite.Shared.Generated.Protocol.MsgIds
 {
-    public static class MsgIdConst
+    public static class Generated_Lite_MsgIds
     {
         public const int C2S_Login = 100;
         public const int S2C_LoginResult = 101;
@@ -42,9 +43,5 @@ namespace StellarNet.Lite.Shared.Protocol
         public const int S2C_ObjectSpawn = 1100;
         public const int S2C_ObjectDestroy = 1101;
         public const int S2C_ObjectSync = 1102;
-        public const int C2S_SocialMoveReq = 1301;
-        public const int C2S_SocialActionReq = 1302;
-        public const int C2S_SocialBubbleReq = 1303;
-        public const int S2C_SocialBubbleSync = 1304;
     }
 }

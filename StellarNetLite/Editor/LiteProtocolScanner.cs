@@ -15,16 +15,37 @@ namespace StellarNet.Lite.Editor
     [InitializeOnLoad]
     public static class LiteProtocolScanner
     {
-        private const string ProtocolOutputPath = "Assets/StellarNetLite/Runtime/Shared/Protocol/Const/MsgIdConst.cs";
-        private const string ComponentOutputPath = "Assets/StellarNetLite/Runtime/Shared/Protocol/Const/ComponentIdConst.cs";
-        private const string RegistryOutputPath = "Assets/StellarNetLite/Runtime/Shared/Binders/AutoRegistry.cs";
-        private const string MessageMetaRegistryOutputPath = "Assets/StellarNetLite/Runtime/Shared/Protocol/Const/AutoMessageMetaRegistry.cs";
+        #region 常量路径
+
+        private const string GeneratedRootPath = "Assets/StellarNetLite/Runtime/Shared/Generated";
+        private const string ProtocolIdsFolderPath = GeneratedRootPath + "/Protocol/MsgIds";
+        private const string ProtocolMetaFolderPath = GeneratedRootPath + "/Protocol/Meta";
+        private const string ComponentConstFolderPath = GeneratedRootPath + "/Protocol/Components";
+        private const string BinderRoomFolderPath = GeneratedRootPath + "/Binders/RoomComponents";
+        private const string BinderModuleFolderPath = GeneratedRootPath + "/Binders/GlobalModules";
+
+        private const string MsgIdAggregateOutputPath = "Assets/StellarNetLite/Runtime/Shared/Protocol/Const/MsgIdConst.cs";
+        private const string ComponentAggregateOutputPath = "Assets/StellarNetLite/Runtime/Shared/Protocol/Const/ComponentIdConst.cs";
+        private const string MessageMetaAggregateOutputPath = "Assets/StellarNetLite/Runtime/Shared/Protocol/Const/AutoMessageMetaRegistry.cs";
+        private const string RegistryAggregateOutputPath = "Assets/StellarNetLite/Runtime/Shared/Binders/AutoRegistry.cs";
+
+        #endregion
+
+        #region 状态与结构
+
+        private enum ScanResultState : byte
+        {
+            NoChange = 0,
+            Changed = 1,
+            Failed = 2
+        }
 
         private sealed class MethodMeta
         {
             public string MethodName;
             public string MsgFullName;
             public int MsgId;
+            public string FeatureKey;
         }
 
         private sealed class ClassMeta
@@ -34,6 +55,7 @@ namespace StellarNet.Lite.Editor
             public string SafeVarName;
             public string FullName;
             public string DisplayName;
+            public string FeatureKey;
             public readonly List<MethodMeta> Methods = new List<MethodMeta>();
         }
 
@@ -44,6 +66,13 @@ namespace StellarNet.Lite.Editor
             public string FullTypeName;
             public NetScope Scope;
             public NetDir Dir;
+            public string FeatureKey;
+        }
+
+        private sealed class GeneratedFileRecord
+        {
+            public string Path;
+            public string Content;
         }
 
         static LiteProtocolScanner()
@@ -51,11 +80,19 @@ namespace StellarNet.Lite.Editor
             RunScanAndGenerate();
         }
 
-        [MenuItem("StellarNet/Lite 强制重新生成协议与组件常量表")]
+        #endregion
+
+        #region 菜单入口
+
+        [MenuItem("StellarNetLite/强制重新生成协议与组件常量表")]
         public static void ManualRun()
         {
             RunScanAndGenerate();
         }
+
+        #endregion
+
+        #region 内置类型名
 
         private static readonly Dictionary<Type, string> BuiltInTypeNames = new Dictionary<Type, string>
         {
@@ -77,19 +114,37 @@ namespace StellarNet.Lite.Editor
             { typeof(string), "string" }
         };
 
+        #endregion
+
+        #region 主流程
+
         private static void RunScanAndGenerate()
         {
-            bool protocolChanged = ScanAndGenerateProtocols();
-            bool componentChanged = ScanAndGenerateComponentsAndRegistry();
+            ScanResultState protocolResult = ScanAndGenerateProtocols();
+            ScanResultState componentResult = ScanAndGenerateComponentsAndRegistry();
 
-            if (!protocolChanged && !componentChanged)
+            bool hasFailure = protocolResult == ScanResultState.Failed || componentResult == ScanResultState.Failed;
+            if (hasFailure)
+            {
+                NetLogger.LogError(
+                    "LiteProtocolScanner",
+                    $"自动装配代码生成失败，已阻断刷新。ProtocolResult:{protocolResult}, ComponentResult:{componentResult}");
+                return;
+            }
+
+            bool hasChange = protocolResult == ScanResultState.Changed || componentResult == ScanResultState.Changed;
+            if (!hasChange)
             {
                 return;
             }
 
             AssetDatabase.Refresh();
-            NetLogger.LogInfo("LiteProtocolScanner", "自动装配代码已重新生成并应用。");
+            NetLogger.LogInfo("LiteProtocolScanner", "分片自动装配代码已重新生成并应用。");
         }
+
+        #endregion
+
+        #region 类型工具
 
         private static string GetCSharpTypeName(Type type)
         {
@@ -200,7 +255,66 @@ namespace StellarNet.Lite.Editor
             return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
         }
 
-        private static bool ScanAndGenerateProtocols()
+        private static string GetFeatureKeyByType(Type type)
+        {
+            if (type == null)
+            {
+                NetLogger.LogError("LiteProtocolScanner", "推断 FeatureKey 失败: type 为空");
+                return "Unknown";
+            }
+
+            string fullName = GetCSharpTypeName(type);
+            if (string.IsNullOrEmpty(fullName))
+            {
+                NetLogger.LogError("LiteProtocolScanner", $"推断 FeatureKey 失败: fullName 为空, Type:{type.Name}");
+                return "Unknown";
+            }
+
+            string ns = type.Namespace ?? string.Empty;
+            if (string.IsNullOrEmpty(ns))
+            {
+                return SanitizeIdentifier(type.Name);
+            }
+
+            string[] segments = ns.Split('.');
+            if (segments == null || segments.Length == 0)
+            {
+                return SanitizeIdentifier(type.Name);
+            }
+
+            for (int i = 0; i < segments.Length - 1; i++)
+            {
+                string current = segments[i];
+                string next = segments[i + 1];
+
+                bool isSharedPair = current == "Shared" && next == "Protocol";
+                bool isServerPair = current == "Server" && (next == "Components" || next == "Modules");
+                bool isClientPair = current == "Client" && (next == "Components" || next == "Modules");
+
+                if (isSharedPair || isServerPair || isClientPair)
+                {
+                    if (i - 1 >= 0)
+                    {
+                        return SanitizeIdentifier(segments[i - 1]);
+                    }
+
+                    return SanitizeIdentifier(type.Name);
+                }
+            }
+
+            if (segments.Length >= 2)
+            {
+                return SanitizeIdentifier(segments[segments.Length - 1]);
+            }
+
+            return SanitizeIdentifier(type.Name);
+        }
+
+        #endregion
+
+        #region 协议扫描与生成
+
+        private static ScanResultState ScanAndGenerateProtocols()
         {
             var types = TypeCache.GetTypesWithAttribute<NetMsgAttribute>();
             var protocolList = new List<ProtocolMeta>();
@@ -224,6 +338,7 @@ namespace StellarNet.Lite.Editor
 
                 string fullTypeName = GetCSharpTypeName(type);
                 string safeName = SanitizeIdentifier(type.Name);
+                string featureKey = GetFeatureKeyByType(type);
 
                 if (idMap.TryGetValue(attr.Id, out string existingTypeName))
                 {
@@ -262,21 +377,222 @@ namespace StellarNet.Lite.Editor
                     SafeName = safeName,
                     FullTypeName = fullTypeName,
                     Scope = attr.Scope,
-                    Dir = attr.Dir
+                    Dir = attr.Dir,
+                    FeatureKey = featureKey
                 });
             }
 
             if (hasConflict)
             {
-                return false;
+                return ScanResultState.Failed;
             }
 
-            bool constChanged = GenerateProtocolConstFile(protocolList);
-            bool metaChanged = GenerateMessageMetaRegistryFile(protocolList);
-            return constChanged || metaChanged;
+            List<GeneratedFileRecord> protocolFiles = BuildProtocolShardFiles(protocolList);
+            if (protocolFiles == null)
+            {
+                return ScanResultState.Failed;
+            }
+
+            bool shardChanged = WriteGeneratedShardSet(ProtocolIdsFolderPath, protocolFiles.Where(f => f.Path.StartsWith(ProtocolIdsFolderPath)).ToList());
+            bool metaShardChanged = WriteGeneratedShardSet(ProtocolMetaFolderPath, protocolFiles.Where(f => f.Path.StartsWith(ProtocolMetaFolderPath)).ToList());
+
+            bool aggregateMsgChanged = GenerateAggregateMsgIdConstFile(protocolList);
+            bool aggregateMetaChanged = GenerateAggregateMessageMetaRegistryFile(protocolList);
+
+            bool anyChanged = shardChanged || metaShardChanged || aggregateMsgChanged || aggregateMetaChanged;
+            return anyChanged ? ScanResultState.Changed : ScanResultState.NoChange;
         }
 
-        private static bool ScanAndGenerateComponentsAndRegistry()
+        private static List<GeneratedFileRecord> BuildProtocolShardFiles(List<ProtocolMeta> protocolList)
+        {
+            if (protocolList == null)
+            {
+                NetLogger.LogError("LiteProtocolScanner", "构建协议分片失败: protocolList 为空");
+                return null;
+            }
+
+            var result = new List<GeneratedFileRecord>();
+            var grouped = protocolList
+                .OrderBy(p => p.Id)
+                .GroupBy(p => string.IsNullOrEmpty(p.FeatureKey) ? "Unknown" : p.FeatureKey);
+
+            foreach (IGrouping<string, ProtocolMeta> group in grouped)
+            {
+                string featureKey = SanitizeIdentifier(group.Key);
+                List<ProtocolMeta> groupList = group.OrderBy(p => p.Id).ToList();
+
+                var idSb = new StringBuilder();
+                idSb.AppendLine("// ========================================================");
+                idSb.AppendLine("// 自动生成的分片协议 ID 常量表。");
+                idSb.AppendLine("// 请勿手动修改！由 LiteProtocolScanner 自动生成。");
+                idSb.AppendLine("// ========================================================");
+                idSb.AppendLine("namespace StellarNet.Lite.Shared.Generated.Protocol.MsgIds");
+                idSb.AppendLine("{");
+                idSb.AppendLine($"    public static class Generated_{featureKey}_MsgIds");
+                idSb.AppendLine("    {");
+
+                for (int i = 0; i < groupList.Count; i++)
+                {
+                    ProtocolMeta proto = groupList[i];
+                    idSb.AppendLine($"        public const int {proto.SafeName} = {proto.Id};");
+                }
+
+                idSb.AppendLine("    }");
+                idSb.AppendLine("}");
+
+                result.Add(new GeneratedFileRecord
+                {
+                    Path = $"{ProtocolIdsFolderPath}/Generated_{featureKey}_MsgIds.cs",
+                    Content = idSb.ToString()
+                });
+
+                var metaSb = new StringBuilder();
+                metaSb.AppendLine("// ========================================================");
+                metaSb.AppendLine("// 自动生成的分片协议元数据注册表。");
+                metaSb.AppendLine("// 请勿手动修改！由 LiteProtocolScanner 自动生成。");
+                metaSb.AppendLine("// ========================================================");
+                metaSb.AppendLine("using System;");
+                metaSb.AppendLine("using System.Collections.Generic;");
+                metaSb.AppendLine("using StellarNet.Lite.Shared.Core;");
+                metaSb.AppendLine();
+                metaSb.AppendLine("namespace StellarNet.Lite.Shared.Generated.Protocol.Meta");
+                metaSb.AppendLine("{");
+                metaSb.AppendLine($"    public static class Generated_{featureKey}_MessageMeta");
+                metaSb.AppendLine("    {");
+                metaSb.AppendLine("        public static void AppendTypeToMeta(Dictionary<Type, NetMessageMeta> target)");
+                metaSb.AppendLine("        {");
+                metaSb.AppendLine("            if (target == null)");
+                metaSb.AppendLine("            {");
+                metaSb.AppendLine(
+                    $"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_MessageMeta\", \"AppendTypeToMeta failed\");");
+                metaSb.AppendLine("                return;");
+                metaSb.AppendLine("            }");
+
+                for (int i = 0; i < groupList.Count; i++)
+                {
+                    ProtocolMeta proto = groupList[i];
+                    metaSb.AppendLine($"            target[typeof({proto.FullTypeName})] = new NetMessageMeta({proto.Id}, NetScope.{proto.Scope}, NetDir.{proto.Dir});");
+                }
+
+                metaSb.AppendLine("        }");
+                metaSb.AppendLine();
+                metaSb.AppendLine("        public static void AppendMsgIdToType(Dictionary<int, Type> target)");
+                metaSb.AppendLine("        {");
+                metaSb.AppendLine("            if (target == null)");
+                metaSb.AppendLine("            {");
+                metaSb.AppendLine(
+                    $"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_MessageMeta\", \"AppendMsgIdToType failed\");");
+                metaSb.AppendLine("                return;");
+                metaSb.AppendLine("            }");
+
+                for (int i = 0; i < groupList.Count; i++)
+                {
+                    ProtocolMeta proto = groupList[i];
+                    metaSb.AppendLine($"            target[{proto.Id}] = typeof({proto.FullTypeName});");
+                }
+
+                metaSb.AppendLine("        }");
+                metaSb.AppendLine("    }");
+                metaSb.AppendLine("}");
+
+                result.Add(new GeneratedFileRecord
+                {
+                    Path = $"{ProtocolMetaFolderPath}/Generated_{featureKey}_MessageMeta.cs",
+                    Content = metaSb.ToString()
+                });
+            }
+
+            return result;
+        }
+
+        private static bool GenerateAggregateMsgIdConstFile(List<ProtocolMeta> protocolList)
+        {
+            protocolList = protocolList.OrderBy(p => p.Id).ToList();
+
+            var sb = new StringBuilder();
+            sb.AppendLine("// ========================================================");
+            sb.AppendLine("// 自动生成的协议 ID 常量聚合表。");
+            sb.AppendLine("// ========================================================");
+            sb.AppendLine("namespace StellarNet.Lite.Shared.Protocol");
+            sb.AppendLine("{");
+            sb.AppendLine("    public static class MsgIdConst");
+            sb.AppendLine("    {");
+
+            for (int i = 0; i < protocolList.Count; i++)
+            {
+                ProtocolMeta proto = protocolList[i];
+                sb.AppendLine($"        public const int {proto.SafeName} = {proto.Id};");
+            }
+
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+
+            return WriteToFileIfChanged(MsgIdAggregateOutputPath, sb.ToString());
+        }
+
+        private static bool GenerateAggregateMessageMetaRegistryFile(List<ProtocolMeta> protocolList)
+        {
+            protocolList = protocolList.OrderBy(p => p.Id).ToList();
+
+            List<string> featureKeys = protocolList
+                .Select(p => string.IsNullOrEmpty(p.FeatureKey) ? "Unknown" : SanitizeIdentifier(p.FeatureKey))
+                .Distinct()
+                .OrderBy(p => p)
+                .ToList();
+
+            var sb = new StringBuilder();
+            sb.AppendLine("// ========================================================");
+            sb.AppendLine("// 自动生成的协议元数据静态注册聚合表。");
+            sb.AppendLine("// 请勿手动修改！由 LiteProtocolScanner 自动生成。");
+            sb.AppendLine("// ========================================================");
+            sb.AppendLine("using System;");
+            sb.AppendLine("using System.Collections.Generic;");
+            sb.AppendLine("using StellarNet.Lite.Shared.Core;");
+            sb.AppendLine("using StellarNet.Lite.Shared.Generated.Protocol.Meta;");
+            sb.AppendLine();
+            sb.AppendLine("namespace StellarNet.Lite.Shared.Protocol");
+            sb.AppendLine("{");
+            sb.AppendLine("    public static class AutoMessageMetaRegistry");
+            sb.AppendLine("    {");
+            sb.AppendLine("        public static readonly Dictionary<Type, NetMessageMeta> TypeToMeta = BuildTypeToMeta();");
+            sb.AppendLine("        public static readonly Dictionary<int, Type> MsgIdToType = BuildMsgIdToType();");
+            sb.AppendLine();
+            sb.AppendLine("        private static Dictionary<Type, NetMessageMeta> BuildTypeToMeta()");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var result = new Dictionary<Type, NetMessageMeta>();");
+
+            for (int i = 0; i < featureKeys.Count; i++)
+            {
+                string featureKey = featureKeys[i];
+                sb.AppendLine($"            Generated_{featureKey}_MessageMeta.AppendTypeToMeta(result);");
+            }
+
+            sb.AppendLine("            return result;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        private static Dictionary<int, Type> BuildMsgIdToType()");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var result = new Dictionary<int, Type>();");
+
+            for (int i = 0; i < featureKeys.Count; i++)
+            {
+                string featureKey = featureKeys[i];
+                sb.AppendLine($"            Generated_{featureKey}_MessageMeta.AppendMsgIdToType(result);");
+            }
+
+            sb.AppendLine("            return result;");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+
+            return WriteToFileIfChanged(MessageMetaAggregateOutputPath, sb.ToString());
+        }
+
+        #endregion
+
+        #region 组件与注册扫描
+
+        private static ScanResultState ScanAndGenerateComponentsAndRegistry()
         {
             var serverComps = new List<ClassMeta>();
             var clientComps = new List<ClassMeta>();
@@ -310,7 +626,8 @@ namespace StellarNet.Lite.Editor
                     Name = attr.Name,
                     SafeVarName = SanitizeIdentifier(GetCSharpTypeName(type)),
                     FullName = GetCSharpTypeName(type),
-                    DisplayName = attr.DisplayName
+                    DisplayName = attr.DisplayName,
+                    FeatureKey = GetFeatureKeyByType(type)
                 };
 
                 bool isServer = type.IsSubclassOf(typeof(StellarNet.Lite.Server.Core.RoomComponent));
@@ -369,7 +686,8 @@ namespace StellarNet.Lite.Editor
                     Name = attr.Name,
                     SafeVarName = SanitizeIdentifier(GetCSharpTypeName(type)),
                     FullName = GetCSharpTypeName(type),
-                    DisplayName = attr.DisplayName
+                    DisplayName = attr.DisplayName,
+                    FeatureKey = GetFeatureKeyByType(type)
                 };
 
                 if (!ScanMethods(type, true, meta, serverGlobalMsgIds))
@@ -399,7 +717,8 @@ namespace StellarNet.Lite.Editor
                     Name = attr.Name,
                     SafeVarName = SanitizeIdentifier(GetCSharpTypeName(type)),
                     FullName = GetCSharpTypeName(type),
-                    DisplayName = attr.DisplayName
+                    DisplayName = attr.DisplayName,
+                    FeatureKey = GetFeatureKeyByType(type)
                 };
 
                 if (!ScanMethods(type, false, meta, clientGlobalMsgIds))
@@ -422,13 +741,44 @@ namespace StellarNet.Lite.Editor
 
             if (hasFatalError)
             {
-                return false;
+                return ScanResultState.Failed;
             }
 
             List<ClassMeta> mergedComps = MergeUniqueComponentsById(serverComps, clientComps);
-            bool constChanged = GenerateComponentConstFile(mergedComps);
-            bool registryChanged = GenerateAutoRegistryFile(serverComps, clientComps, serverMods, clientMods, mergedComps);
-            return constChanged || registryChanged;
+
+            List<GeneratedFileRecord> componentShardFiles = BuildComponentConstShardFiles(mergedComps);
+            if (componentShardFiles == null)
+            {
+                return ScanResultState.Failed;
+            }
+
+            List<GeneratedFileRecord> roomBinderShardFiles = BuildRoomBinderShardFiles(serverComps, clientComps, mergedComps);
+            if (roomBinderShardFiles == null)
+            {
+                return ScanResultState.Failed;
+            }
+
+            List<GeneratedFileRecord> moduleBinderShardFiles = BuildModuleBinderShardFiles(serverMods, clientMods);
+            if (moduleBinderShardFiles == null)
+            {
+                return ScanResultState.Failed;
+            }
+
+            bool componentShardChanged = WriteGeneratedShardSet(ComponentConstFolderPath, componentShardFiles);
+            bool roomBinderChanged = WriteGeneratedShardSet(BinderRoomFolderPath, roomBinderShardFiles);
+            bool moduleBinderChanged = WriteGeneratedShardSet(BinderModuleFolderPath, moduleBinderShardFiles);
+
+            bool componentAggregateChanged = GenerateAggregateComponentConstFile(mergedComps);
+            bool registryAggregateChanged = GenerateAggregateAutoRegistryFile(serverComps, clientComps, serverMods, clientMods, mergedComps);
+
+            bool anyChanged =
+                componentShardChanged ||
+                roomBinderChanged ||
+                moduleBinderChanged ||
+                componentAggregateChanged ||
+                registryAggregateChanged;
+
+            return anyChanged ? ScanResultState.Changed : ScanResultState.NoChange;
         }
 
         private static bool ScanMethods(Type type, bool isServer, ClassMeta meta, Dictionary<int, string> msgIdTracker)
@@ -521,11 +871,13 @@ namespace StellarNet.Lite.Editor
                 }
 
                 msgIdTracker.Add(netMsgAttr.Id, currentMethodName);
+
                 meta.Methods.Add(new MethodMeta
                 {
                     MethodName = method.Name,
                     MsgFullName = GetCSharpTypeName(msgType),
-                    MsgId = netMsgAttr.Id
+                    MsgId = netMsgAttr.Id,
+                    FeatureKey = GetFeatureKeyByType(msgType)
                 });
             }
 
@@ -535,8 +887,8 @@ namespace StellarNet.Lite.Editor
         private static bool ValidateComponentMetaConsistency(List<ClassMeta> serverComps, List<ClassMeta> clientComps)
         {
             bool isSafe = true;
-            var serverMap = new Dictionary<int, ClassMeta>();
 
+            var serverMap = new Dictionary<int, ClassMeta>();
             for (int i = 0; i < serverComps.Count; i++)
             {
                 ClassMeta meta = serverComps[i];
@@ -650,83 +1002,63 @@ namespace StellarNet.Lite.Editor
             return merged;
         }
 
-        private static bool GenerateProtocolConstFile(List<ProtocolMeta> protocolList)
+        #endregion
+
+        #region 组件常量分片
+
+        private static List<GeneratedFileRecord> BuildComponentConstShardFiles(List<ClassMeta> compList)
         {
-            protocolList = protocolList.OrderBy(p => p.Id).ToList();
-
-            var sb = new StringBuilder();
-            sb.AppendLine("// ========================================================");
-            sb.AppendLine("// 自动生成的协议 ID 常量表。");
-            sb.AppendLine("// ========================================================");
-            sb.AppendLine("namespace StellarNet.Lite.Shared.Protocol");
-            sb.AppendLine("{");
-            sb.AppendLine("    public static class MsgIdConst");
-            sb.AppendLine("    {");
-
-            for (int i = 0; i < protocolList.Count; i++)
+            if (compList == null)
             {
-                ProtocolMeta proto = protocolList[i];
-                sb.AppendLine($"        public const int {proto.SafeName} = {proto.Id};");
+                NetLogger.LogError("LiteProtocolScanner", "构建组件常量分片失败: compList 为空");
+                return null;
             }
 
-            sb.AppendLine("    }");
-            sb.AppendLine("}");
+            var result = new List<GeneratedFileRecord>();
+            var grouped = compList
+                .OrderBy(p => p.Id)
+                .GroupBy(c => string.IsNullOrEmpty(c.FeatureKey) ? "Unknown" : c.FeatureKey);
 
-            return WriteToFileIfChanged(ProtocolOutputPath, sb.ToString());
+            foreach (IGrouping<string, ClassMeta> group in grouped)
+            {
+                string featureKey = SanitizeIdentifier(group.Key);
+                List<ClassMeta> groupList = group.OrderBy(c => c.Id).ToList();
+
+                var sb = new StringBuilder();
+                sb.AppendLine("// ========================================================");
+                sb.AppendLine("// 自动生成的分片组件 ID 常量表。");
+                sb.AppendLine("// ========================================================");
+                sb.AppendLine("namespace StellarNet.Lite.Shared.Generated.Protocol.Components");
+                sb.AppendLine("{");
+                sb.AppendLine($"    public static class Generated_{featureKey}_ComponentIds");
+                sb.AppendLine("    {");
+
+                for (int i = 0; i < groupList.Count; i++)
+                {
+                    ClassMeta comp = groupList[i];
+                    sb.AppendLine($"        public const int {SanitizeIdentifier(comp.Name)} = {comp.Id};");
+                }
+
+                sb.AppendLine("    }");
+                sb.AppendLine("}");
+
+                result.Add(new GeneratedFileRecord
+                {
+                    Path = $"{ComponentConstFolderPath}/Generated_{featureKey}_ComponentIds.cs",
+                    Content = sb.ToString()
+                });
+            }
+
+            return result;
         }
 
-        private static bool GenerateMessageMetaRegistryFile(List<ProtocolMeta> protocolList)
-        {
-            protocolList = protocolList.OrderBy(p => p.Id).ToList();
-
-            var sb = new StringBuilder();
-            sb.AppendLine("// ========================================================");
-            sb.AppendLine("// 自动生成的协议元数据静态注册表。");
-            sb.AppendLine("// 请勿手动修改！由 LiteProtocolScanner 自动生成。");
-            sb.AppendLine("// ========================================================");
-            sb.AppendLine("using System;");
-            sb.AppendLine("using System.Collections.Generic;");
-            sb.AppendLine("using StellarNet.Lite.Shared.Core;");
-            sb.AppendLine();
-            sb.AppendLine("namespace StellarNet.Lite.Shared.Protocol");
-            sb.AppendLine("{");
-            sb.AppendLine("    public static class AutoMessageMetaRegistry");
-            sb.AppendLine("    {");
-            sb.AppendLine("        public static readonly Dictionary<Type, NetMessageMeta> TypeToMeta = new Dictionary<Type, NetMessageMeta>");
-            sb.AppendLine("        {");
-
-            for (int i = 0; i < protocolList.Count; i++)
-            {
-                ProtocolMeta proto = protocolList[i];
-                sb.AppendLine(
-                    $"            {{ typeof({proto.FullTypeName}), new NetMessageMeta({proto.Id}, NetScope.{proto.Scope}, NetDir.{proto.Dir}) }},");
-            }
-
-            sb.AppendLine("        };");
-            sb.AppendLine();
-            sb.AppendLine("        public static readonly Dictionary<int, Type> MsgIdToType = new Dictionary<int, Type>");
-            sb.AppendLine("        {");
-
-            for (int i = 0; i < protocolList.Count; i++)
-            {
-                ProtocolMeta proto = protocolList[i];
-                sb.AppendLine($"            {{ {proto.Id}, typeof({proto.FullTypeName}) }},");
-            }
-
-            sb.AppendLine("        };");
-            sb.AppendLine("    }");
-            sb.AppendLine("}");
-
-            return WriteToFileIfChanged(MessageMetaRegistryOutputPath, sb.ToString());
-        }
-
-        private static bool GenerateComponentConstFile(List<ClassMeta> compList)
+        private static bool GenerateAggregateComponentConstFile(List<ClassMeta> compList)
         {
             compList = compList.OrderBy(p => p.Id).ToList();
 
             var sb = new StringBuilder();
             sb.AppendLine("// ========================================================");
-            sb.AppendLine("// 自动生成的组件 ID 常量表。");
+            sb.AppendLine("// 自动生成的组件 ID 常量聚合表。");
             sb.AppendLine("// ========================================================");
             sb.AppendLine("namespace StellarNet.Lite.Shared.Protocol");
             sb.AppendLine("{");
@@ -742,19 +1074,364 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
-            return WriteToFileIfChanged(ComponentOutputPath, sb.ToString());
+            return WriteToFileIfChanged(ComponentAggregateOutputPath, sb.ToString());
         }
 
-        private static bool GenerateAutoRegistryFile(
+        #endregion
+
+        #region RoomBinder 分片
+
+        private static List<GeneratedFileRecord> BuildRoomBinderShardFiles(
+            List<ClassMeta> serverComps,
+            List<ClassMeta> clientComps,
+            List<ClassMeta> mergedComps)
+        {
+            if (serverComps == null || clientComps == null || mergedComps == null)
+            {
+                NetLogger.LogError("LiteProtocolScanner", "构建房间组件 Binder 分片失败: 参数为空");
+                return null;
+            }
+
+            var result = new List<GeneratedFileRecord>();
+            var featureKeys = mergedComps
+                .Select(c => string.IsNullOrEmpty(c.FeatureKey) ? "Unknown" : SanitizeIdentifier(c.FeatureKey))
+                .Distinct()
+                .OrderBy(k => k)
+                .ToList();
+
+            for (int i = 0; i < featureKeys.Count; i++)
+            {
+                string featureKey = featureKeys[i];
+                List<ClassMeta> featureMergedComps = mergedComps.Where(c => SanitizeIdentifier(c.FeatureKey) == featureKey).OrderBy(c => c.Id).ToList();
+                List<ClassMeta> featureServerComps = serverComps.Where(c => SanitizeIdentifier(c.FeatureKey) == featureKey).OrderBy(c => c.Id).ToList();
+                List<ClassMeta> featureClientComps = clientComps.Where(c => SanitizeIdentifier(c.FeatureKey) == featureKey).OrderBy(c => c.Id).ToList();
+
+                var sb = new StringBuilder();
+                sb.AppendLine("// ========================================================");
+                sb.AppendLine("// 自动生成的房间组件绑定分片。");
+                sb.AppendLine("// 请勿手动修改！由 LiteProtocolScanner 自动生成。");
+                sb.AppendLine("// ========================================================");
+                sb.AppendLine("using System;");
+                sb.AppendLine("using System.Collections.Generic;");
+                sb.AppendLine("using StellarNet.Lite.Shared.Core;");
+                sb.AppendLine("using StellarNet.Lite.Server.Core;");
+                sb.AppendLine("using StellarNet.Lite.Client.Core;");
+                sb.AppendLine();
+                sb.AppendLine("namespace StellarNet.Lite.Shared.Generated.Binders.RoomComponents");
+                sb.AppendLine("{");
+                sb.AppendLine($"    public static class Generated_{featureKey}_RoomBinder");
+                sb.AppendLine("    {");
+                sb.AppendLine("        public static void AppendRoomComponentMeta(List<RoomComponentMeta> target)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            if (target == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine(
+                    $"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_RoomBinder\", \"AppendRoomComponentMeta failed\");");
+                sb.AppendLine("                return;");
+                sb.AppendLine("            }");
+
+                for (int j = 0; j < featureMergedComps.Count; j++)
+                {
+                    ClassMeta comp = featureMergedComps[j];
+                    sb.AppendLine(
+                        $"            target.Add(new RoomComponentMeta {{ Id = {comp.Id}, Name = \"{EscapeStringLiteral(comp.Name)}\", DisplayName = \"{EscapeStringLiteral(comp.DisplayName)}\" }});");
+                }
+
+                sb.AppendLine("        }");
+                sb.AppendLine();
+                sb.AppendLine("        public static void RegisterServerFactory(ServerApp serverApp)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            if (serverApp == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine(
+                    $"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_RoomBinder\", \"RegisterServerFactory failed\");");
+                sb.AppendLine("                return;");
+                sb.AppendLine("            }");
+
+                for (int j = 0; j < featureServerComps.Count; j++)
+                {
+                    ClassMeta comp = featureServerComps[j];
+                    sb.AppendLine($"            ServerRoomFactory.Register({comp.Id}, () => new {comp.FullName}(serverApp));");
+                }
+
+                sb.AppendLine("        }");
+                sb.AppendLine();
+                sb.AppendLine("        public static void RegisterClientFactory(ClientApp clientApp)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            if (clientApp == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine(
+                    $"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_RoomBinder\", \"RegisterClientFactory failed\");");
+                sb.AppendLine("                return;");
+                sb.AppendLine("            }");
+
+                for (int j = 0; j < featureClientComps.Count; j++)
+                {
+                    ClassMeta comp = featureClientComps[j];
+                    sb.AppendLine($"            ClientRoomFactory.Register({comp.Id}, () => new {comp.FullName}(clientApp));");
+                }
+
+                sb.AppendLine("        }");
+                sb.AppendLine();
+                sb.AppendLine(
+                    "        public static bool TryBindServer(StellarNet.Lite.Server.Core.RoomComponent comp, StellarNet.Lite.Server.Core.RoomDispatcher dispatcher, Func<byte[], int, int, Type, object> deserializeFunc)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            if (comp == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_RoomBinder\", \"TryBindServer failed\");");
+                sb.AppendLine("                return false;");
+                sb.AppendLine("            }");
+                sb.AppendLine("            if (dispatcher == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_RoomBinder\", \"TryBindServer failed\");");
+                sb.AppendLine("                return false;");
+                sb.AppendLine("            }");
+                sb.AppendLine("            if (deserializeFunc == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_RoomBinder\", \"TryBindServer failed\");");
+                sb.AppendLine("                return false;");
+                sb.AppendLine("            }");
+                sb.AppendLine("            switch (comp)");
+                sb.AppendLine("            {");
+
+                for (int j = 0; j < featureServerComps.Count; j++)
+                {
+                    ClassMeta comp = featureServerComps[j];
+                    sb.AppendLine($"                case {comp.FullName} c_{comp.Id}:");
+
+                    for (int k = 0; k < comp.Methods.Count; k++)
+                    {
+                        MethodMeta method = comp.Methods[k];
+                        sb.AppendLine($"                    dispatcher.Register({method.MsgId}, (session, packet) => {{");
+                        sb.AppendLine(
+                            $"                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof({method.MsgFullName})) is {method.MsgFullName} msg) {{");
+                        sb.AppendLine($"                            c_{comp.Id}.{method.MethodName}(session, msg);");
+                        sb.AppendLine("                        }");
+                        sb.AppendLine("                        else");
+                        sb.AppendLine("                        {");
+                        sb.AppendLine(
+                            $"                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_RoomBinder\", \"Deserialize failed\");");
+                        sb.AppendLine("                        }");
+                        sb.AppendLine("                    });");
+                    }
+
+                    sb.AppendLine("                    return true;");
+                }
+
+                sb.AppendLine("            }");
+                sb.AppendLine("            return false;");
+                sb.AppendLine("        }");
+                sb.AppendLine();
+                sb.AppendLine(
+                    "        public static bool TryBindClient(StellarNet.Lite.Client.Core.ClientRoomComponent comp, StellarNet.Lite.Client.Core.ClientRoomDispatcher dispatcher, Func<byte[], int, int, Type, object> deserializeFunc)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            if (comp == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_RoomBinder\", \"TryBindClient failed\");");
+                sb.AppendLine("                return false;");
+                sb.AppendLine("            }");
+                sb.AppendLine("            if (dispatcher == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_RoomBinder\", \"TryBindClient failed\");");
+                sb.AppendLine("                return false;");
+                sb.AppendLine("            }");
+                sb.AppendLine("            if (deserializeFunc == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_RoomBinder\", \"TryBindClient failed\");");
+                sb.AppendLine("                return false;");
+                sb.AppendLine("            }");
+                sb.AppendLine("            switch (comp)");
+                sb.AppendLine("            {");
+
+                for (int j = 0; j < featureClientComps.Count; j++)
+                {
+                    ClassMeta comp = featureClientComps[j];
+                    sb.AppendLine($"                case {comp.FullName} c_{comp.Id}:");
+
+                    for (int k = 0; k < comp.Methods.Count; k++)
+                    {
+                        MethodMeta method = comp.Methods[k];
+                        sb.AppendLine($"                    dispatcher.Register({method.MsgId}, (packet) => {{");
+                        sb.AppendLine(
+                            $"                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof({method.MsgFullName})) is {method.MsgFullName} msg) {{");
+                        sb.AppendLine($"                            c_{comp.Id}.{method.MethodName}(msg);");
+                        sb.AppendLine("                        }");
+                        sb.AppendLine("                        else");
+                        sb.AppendLine("                        {");
+                        sb.AppendLine(
+                            $"                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_RoomBinder\", \"Deserialize failed\");");
+                        sb.AppendLine("                        }");
+                        sb.AppendLine("                    });");
+                    }
+
+                    sb.AppendLine("                    return true;");
+                }
+
+                sb.AppendLine("            }");
+                sb.AppendLine("            return false;");
+                sb.AppendLine("        }");
+                sb.AppendLine("    }");
+                sb.AppendLine("}");
+
+                result.Add(new GeneratedFileRecord
+                {
+                    Path = $"{BinderRoomFolderPath}/Generated_{featureKey}_RoomBinder.cs",
+                    Content = sb.ToString()
+                });
+            }
+
+            return result;
+        }
+
+        #endregion
+
+        #region ModuleBinder 分片
+
+        private static List<GeneratedFileRecord> BuildModuleBinderShardFiles(List<ClassMeta> serverMods, List<ClassMeta> clientMods)
+        {
+            if (serverMods == null || clientMods == null)
+            {
+                NetLogger.LogError("LiteProtocolScanner", "构建全局模块 Binder 分片失败: 参数为空");
+                return null;
+            }
+
+            var result = new List<GeneratedFileRecord>();
+            List<string> featureKeys = serverMods.Concat(clientMods)
+                .Select(m => string.IsNullOrEmpty(m.FeatureKey) ? "Unknown" : SanitizeIdentifier(m.FeatureKey))
+                .Distinct()
+                .OrderBy(k => k)
+                .ToList();
+
+            foreach (string featureKey in featureKeys)
+            {
+                List<ClassMeta> featureServerMods = serverMods.Where(m => SanitizeIdentifier(m.FeatureKey) == featureKey).OrderBy(m => m.FullName).ToList();
+                List<ClassMeta> featureClientMods = clientMods.Where(m => SanitizeIdentifier(m.FeatureKey) == featureKey).OrderBy(m => m.FullName).ToList();
+
+                var sb = new StringBuilder();
+                sb.AppendLine("// ========================================================");
+                sb.AppendLine("// 自动生成的全局模块绑定分片。");
+                sb.AppendLine("// 请勿手动修改！由 LiteProtocolScanner 自动生成。");
+                sb.AppendLine("// ========================================================");
+                sb.AppendLine("using System;");
+                sb.AppendLine("using StellarNet.Lite.Server.Core;");
+                sb.AppendLine("using StellarNet.Lite.Client.Core;");
+                sb.AppendLine();
+                sb.AppendLine("namespace StellarNet.Lite.Shared.Generated.Binders.GlobalModules");
+                sb.AppendLine("{");
+                sb.AppendLine($"    public static class Generated_{featureKey}_ModuleBinder");
+                sb.AppendLine("    {");
+                sb.AppendLine("        public static void RegisterServer(ServerApp serverApp, Func<byte[], int, int, Type, object> deserializeFunc)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            if (serverApp == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_ModuleBinder\", \"RegisterServer failed\");");
+                sb.AppendLine("                return;");
+                sb.AppendLine("            }");
+                sb.AppendLine("            if (deserializeFunc == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_ModuleBinder\", \"RegisterServer failed\");");
+                sb.AppendLine("                return;");
+                sb.AppendLine("            }");
+
+                for (int i = 0; i < featureServerMods.Count; i++)
+                {
+                    ClassMeta mod = featureServerMods[i];
+                    sb.AppendLine($"            var mod_{mod.SafeVarName} = new {mod.FullName}(serverApp);");
+
+                    for (int j = 0; j < mod.Methods.Count; j++)
+                    {
+                        MethodMeta method = mod.Methods[j];
+                        sb.AppendLine($"            serverApp.GlobalDispatcher.Register({method.MsgId}, (session, packet) => {{");
+                        sb.AppendLine(
+                            $"                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof({method.MsgFullName})) is {method.MsgFullName} msg) {{");
+                        sb.AppendLine($"                    mod_{mod.SafeVarName}.{method.MethodName}(session, msg);");
+                        sb.AppendLine("                }");
+                        sb.AppendLine("                else");
+                        sb.AppendLine("                {");
+                        sb.AppendLine(
+                            $"                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_ModuleBinder\", \"Deserialize failed\");");
+                        sb.AppendLine("                }");
+                        sb.AppendLine("            });");
+                    }
+                }
+
+                sb.AppendLine("        }");
+                sb.AppendLine();
+                sb.AppendLine("        public static void RegisterClient(ClientApp clientApp, Func<byte[], int, int, Type, object> deserializeFunc)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            if (clientApp == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_ModuleBinder\", \"RegisterClient failed\");");
+                sb.AppendLine("                return;");
+                sb.AppendLine("            }");
+                sb.AppendLine("            if (deserializeFunc == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_ModuleBinder\", \"RegisterClient failed\");");
+                sb.AppendLine("                return;");
+                sb.AppendLine("            }");
+
+                for (int i = 0; i < featureClientMods.Count; i++)
+                {
+                    ClassMeta mod = featureClientMods[i];
+                    sb.AppendLine($"            var mod_{mod.SafeVarName} = new {mod.FullName}(clientApp);");
+
+                    for (int j = 0; j < mod.Methods.Count; j++)
+                    {
+                        MethodMeta method = mod.Methods[j];
+                        sb.AppendLine($"            clientApp.GlobalDispatcher.Register({method.MsgId}, (packet) => {{");
+                        sb.AppendLine(
+                            $"                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof({method.MsgFullName})) is {method.MsgFullName} msg) {{");
+                        sb.AppendLine($"                    mod_{mod.SafeVarName}.{method.MethodName}(msg);");
+                        sb.AppendLine("                }");
+                        sb.AppendLine("                else");
+                        sb.AppendLine("                {");
+                        sb.AppendLine(
+                            $"                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"Generated_{featureKey}_ModuleBinder\", \"Deserialize failed\");");
+                        sb.AppendLine("                }");
+                        sb.AppendLine("            });");
+                    }
+                }
+
+                sb.AppendLine("        }");
+                sb.AppendLine("    }");
+                sb.AppendLine("}");
+
+                result.Add(new GeneratedFileRecord
+                {
+                    Path = $"{BinderModuleFolderPath}/Generated_{featureKey}_ModuleBinder.cs",
+                    Content = sb.ToString()
+                });
+            }
+
+            return result;
+        }
+
+        #endregion
+
+        #region 聚合 AutoRegistry
+
+        private static bool GenerateAggregateAutoRegistryFile(
             List<ClassMeta> serverComps,
             List<ClassMeta> clientComps,
             List<ClassMeta> serverMods,
             List<ClassMeta> clientMods,
             List<ClassMeta> mergedComps)
         {
+            List<string> roomFeatureKeys = mergedComps
+                .Select(c => string.IsNullOrEmpty(c.FeatureKey) ? "Unknown" : SanitizeIdentifier(c.FeatureKey))
+                .Distinct()
+                .OrderBy(k => k)
+                .ToList();
+
+            List<string> moduleFeatureKeys = serverMods.Concat(clientMods)
+                .Select(m => string.IsNullOrEmpty(m.FeatureKey) ? "Unknown" : SanitizeIdentifier(m.FeatureKey))
+                .Distinct()
+                .OrderBy(k => k)
+                .ToList();
+
             var sb = new StringBuilder();
             sb.AppendLine("// ========================================================");
-            sb.AppendLine("// 自动生成的静态装配器。");
+            sb.AppendLine("// 自动生成的静态装配聚合器。");
             sb.AppendLine("// 请勿手动修改！由 LiteProtocolScanner 自动生成。");
             sb.AppendLine("// ========================================================");
             sb.AppendLine("using System;");
@@ -762,54 +1439,52 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("using StellarNet.Lite.Shared.Core;");
             sb.AppendLine("using StellarNet.Lite.Server.Core;");
             sb.AppendLine("using StellarNet.Lite.Client.Core;");
-            sb.AppendLine("using StellarNet.Lite.Shared.Protocol;");
+            sb.AppendLine("using StellarNet.Lite.Shared.Generated.Binders.RoomComponents;");
+            sb.AppendLine("using StellarNet.Lite.Shared.Generated.Binders.GlobalModules;");
             sb.AppendLine();
             sb.AppendLine("namespace StellarNet.Lite.Shared.Binders");
             sb.AppendLine("{");
             sb.AppendLine("    public static class AutoRegistry");
             sb.AppendLine("    {");
-            sb.AppendLine("        public static readonly List<RoomComponentMeta> RoomComponentMetaList = new List<RoomComponentMeta>");
+            sb.AppendLine("        public static readonly List<RoomComponentMeta> RoomComponentMetaList = BuildRoomComponentMetaList();");
+            sb.AppendLine();
+            sb.AppendLine("        private static List<RoomComponentMeta> BuildRoomComponentMetaList()");
             sb.AppendLine("        {");
+            sb.AppendLine("            var result = new List<RoomComponentMeta>();");
 
-            for (int i = 0; i < mergedComps.Count; i++)
+            for (int i = 0; i < roomFeatureKeys.Count; i++)
             {
-                ClassMeta comp = mergedComps[i];
-                sb.AppendLine(
-                    $"            new RoomComponentMeta {{ Id = {comp.Id}, Name = \"{EscapeStringLiteral(comp.Name)}\", DisplayName = \"{EscapeStringLiteral(comp.DisplayName)}\" }},");
+                string featureKey = roomFeatureKeys[i];
+                sb.AppendLine($"            Generated_{featureKey}_RoomBinder.AppendRoomComponentMeta(result);");
             }
 
-            sb.AppendLine("        };");
+            sb.AppendLine("            return result;");
+            sb.AppendLine("        }");
             sb.AppendLine();
             sb.AppendLine("        public static void RegisterServer(ServerApp serverApp, Func<byte[], int, int, Type, object> deserializeFunc)");
             sb.AppendLine("        {");
+            sb.AppendLine("            if (serverApp == null)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"AutoRegistry\", \"RegisterServer failed\");");
+            sb.AppendLine("                return;");
+            sb.AppendLine("            }");
+            sb.AppendLine("            if (deserializeFunc == null)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"AutoRegistry\", \"RegisterServer failed\");");
+            sb.AppendLine("                return;");
+            sb.AppendLine("            }");
             sb.AppendLine("            ServerRoomFactory.Clear();");
 
-            for (int i = 0; i < serverMods.Count; i++)
+            for (int i = 0; i < moduleFeatureKeys.Count; i++)
             {
-                ClassMeta mod = serverMods[i];
-                sb.AppendLine($"            var mod_{mod.SafeVarName} = new {mod.FullName}(serverApp);");
-
-                for (int j = 0; j < mod.Methods.Count; j++)
-                {
-                    MethodMeta method = mod.Methods[j];
-                    sb.AppendLine($"            serverApp.GlobalDispatcher.Register({method.MsgId}, (session, packet) => {{");
-                    sb.AppendLine(
-                        $"                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof({method.MsgFullName})) is {method.MsgFullName} msg) {{");
-                    sb.AppendLine($"                    mod_{mod.SafeVarName}.{method.MethodName}(session, msg);");
-                    sb.AppendLine("                }");
-                    sb.AppendLine("                else");
-                    sb.AppendLine("                {");
-                    sb.AppendLine(
-                        $"                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"AutoRegistry\", $\"反序列化失败: {method.MsgFullName}, MsgId:{method.MsgId}\");");
-                    sb.AppendLine("                }");
-                    sb.AppendLine("            });");
-                }
+                string featureKey = moduleFeatureKeys[i];
+                sb.AppendLine($"            Generated_{featureKey}_ModuleBinder.RegisterServer(serverApp, deserializeFunc);");
             }
 
-            for (int i = 0; i < serverComps.Count; i++)
+            for (int i = 0; i < roomFeatureKeys.Count; i++)
             {
-                ClassMeta comp = serverComps[i];
-                sb.AppendLine($"            ServerRoomFactory.Register({comp.Id}, () => new {comp.FullName}(serverApp));");
+                string featureKey = roomFeatureKeys[i];
+                sb.AppendLine($"            Generated_{featureKey}_RoomBinder.RegisterServerFactory(serverApp);");
             }
 
             sb.AppendLine("        }");
@@ -817,70 +1492,47 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine(
                 "        public static void BindServerComponent(StellarNet.Lite.Server.Core.RoomComponent comp, StellarNet.Lite.Server.Core.RoomDispatcher dispatcher, Func<byte[], int, int, Type, object> deserializeFunc)");
             sb.AppendLine("        {");
-            sb.AppendLine("            switch (comp)");
+            sb.AppendLine("            if (comp == null)");
             sb.AppendLine("            {");
+            sb.AppendLine("                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"AutoRegistry\", \"BindServerComponent failed\");");
+            sb.AppendLine("                return;");
+            sb.AppendLine("            }");
 
-            for (int i = 0; i < serverComps.Count; i++)
+            for (int i = 0; i < roomFeatureKeys.Count; i++)
             {
-                ClassMeta comp = serverComps[i];
-                if (comp.Methods.Count == 0)
-                {
-                    continue;
-                }
-
-                sb.AppendLine($"                case {comp.FullName} c_{comp.Id}:");
-                for (int j = 0; j < comp.Methods.Count; j++)
-                {
-                    MethodMeta method = comp.Methods[j];
-                    sb.AppendLine($"                    dispatcher.Register({method.MsgId}, (session, packet) => {{");
-                    sb.AppendLine(
-                        $"                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof({method.MsgFullName})) is {method.MsgFullName} msg) {{");
-                    sb.AppendLine($"                            c_{comp.Id}.{method.MethodName}(session, msg);");
-                    sb.AppendLine("                        }");
-                    sb.AppendLine("                        else");
-                    sb.AppendLine("                        {");
-                    sb.AppendLine(
-                        $"                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"AutoRegistry\", $\"反序列化失败: {method.MsgFullName}, MsgId:{method.MsgId}\");");
-                    sb.AppendLine("                        }");
-                    sb.AppendLine("                    });");
-                }
-
-                sb.AppendLine("                    break;");
+                string featureKey = roomFeatureKeys[i];
+                sb.AppendLine($"            if (Generated_{featureKey}_RoomBinder.TryBindServer(comp, dispatcher, deserializeFunc))");
+                sb.AppendLine("            {");
+                sb.AppendLine("                return;");
+                sb.AppendLine("            }");
             }
 
-            sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine();
             sb.AppendLine("        public static void RegisterClient(ClientApp clientApp, Func<byte[], int, int, Type, object> deserializeFunc)");
             sb.AppendLine("        {");
+            sb.AppendLine("            if (clientApp == null)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"AutoRegistry\", \"RegisterClient failed\");");
+            sb.AppendLine("                return;");
+            sb.AppendLine("            }");
+            sb.AppendLine("            if (deserializeFunc == null)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"AutoRegistry\", \"RegisterClient failed\");");
+            sb.AppendLine("                return;");
+            sb.AppendLine("            }");
             sb.AppendLine("            ClientRoomFactory.Clear();");
 
-            for (int i = 0; i < clientMods.Count; i++)
+            for (int i = 0; i < moduleFeatureKeys.Count; i++)
             {
-                ClassMeta mod = clientMods[i];
-                sb.AppendLine($"            var mod_{mod.SafeVarName} = new {mod.FullName}(clientApp);");
-
-                for (int j = 0; j < mod.Methods.Count; j++)
-                {
-                    MethodMeta method = mod.Methods[j];
-                    sb.AppendLine($"            clientApp.GlobalDispatcher.Register({method.MsgId}, (packet) => {{");
-                    sb.AppendLine(
-                        $"                if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof({method.MsgFullName})) is {method.MsgFullName} msg) {{");
-                    sb.AppendLine($"                    mod_{mod.SafeVarName}.{method.MethodName}(msg);");
-                    sb.AppendLine("                }");
-                    sb.AppendLine("                else");
-                    sb.AppendLine("                {");
-                    sb.AppendLine(
-                        $"                    StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"AutoRegistry\", $\"反序列化失败: {method.MsgFullName}, MsgId:{method.MsgId}\");");
-                    sb.AppendLine("                }");
-                    sb.AppendLine("            });");
-                }
+                string featureKey = moduleFeatureKeys[i];
+                sb.AppendLine($"            Generated_{featureKey}_ModuleBinder.RegisterClient(clientApp, deserializeFunc);");
             }
 
-            for (int i = 0; i < clientComps.Count; i++)
+            for (int i = 0; i < roomFeatureKeys.Count; i++)
             {
-                ClassMeta comp = clientComps[i];
-                sb.AppendLine($"            ClientRoomFactory.Register({comp.Id}, () => new {comp.FullName}(clientApp));");
+                string featureKey = roomFeatureKeys[i];
+                sb.AppendLine($"            Generated_{featureKey}_RoomBinder.RegisterClientFactory(clientApp);");
             }
 
             sb.AppendLine("        }");
@@ -888,44 +1540,119 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine(
                 "        public static void BindClientComponent(StellarNet.Lite.Client.Core.ClientRoomComponent comp, StellarNet.Lite.Client.Core.ClientRoomDispatcher dispatcher, Func<byte[], int, int, Type, object> deserializeFunc)");
             sb.AppendLine("        {");
-            sb.AppendLine("            switch (comp)");
+            sb.AppendLine("            if (comp == null)");
             sb.AppendLine("            {");
+            sb.AppendLine("                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"AutoRegistry\", \"BindClientComponent failed\");");
+            sb.AppendLine("                return;");
+            sb.AppendLine("            }");
 
-            for (int i = 0; i < clientComps.Count; i++)
+            for (int i = 0; i < roomFeatureKeys.Count; i++)
             {
-                ClassMeta comp = clientComps[i];
-                if (comp.Methods.Count == 0)
-                {
-                    continue;
-                }
-
-                sb.AppendLine($"                case {comp.FullName} c_{comp.Id}:");
-                for (int j = 0; j < comp.Methods.Count; j++)
-                {
-                    MethodMeta method = comp.Methods[j];
-                    sb.AppendLine($"                    dispatcher.Register({method.MsgId}, (packet) => {{");
-                    sb.AppendLine(
-                        $"                        if (deserializeFunc(packet.Payload, packet.PayloadOffset, packet.PayloadLength, typeof({method.MsgFullName})) is {method.MsgFullName} msg) {{");
-                    sb.AppendLine($"                            c_{comp.Id}.{method.MethodName}(msg);");
-                    sb.AppendLine("                        }");
-                    sb.AppendLine("                        else");
-                    sb.AppendLine("                        {");
-                    sb.AppendLine(
-                        $"                            StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError(\"AutoRegistry\", $\"反序列化失败: {method.MsgFullName}, MsgId:{method.MsgId}\");");
-                    sb.AppendLine("                        }");
-                    sb.AppendLine("                    });");
-                }
-
-                sb.AppendLine("                    break;");
+                string featureKey = roomFeatureKeys[i];
+                sb.AppendLine($"            if (Generated_{featureKey}_RoomBinder.TryBindClient(comp, dispatcher, deserializeFunc))");
+                sb.AppendLine("            {");
+                sb.AppendLine("                return;");
+                sb.AppendLine("            }");
             }
 
-            sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
-            return WriteToFileIfChanged(RegistryOutputPath, sb.ToString());
+            return WriteToFileIfChanged(RegistryAggregateOutputPath, sb.ToString());
         }
+
+        #endregion
+
+        #region 分片写入与清理
+
+        private static bool WriteGeneratedShardSet(string folderPath, List<GeneratedFileRecord> records)
+        {
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                NetLogger.LogError("LiteProtocolScanner", "写入分片失败: folderPath 为空");
+                return false;
+            }
+
+            if (records == null)
+            {
+                NetLogger.LogError("LiteProtocolScanner", $"写入分片失败: records 为空, Folder:{folderPath}");
+                return false;
+            }
+
+            EnsureDirectoryExists(folderPath);
+
+            bool changed = false;
+            var expectedPaths = new HashSet<string>(records.Select(r => NormalizePath(r.Path)));
+
+            string[] oldFiles = Directory.Exists(folderPath)
+                ? Directory.GetFiles(folderPath, "*.cs", SearchOption.TopDirectoryOnly)
+                : Array.Empty<string>();
+
+            for (int i = 0; i < oldFiles.Length; i++)
+            {
+                string oldFile = NormalizePath(oldFiles[i]);
+                if (expectedPaths.Contains(oldFile))
+                {
+                    continue;
+                }
+
+                File.Delete(oldFile);
+                string metaPath = oldFile + ".meta";
+                if (File.Exists(metaPath))
+                {
+                    File.Delete(metaPath);
+                }
+
+                changed = true;
+            }
+
+            for (int i = 0; i < records.Count; i++)
+            {
+                GeneratedFileRecord record = records[i];
+                if (record == null)
+                {
+                    NetLogger.LogError("LiteProtocolScanner", $"写入分片失败: records[{i}] 为空, Folder:{folderPath}");
+                    continue;
+                }
+
+                bool fileChanged = WriteToFileIfChanged(record.Path, record.Content);
+                if (fileChanged)
+                {
+                    changed = true;
+                }
+            }
+
+            return changed;
+        }
+
+        private static void EnsureDirectoryExists(string folderPath)
+        {
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                NetLogger.LogError("LiteProtocolScanner", "创建目录失败: folderPath 为空");
+                return;
+            }
+
+            if (!Directory.Exists(folderPath))
+            {
+                Directory.CreateDirectory(folderPath);
+            }
+        }
+
+        private static string NormalizePath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return string.Empty;
+            }
+
+            return path.Replace("\\", "/");
+        }
+
+        #endregion
+
+        #region 文件写入
 
         private static bool WriteToFileIfChanged(string path, string newContent)
         {
@@ -941,16 +1668,17 @@ namespace StellarNet.Lite.Editor
                 return false;
             }
 
-            string oldContent = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+            string normalizedPath = NormalizePath(path);
+            string oldContent = File.Exists(normalizedPath) ? File.ReadAllText(normalizedPath) : string.Empty;
             if (newContent == oldContent)
             {
                 return false;
             }
 
-            string directory = Path.GetDirectoryName(path);
+            string directory = Path.GetDirectoryName(normalizedPath);
             if (string.IsNullOrEmpty(directory))
             {
-                NetLogger.LogError("LiteProtocolScanner", $"写入失败: 目录为空, Path:{path}");
+                NetLogger.LogError("LiteProtocolScanner", $"写入失败: 目录为空, Path:{normalizedPath}");
                 return false;
             }
 
@@ -959,9 +1687,11 @@ namespace StellarNet.Lite.Editor
                 Directory.CreateDirectory(directory);
             }
 
-            File.WriteAllText(path, newContent, Encoding.UTF8);
+            File.WriteAllText(normalizedPath, newContent, Encoding.UTF8);
             return true;
         }
+
+        #endregion
     }
 }
 #endif

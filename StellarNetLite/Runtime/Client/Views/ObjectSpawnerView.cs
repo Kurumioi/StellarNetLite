@@ -10,6 +10,7 @@ namespace StellarNet.Lite.Client.Components.Views
 {
     /// <summary>
     /// 全局网络实体生成视图。
+    /// 我把初始化结果改成显式返回值，是为了让业务组件能够准确判断对象表现层是否真正可用，而不是只靠日志猜测初始化是否成功。
     /// </summary>
     public class ObjectSpawnerView : MonoBehaviour
     {
@@ -19,12 +20,14 @@ namespace StellarNet.Lite.Client.Components.Views
         private readonly Dictionary<int, GameObject> _spawnedObjects = new Dictionary<int, GameObject>();
         private bool _isInitialized;
 
-        public void Init(ClientRoom room)
+        public bool IsInitialized => _isInitialized;
+
+        public bool Init(ClientRoom room)
         {
             if (room == null)
             {
                 NetLogger.LogError("ObjectSpawnerView", $"初始化失败: room 为空, Object:{name}");
-                return;
+                return false;
             }
 
             if (_isInitialized)
@@ -32,7 +35,7 @@ namespace StellarNet.Lite.Client.Components.Views
                 if (_room == room)
                 {
                     NetLogger.LogWarning("ObjectSpawnerView", $"重复初始化已忽略: RoomId:{room.RoomId}, Object:{name}");
-                    return;
+                    return true;
                 }
 
                 Clear();
@@ -44,13 +47,17 @@ namespace StellarNet.Lite.Client.Components.Views
             {
                 NetLogger.LogError("ObjectSpawnerView", $"初始化失败: 缺失 ClientObjectSyncComponent, RoomId:{room.RoomId}, Object:{name}");
                 _room = null;
-                return;
+                _syncService = null;
+                _isInitialized = false;
+                return false;
             }
 
             _room.NetEventSystem.Register<Local_ObjectSpawned>(OnLocalObjectSpawned);
             _room.NetEventSystem.Register<Local_ObjectDestroyed>(OnLocalObjectDestroyed);
             _isInitialized = true;
+
             NetLogger.LogInfo("ObjectSpawnerView", $"初始化完成，开始监听实体生命周期。RoomId:{room.RoomId}, Object:{name}");
+            return true;
         }
 
         public void Clear()
@@ -115,6 +122,12 @@ namespace StellarNet.Lite.Client.Components.Views
         private void OnLocalObjectSpawned(Local_ObjectSpawned evt)
         {
             ObjectSpawnState state = evt.State;
+
+            if (!_isInitialized)
+            {
+                NetLogger.LogError("ObjectSpawnerView", $"生成失败: 组件未初始化, NetId:{state.NetId}, PrefabHash:{state.PrefabHash}, Object:{name}");
+                return;
+            }
 
             if (_syncService == null)
             {
@@ -190,6 +203,11 @@ namespace StellarNet.Lite.Client.Components.Views
 
         private void OnLocalObjectDestroyed(Local_ObjectDestroyed evt)
         {
+            if (!_isInitialized)
+            {
+                return;
+            }
+
             if (!_spawnedObjects.TryGetValue(evt.NetId, out GameObject instance))
             {
                 NetLogger.LogWarning("ObjectSpawnerView", $"销毁跳过: 找不到 NetId 对应实例, NetId:{evt.NetId}, Object:{name}");

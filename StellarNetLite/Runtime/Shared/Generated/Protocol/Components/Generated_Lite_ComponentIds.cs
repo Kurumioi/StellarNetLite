@@ -1,12 +1,11 @@
 ﻿// ========================================================
-// 自动生成的组件 ID 常量聚合表。
+// 自动生成的分片组件 ID 常量表。
 // ========================================================
-namespace StellarNet.Lite.Shared.Protocol
+namespace StellarNet.Lite.Shared.Generated.Protocol.Components
 {
-    public static class ComponentIdConst
+    public static class Generated_Lite_ComponentIds
     {
         public const int RoomSettings = 1;
-        public const int SocialRoom = 102;
         public const int ObjectSync = 200;
     }
 }

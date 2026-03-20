@@ -1,4 +1,5 @@
-﻿using StellarNet.Lite.Client.Components.Views;
+﻿using StellarNet.Lite.Client.Components;
+using StellarNet.Lite.Client.Components.Views;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Game.Client.Infrastructure;
 using StellarNet.Lite.Game.Client.Views;
@@ -17,6 +18,7 @@ namespace StellarNet.Lite.Game.Client.Components
         private RoomUIRouterBase<ClientSocialRoomComponent> _activeRouter;
         private ObjectSpawnerView _spawnerView;
         private SocialRoomInputController _inputController;
+        private bool _isInitialized;
 
         public ClientSocialRoomComponent(ClientApp app)
         {
@@ -31,17 +33,17 @@ namespace StellarNet.Lite.Game.Client.Components
                 return;
             }
 
-            if (_viewRoot != null)
+            if (_isInitialized)
             {
                 NetLogger.LogWarning("ClientSocialRoomComponent", $"重复初始化已忽略: RoomId:{Room.RoomId}");
                 return;
             }
 
-            _viewRoot = new GameObject($"[View] SocialRoom_{Room.RoomId}");
-            Object.DontDestroyOnLoad(_viewRoot);
-
-            _spawnerView = _viewRoot.AddComponent<ObjectSpawnerView>();
-            _spawnerView.Init(Room);
+            if (_viewRoot != null)
+            {
+                NetLogger.LogError("ClientSocialRoomComponent", $"初始化失败: _viewRoot 残留未清理, RoomId:{Room.RoomId}, ViewRoot:{_viewRoot.name}");
+                return;
+            }
 
             if (_app == null)
             {
@@ -49,9 +51,28 @@ namespace StellarNet.Lite.Game.Client.Components
                 return;
             }
 
+            ClientObjectSyncComponent objectSyncComponent = Room.GetComponent<ClientObjectSyncComponent>();
+            if (objectSyncComponent == null)
+            {
+                NetLogger.LogError("ClientSocialRoomComponent", $"初始化失败: SocialRoom 缺失 ClientObjectSyncComponent, RoomId:{Room.RoomId}, State:{_app.State}");
+                return;
+            }
+
+            _viewRoot = new GameObject($"[View] SocialRoom_{Room.RoomId}");
+            Object.DontDestroyOnLoad(_viewRoot);
+
+            _spawnerView = _viewRoot.AddComponent<ObjectSpawnerView>();
+            bool spawnerInitSuccess = _spawnerView.Init(Room);
+            if (!spawnerInitSuccess)
+            {
+                NetLogger.LogError("ClientSocialRoomComponent", $"初始化失败: ObjectSpawnerView 初始化失败, RoomId:{Room.RoomId}, ViewRoot:{_viewRoot.name}, State:{_app.State}");
+                SafeDestroyViewRoot();
+                return;
+            }
+
             if (_app.State == ClientAppState.OnlineRoom)
             {
-                var router = _viewRoot.AddComponent<SocialOnlineUIRouter>();
+                SocialOnlineUIRouter router = _viewRoot.AddComponent<SocialOnlineUIRouter>();
                 router.Bind(this);
                 _activeRouter = router;
 
@@ -60,16 +81,23 @@ namespace StellarNet.Lite.Game.Client.Components
             }
             else if (_app.State == ClientAppState.ReplayRoom)
             {
-                var router = _viewRoot.AddComponent<SocialReplayUIRouter>();
+                SocialReplayUIRouter router = _viewRoot.AddComponent<SocialReplayUIRouter>();
                 router.Bind(this);
                 _activeRouter = router;
             }
+            else
+            {
+                NetLogger.LogWarning("ClientSocialRoomComponent", $"初始化警告: 当前状态未挂接专属路由, RoomId:{Room.RoomId}, State:{_app.State}");
+            }
 
+            _isInitialized = true;
             NetLogger.LogInfo("ClientSocialRoomComponent", $"初始化完成: RoomId:{Room.RoomId}, State:{_app.State}");
         }
 
         public override void OnDestroy()
         {
+            _isInitialized = false;
+
             if (_activeRouter != null)
             {
                 _activeRouter.Unbind();
@@ -88,11 +116,7 @@ namespace StellarNet.Lite.Game.Client.Components
                 _spawnerView = null;
             }
 
-            if (_viewRoot != null)
-            {
-                Object.Destroy(_viewRoot);
-                _viewRoot = null;
-            }
+            SafeDestroyViewRoot();
         }
 
         [NetHandler]
@@ -111,6 +135,21 @@ namespace StellarNet.Lite.Game.Client.Components
             }
 
             Room.NetEventSystem.Broadcast(msg);
+        }
+
+        /// <summary>
+        /// 安全销毁视图根节点。
+        /// 我把它独立出来，是为了保证初始化中途失败和正常销毁都走同一条清理路径，避免残留 DontDestroyOnLoad 节点污染后续房间生命周期。
+        /// </summary>
+        private void SafeDestroyViewRoot()
+        {
+            if (_viewRoot == null)
+            {
+                return;
+            }
+
+            Object.Destroy(_viewRoot);
+            _viewRoot = null;
         }
     }
 }

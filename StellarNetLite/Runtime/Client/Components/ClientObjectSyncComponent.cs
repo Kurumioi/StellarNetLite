@@ -1,11 +1,11 @@
 ﻿using System.Collections.Generic;
-using UnityEngine;
-using StellarNet.Lite.Shared.Core;
-using StellarNet.Lite.Shared.ObjectSync;
-using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
+using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Shared.ObjectSync;
+using StellarNet.Lite.Shared.Protocol;
+using UnityEngine;
 
 namespace StellarNet.Lite.Client.Components
 {
@@ -46,18 +46,15 @@ namespace StellarNet.Lite.Client.Components
             public int PrefabHash;
             public byte Mask;
             public string OwnerSessionId;
-
             public Vector3 RawPos;
             public Vector3 RawRot;
             public Vector3 RawVel;
             public Vector3 RawScale;
-
             public int AnimStateHash;
             public float AnimNormalizedTime;
             public float FloatParam1;
             public float FloatParam2;
             public float FloatParam3;
-
             public float LocalReceiveTime;
             public float ServerTime;
         }
@@ -65,6 +62,7 @@ namespace StellarNet.Lite.Client.Components
         private readonly Dictionary<int, SyncEntityData> _entities = new Dictionary<int, SyncEntityData>();
         private float _replayTimeScale = 1f;
         private IUnRegister _timeScaleEventToken;
+        private bool _isInitialized;
 
         public ClientObjectSyncComponent(ClientApp app)
         {
@@ -73,14 +71,26 @@ namespace StellarNet.Lite.Client.Components
 
         public override void OnInit()
         {
+            if (_isInitialized)
+            {
+                NetLogger.LogWarning("ClientObjectSyncComponent", $"重复初始化已忽略: RoomId:{Room?.RoomId ?? "-"}");
+                return;
+            }
+
             _entities.Clear();
             _replayTimeScale = 1f;
-            _timeScaleEventToken = GlobalTypeNetEvent.Register<Local_ReplayTimeScaleChanged>(evt => _replayTimeScale = evt.TimeScale);
-            NetLogger.LogInfo("ClientObjectSync", "空间同步服务初始化完毕，等待实体生成");
+
+            // 我先注销旧 token 再注册新监听，是为了防止异常生命周期下重复 OnInit 导致同一事件被重复订阅。
+            _timeScaleEventToken?.UnRegister();
+            _timeScaleEventToken = GlobalTypeNetEvent.Register<Local_ReplayTimeScaleChanged>(OnReplayTimeScaleChanged);
+
+            _isInitialized = true;
+            NetLogger.LogInfo("ClientObjectSyncComponent", "空间同步服务初始化完毕，等待实体生成");
         }
 
         public override void OnDestroy()
         {
+            _isInitialized = false;
             ClearAllEntities(false);
             _timeScaleEventToken?.UnRegister();
             _timeScaleEventToken = null;
@@ -137,7 +147,6 @@ namespace StellarNet.Lite.Client.Components
 
             float currentLocalTime = Time.realtimeSinceStartup;
             int count = Mathf.Min(msg.ValidCount, msg.States.Length);
-
             for (int i = 0; i < count; i++)
             {
                 ObjectSyncState state = msg.States[i];
@@ -151,15 +160,12 @@ namespace StellarNet.Lite.Client.Components
                     data.RawPos.x = state.PosX;
                     data.RawPos.y = state.PosY;
                     data.RawPos.z = state.PosZ;
-
                     data.RawRot.x = state.RotX;
                     data.RawRot.y = state.RotY;
                     data.RawRot.z = state.RotZ;
-
                     data.RawVel.x = state.VelX;
                     data.RawVel.y = state.VelY;
                     data.RawVel.z = state.VelZ;
-
                     data.RawScale.x = state.ScaleX;
                     data.RawScale.y = state.ScaleY;
                     data.RawScale.z = state.ScaleZ;
@@ -192,7 +198,6 @@ namespace StellarNet.Lite.Client.Components
             }
 
             ClearAllEntities(true);
-
             if (states == null || states.Length == 0)
             {
                 return;
@@ -333,7 +338,6 @@ namespace StellarNet.Lite.Client.Components
             data.PrefabHash = state.PrefabHash;
             data.Mask = state.Mask;
             data.OwnerSessionId = state.OwnerSessionId ?? string.Empty;
-
             data.RawPos = new Vector3(state.PosX, state.PosY, state.PosZ);
             data.RawRot = new Vector3(state.RotX, state.RotY, state.RotZ);
             data.RawVel = new Vector3(state.DirX, state.DirY, state.DirZ);
@@ -341,13 +345,11 @@ namespace StellarNet.Lite.Client.Components
                 Mathf.Approximately(state.ScaleX, 0f) ? 1f : state.ScaleX,
                 Mathf.Approximately(state.ScaleY, 0f) ? 1f : state.ScaleY,
                 Mathf.Approximately(state.ScaleZ, 0f) ? 1f : state.ScaleZ);
-
             data.AnimStateHash = state.AnimStateHash;
             data.AnimNormalizedTime = state.AnimNormalizedTime;
             data.FloatParam1 = state.FloatParam1;
             data.FloatParam2 = state.FloatParam2;
             data.FloatParam3 = state.FloatParam3;
-
             data.LocalReceiveTime = Time.realtimeSinceStartup;
             data.ServerTime = 0f;
 
@@ -361,6 +363,11 @@ namespace StellarNet.Lite.Client.Components
                 State = state
             };
             Room.NetEventSystem.Broadcast(spawnEvent);
+        }
+
+        private void OnReplayTimeScaleChanged(Local_ReplayTimeScaleChanged evt)
+        {
+            _replayTimeScale = evt.TimeScale;
         }
     }
 }

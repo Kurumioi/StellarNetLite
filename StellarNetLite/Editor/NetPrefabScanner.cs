@@ -17,7 +17,7 @@ namespace StellarNet.Lite.Editor
         private const string TargetResourceFolder = "Assets/Resources/NetPrefabs";
         private const string OutputConstFilePath = "Assets/StellarNetLite/Runtime/Shared/Protocol/Const/NetPrefabConsts.cs";
 
-        [MenuItem("StellarNet/Lite 生成网络预制体常量表 (Net Prefabs)")]
+        [MenuItem("StellarNetLite/生成网络预制体常量表 (Net Prefabs)")]
         public static void ManualRun()
         {
             RunScanAndGenerate();
