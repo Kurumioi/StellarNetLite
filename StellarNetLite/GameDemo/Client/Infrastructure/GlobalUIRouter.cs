@@ -20,6 +20,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
                 return;
             }
 
+
             GlobalTypeNetEvent.Register<Local_RoomEntered>(OnRoomEntered).UnRegisterWhenGameObjectDestroyed(gameObject);
             GlobalTypeNetEvent.Register<Local_RoomLeft>(OnRoomLeft).UnRegisterWhenGameObjectDestroyed(gameObject);
             GlobalTypeNetEvent.Register<S2C_LoginResult>(OnLoginResult).UnRegisterWhenGameObjectDestroyed(gameObject);
@@ -31,9 +32,12 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             NetLogger.LogInfo("GlobalUIRouter", "全局 UI 路由初始化完成");
         }
 
+
         protected override void OnDestroy()
         {
             base.OnDestroy();
+
+
             _isInitialized = false;
             _lastClientState = ClientAppState.InLobby;
         }

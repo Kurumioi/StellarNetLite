@@ -20,6 +20,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
     public static StellarNetMirrorManager NetManager => Instance != null ? Instance.netManager : null;
 
     public ENetMode netMode = ENetMode.None;
+    public bool IsClientConnectedServer { get; private set; }
 
     protected override void Awake()
     {
@@ -55,6 +56,9 @@ public class GameLauncher : MonoSingleton<GameLauncher>
         GlobalUIRouter.Instance.Init();
         UIKit.OpenPanel<Panel_GlobalNetMonitor>();
         UIKit.OpenPanel<Panel_StellarNetLogin>();
+        
+        IsClientConnectedServer = true;
+        NetLogger.LogInfo("GameLauncher", "客户端已连接服务端");
     }
 
     private void OnClientDisconnected()
@@ -63,6 +67,9 @@ public class GameLauncher : MonoSingleton<GameLauncher>
         {
             GlobalUIRouter.Instance.HandlePhysicalDisconnect();
         }
+
+        IsClientConnectedServer = false;
+        NetLogger.LogError("GameLauncher", "客户端已断开服务端");
     }
 
     private async void LauncherNetAsync(ENetMode eNetMode)
@@ -106,7 +113,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
     }
 
     [ContextMenu("启动客户端")]
-    private void StartClient()
+    public void StartClient()
     {
         if (netManager == null)
         {

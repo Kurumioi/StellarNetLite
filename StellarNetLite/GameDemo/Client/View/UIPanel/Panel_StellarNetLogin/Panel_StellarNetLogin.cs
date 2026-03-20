@@ -1,7 +1,11 @@
 ﻿using Cysharp.Threading.Tasks;
+using Mirror;
+using StellarFramework;
 using StellarFramework.UI;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
+using StellarNet.Lite.Game.Client.Infrastructure;
+using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.Protocol;
 using TMPro;
 using UnityEngine;
@@ -11,6 +15,8 @@ public class Panel_StellarNetLogin : UIPanelBase
 {
     [SerializeField] private TMP_InputField accountIpt;
     [SerializeField] private Button loginBtn;
+    [SerializeField] private TMP_Text loginStatusTxt;
+    [SerializeField] private Button restartClientBtn;
     [SerializeField] private Transform reconnectGroupTrans;
     [SerializeField] private Button reconnectBtn;
     [SerializeField] private Button reconnectCancelBtn;
@@ -26,11 +32,17 @@ public class Panel_StellarNetLogin : UIPanelBase
         }
 
         loginBtn.onClick.AddListener(OnLoginBtnClick);
+        restartClientBtn.onClick.AddListener(OnRestartClientBtnClick);
         reconnectBtn.onClick.AddListener(OnReconnectBtnClick);
         reconnectCancelBtn.onClick.AddListener(OnReconnectCancelBtnClick);
 
+        StellarNetMirrorManager.OnClientConnectedEvent += OnClientConnected;
+        StellarNetMirrorManager.OnClientDisconnectedEvent += OnClientDisconnected;
+
+
         GlobalTypeNetEvent.Register<S2C_LoginResult>(OnS2C_LoginResult).UnRegisterWhenGameObjectDestroyed(gameObject);
     }
+
 
     public override async UniTask OnOpen(object uiData = null)
     {
@@ -46,6 +58,7 @@ public class Panel_StellarNetLogin : UIPanelBase
             loginBtn.interactable = true;
         }
 
+
         if (reconnectBtn != null)
         {
             reconnectBtn.interactable = true;
@@ -55,10 +68,25 @@ public class Panel_StellarNetLogin : UIPanelBase
         {
             reconnectCancelBtn.interactable = true;
         }
+
+        if (NetworkClient.isConnected)
+        {
+            restartClientBtn.Hide();
+            loginStatusTxt.text = "<color=green>服务端已连接</color>";
+        }
+        else
+        {
+            restartClientBtn.Show();
+            restartClientBtn.interactable = true;
+            loginStatusTxt.text = "<color=red>服务端已断开</color>";
+        }
     }
 
     private void OnDestroy()
     {
+        StellarNetMirrorManager.OnClientConnectedEvent -= OnClientConnected;
+        StellarNetMirrorManager.OnClientDisconnectedEvent -= OnClientDisconnected;
+
         if (loginBtn != null)
         {
             loginBtn.onClick.RemoveAllListeners();
@@ -73,20 +101,39 @@ public class Panel_StellarNetLogin : UIPanelBase
         {
             reconnectCancelBtn.onClick.RemoveAllListeners();
         }
+
+        if (restartClientBtn != null)
+        {
+            restartClientBtn.onClick.RemoveAllListeners();
+        }
+    }
+
+    private void OnClientConnected()
+    {
+        restartClientBtn.Hide();
+        restartClientBtn.interactable = false;
+        loginStatusTxt.text = "<color=green>服务端已连接</color>";
+    }
+
+    private void OnClientDisconnected()
+    {
+        restartClientBtn.Show();
+        restartClientBtn.interactable = true;
+        loginStatusTxt.text = "<color=red>服务端已断开</color>";
     }
 
     private void OnLoginBtnClick()
     {
         if (NetClient.App == null || NetClient.Session == null)
         {
-            Debug.LogError($"[Panel_StellarNetLogin] 登录失败: NetClient 未初始化, Object:{name}");
+            NetLogger.LogError($"Panel_StellarNetLogin", $" 登录失败: NetClient 未初始化, Object:{name}");
             return;
         }
 
         string accountId = accountIpt != null ? accountIpt.text : string.Empty;
         if (string.IsNullOrWhiteSpace(accountId))
         {
-            Debug.LogError($"[Panel_StellarNetLogin] 登录失败: 账号为空, Object:{name}");
+            NetLogger.LogError($"Panel_StellarNetLogin", $"登录失败: 账号为空, Object:{name}");
             return;
         }
 
@@ -105,6 +152,23 @@ public class Panel_StellarNetLogin : UIPanelBase
         };
 
         NetClient.Send(msg);
+    }
+
+    private void OnRestartClientBtnClick()
+    {
+        if (NetworkClient.isConnected)
+        {
+            return;
+        }
+
+        if (NetworkClient.isConnecting)
+        {
+            return;
+        }
+
+        restartClientBtn.interactable = false;
+        GameLauncher.Instance.StartClient();
+        NetLogger.LogInfo("Panel_StellarNetLogin", "尝试重新连接服务端... ");
     }
 
     private void OnReconnectBtnClick()
@@ -141,7 +205,7 @@ public class Panel_StellarNetLogin : UIPanelBase
     {
         if (msg == null)
         {
-            Debug.LogError($"[Panel_StellarNetLogin] 处理登录结果失败: msg 为空, Object:{name}");
+            NetLogger.LogError($"Panel_StellarNetLogin", $" 处理登录结果失败: msg 为空, Object:{name}");
             return;
         }
 
@@ -152,7 +216,7 @@ public class Panel_StellarNetLogin : UIPanelBase
                 loginBtn.interactable = true;
             }
 
-            Debug.LogError($"[Panel_StellarNetLogin] 登录失败: Reason:{msg.Reason}, Object:{name}");
+            NetLogger.LogError($"Panel_StellarNetLogin ", $"登录失败: Reason:{msg.Reason}, Object:{name}");
             return;
         }
 
