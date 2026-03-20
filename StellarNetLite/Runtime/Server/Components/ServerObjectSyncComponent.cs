@@ -170,6 +170,23 @@ namespace StellarNet.Lite.Server.Components
             Room.BroadcastMessage(_reusableSyncMsg, shouldRecord);
         }
 
+        #region 重写
+
+        public override void OnMemberJoined(Session session)
+        {
+            base.OnMemberJoined(session);
+            if (session == null) return;
+
+            // 关键逻辑：如果房间已经在游戏中，必须立即为新加入的玩家补发当前所有实体的快照
+            if (Room != null && Room.State == RoomState.Playing)
+            {
+                // 直接复用已有的快照下发逻辑
+                OnSendSnapshot(session);
+            }
+        }
+
+        #endregion
+
         #region ================= 权威业务 API =================
 
         public ServerSyncEntity SpawnObject(int prefabHash, EntitySyncMask mask, Vector3 position, Vector3 rotation, Vector3 velocity, string ownerSessionId = "")

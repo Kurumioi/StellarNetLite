@@ -51,83 +51,78 @@ namespace StellarNet.Lite.Server.Core
             GlobalDispatcher.Clear();
         }
 
+        /// <summary>
+        /// 驱动服务端逻辑帧
+        /// 优化：采用零分配遍历模式，消除 ToList() 产生的 GC 压力
+        /// </summary>
         public void Tick()
         {
-            if (_isDisposed)
-            {
-                return;
-            }
-
+            if (_isDisposed) return;
             if (Config == null)
             {
                 NetLogger.LogError("ServerApp", "Tick 失败: Config 为空");
                 return;
             }
 
+            // 清空缓存池（Clear 不会释放 List 内部数组，后续 Add 为 0GC）
             _gcRoomCache.Clear();
             _gcSessionCache.Clear();
 
             DateTime now = DateTime.UtcNow;
-            List<Room> activeRooms = _rooms.Values.ToList();
 
-            for (int i = 0; i < activeRooms.Count; i++)
+            // 1. 房间生命周期检查：直接遍历 Dictionary 的 struct Enumerator (0GC)
+            foreach (var kvp in _rooms)
             {
-                Room room = activeRooms[i];
-                if (room == null)
-                {
-                    continue;
-                }
+                Room room = kvp.Value;
+                if (room == null) continue;
 
                 room.Tick();
 
+                // 检查强制生命周期上限
                 if ((now - room.CreateTime).TotalHours >= Config.MaxRoomLifetimeHours)
                 {
                     _gcRoomCache.Add(room.RoomId);
                     continue;
                 }
 
+                // 检查空房间超时回收
                 if (room.MemberCount == 0 && (now - room.EmptySince).TotalMinutes >= Config.EmptyRoomTimeoutMinutes)
                 {
                     _gcRoomCache.Add(room.RoomId);
                 }
             }
 
+            // 执行房间清理
             for (int i = 0; i < _gcRoomCache.Count; i++)
             {
                 NetLogger.LogWarning("ServerApp", $"触发房间 GC: RoomId:{_gcRoomCache[i]}");
                 DestroyRoom(_gcRoomCache[i]);
             }
 
-            List<Session> activeSessions = _sessions.Values.ToList();
-            for (int i = 0; i < activeSessions.Count; i++)
+            // 2. 会话生命周期检查
+            foreach (var kvp in _sessions)
             {
-                Session session = activeSessions[i];
-                if (session == null || session.IsOnline)
-                {
-                    continue;
-                }
+                Session session = kvp.Value;
+                if (session == null || session.IsOnline) continue;
 
                 double offlineMinutes = (now - session.LastOfflineTime).TotalMinutes;
                 bool inRoom = !string.IsNullOrEmpty(session.CurrentRoomId);
 
-                if (inRoom && offlineMinutes >= Config.OfflineTimeoutRoomMinutes)
-                {
-                    _gcSessionCache.Add(session.SessionId);
-                }
-                else if (!inRoom && offlineMinutes >= Config.OfflineTimeoutLobbyMinutes)
+                // 应用差分超时策略
+                float timeoutThreshold = inRoom ? Config.OfflineTimeoutRoomMinutes : Config.OfflineTimeoutLobbyMinutes;
+                if (offlineMinutes >= timeoutThreshold)
                 {
                     _gcSessionCache.Add(session.SessionId);
                 }
             }
 
+            // 执行会话清理
             for (int i = 0; i < _gcSessionCache.Count; i++)
             {
                 string sessionId = _gcSessionCache[i];
-                if (!_sessions.TryGetValue(sessionId, out Session session) || session == null)
-                {
-                    continue;
-                }
+                if (!_sessions.TryGetValue(sessionId, out Session session) || session == null) continue;
 
+                // 彻底移除前需安全剥离房间上下文
                 if (!string.IsNullOrEmpty(session.CurrentRoomId))
                 {
                     Room room = GetRoom(session.CurrentRoomId);
