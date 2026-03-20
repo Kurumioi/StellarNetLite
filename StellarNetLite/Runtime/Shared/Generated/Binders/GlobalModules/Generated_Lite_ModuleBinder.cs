@@ -1,6 +1,5 @@
 ﻿// ========================================================
 // 自动生成的全局模块绑定分片。
-// 请勿手动修改！由 LiteProtocolScanner 自动生成。
 // ========================================================
 using System;
 using StellarNet.Lite.Server.Core;
@@ -12,12 +11,7 @@ namespace StellarNet.Lite.Shared.Generated.Binders.GlobalModules
     {
         public static void RegisterServer(ServerApp serverApp, Func<byte[], int, int, Type, object> deserializeFunc)
         {
-            if (serverApp == null)
-            {
-                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("Generated_Lite_ModuleBinder", "RegisterServer failed");
-                return;
-            }
-            if (deserializeFunc == null)
+            if (serverApp == null || deserializeFunc == null)
             {
                 StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("Generated_Lite_ModuleBinder", "RegisterServer failed");
                 return;
@@ -138,12 +132,7 @@ namespace StellarNet.Lite.Shared.Generated.Binders.GlobalModules
 
         public static void RegisterClient(ClientApp clientApp, Func<byte[], int, int, Type, object> deserializeFunc)
         {
-            if (clientApp == null)
-            {
-                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("Generated_Lite_ModuleBinder", "RegisterClient failed");
-                return;
-            }
-            if (deserializeFunc == null)
+            if (clientApp == null || deserializeFunc == null)
             {
                 StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("Generated_Lite_ModuleBinder", "RegisterClient failed");
                 return;

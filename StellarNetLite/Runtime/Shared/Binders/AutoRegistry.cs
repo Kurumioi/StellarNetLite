@@ -1,6 +1,5 @@
 ﻿// ========================================================
 // 自动生成的静态装配聚合器。
-// 请勿手动修改！由 LiteProtocolScanner 自动生成。
 // ========================================================
 using System;
 using System.Collections.Generic;
@@ -26,12 +25,7 @@ namespace StellarNet.Lite.Shared.Binders
 
         public static void RegisterServer(ServerApp serverApp, Func<byte[], int, int, Type, object> deserializeFunc)
         {
-            if (serverApp == null)
-            {
-                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", "RegisterServer failed");
-                return;
-            }
-            if (deserializeFunc == null)
+            if (serverApp == null || deserializeFunc == null)
             {
                 StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", "RegisterServer failed");
                 return;
@@ -61,12 +55,7 @@ namespace StellarNet.Lite.Shared.Binders
 
         public static void RegisterClient(ClientApp clientApp, Func<byte[], int, int, Type, object> deserializeFunc)
         {
-            if (clientApp == null)
-            {
-                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", "RegisterClient failed");
-                return;
-            }
-            if (deserializeFunc == null)
+            if (clientApp == null || deserializeFunc == null)
             {
                 StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("AutoRegistry", "RegisterClient failed");
                 return;

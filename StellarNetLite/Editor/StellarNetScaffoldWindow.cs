@@ -7,11 +7,6 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Editor
 {
-    /// <summary>
-    /// 我负责生成并托管业务脚手架。
-    /// 这里明确把产物视为开发者业务资产，因此输出目录默认落在 Assets/Scripts/Game。
-    /// 同时我会为每个业务单元写入 manifest，让“生成、删除、取消托管”形成闭环，而不是依赖人工猜路径清理。
-    /// </summary>
     public sealed class StellarNetScaffoldWindow : EditorWindow
     {
         #region 常量
@@ -57,11 +52,6 @@ namespace StellarNet.Lite.Editor
             public int S2CMsgId;
             public string[] SourceFiles;
             public string[] GeneratedFiles;
-
-            /// <summary>
-            /// 我保留旧字段兼容，是为了让历史 manifest 升级后仍然可读。
-            /// 如果项目里存在旧版本 manifest，我会自动把 Files 视作 SourceFiles。
-            /// </summary>
             public string[] Files;
         }
 
@@ -101,7 +91,7 @@ namespace StellarNet.Lite.Editor
             var window = GetWindow<StellarNetScaffoldWindow>("业务脚手架生成器");
             if (window == null)
             {
-                Debug.LogError("[StellarNetScaffoldWindow] 打开窗口失败: GetWindow 返回为空。");
+                Debug.LogError("[StellarNetScaffoldWindow] 打开窗口失败");
                 return;
             }
 
@@ -130,7 +120,7 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.Space(8f);
             EditorGUILayout.LabelField("业务脚手架生成器", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "这里管理的是开发者业务层脚手架，不属于框架内建模块。支持生成房间业务组件、全局模块，并通过 manifest 形成删除与取消托管闭环。",
+                "支持生成房间业务组件、全局模块，并通过 manifest 形成生成、删除、取消托管闭环。",
                 MessageType.Info);
 
             EditorGUILayout.Space(8f);
@@ -200,7 +190,7 @@ namespace StellarNet.Lite.Editor
 
             EditorGUI.BeginChangeCheck();
             _businessType = (ScaffoldBusinessType)EditorGUILayout.EnumPopup(
-                new GUIContent("脚手架类型", "支持房间业务组件与全局模块两种业务载体。"),
+                new GUIContent("脚手架类型"),
                 _businessType);
             if (EditorGUI.EndChangeCheck())
             {
@@ -215,13 +205,13 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.LabelField("命名空间配置", EditorStyles.boldLabel);
 
             _namespacePrefix = EditorGUILayout.TextField(
-                new GUIContent("前置 Namespace", "可选。示例: Company.Product"),
+                new GUIContent("前置 Namespace"),
                 _namespacePrefix);
 
             using (new EditorGUI.DisabledScope(true))
             {
                 _baseNamespace = EditorGUILayout.TextField(
-                    new GUIContent("业务根 Namespace", "默认固定为 MineGame"),
+                    new GUIContent("业务根 Namespace"),
                     DefaultBaseNamespace);
             }
 
@@ -237,7 +227,7 @@ namespace StellarNet.Lite.Editor
 
             EditorGUILayout.BeginHorizontal();
             _outputRoot = EditorGUILayout.TextField(
-                new GUIContent("输出根目录", "业务脚手架输出目录，必须位于 Assets 下。"),
+                new GUIContent("输出根目录"),
                 _outputRoot);
 
             if (GUILayout.Button("选择目录", GUILayout.Width(100f)))
@@ -255,11 +245,11 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.LabelField("业务信息", EditorStyles.boldLabel);
 
             _featureName = EditorGUILayout.TextField(
-                new GUIContent("模块名", "示例: SocialRoom / Inventory / Mail"),
+                new GUIContent("模块名"),
                 _featureName);
 
             _displayName = EditorGUILayout.TextField(
-                new GUIContent("显示名", "示例: 交友房间 / 邮件系统"),
+                new GUIContent("显示名"),
                 _displayName);
 
             EditorGUILayout.Space(6f);
@@ -272,7 +262,7 @@ namespace StellarNet.Lite.Editor
             if (_businessType == ScaffoldBusinessType.RoomComponent)
             {
                 _componentId = EditorGUILayout.IntField(
-                    new GUIContent("组件 Id", "仅房间业务组件需要 RoomComponent Id。"),
+                    new GUIContent("组件 Id"),
                     _componentId);
             }
             else
@@ -280,13 +270,8 @@ namespace StellarNet.Lite.Editor
                 EditorGUILayout.LabelField("组件 Id", "全局模块不需要");
             }
 
-            _c2sMsgId = EditorGUILayout.IntField(
-                new GUIContent("C2S MsgId", "客户端到服务端消息 Id。"),
-                _c2sMsgId);
-
-            _s2cMsgId = EditorGUILayout.IntField(
-                new GUIContent("S2C MsgId", "服务端到客户端消息 Id。"),
-                _s2cMsgId);
+            _c2sMsgId = EditorGUILayout.IntField(new GUIContent("C2S MsgId"), _c2sMsgId);
+            _s2cMsgId = EditorGUILayout.IntField(new GUIContent("S2C MsgId"), _s2cMsgId);
 
             EditorGUILayout.Space(6f);
         }
@@ -306,8 +291,6 @@ namespace StellarNet.Lite.Editor
                 EditorGUILayout.LabelField("协议文件", BuildProtocolFileAssetPath(featureToken));
                 EditorGUILayout.LabelField("服务端组件文件", BuildServerRoomComponentFileAssetPath(featureToken));
                 EditorGUILayout.LabelField("客户端组件文件", BuildClientRoomComponentFileAssetPath(featureToken));
-                EditorGUILayout.LabelField("生成组件常量分片", BuildGeneratedComponentIdsFileAssetPath(featureToken));
-                EditorGUILayout.LabelField("生成房间 Binder 分片", BuildGeneratedRoomBinderFileAssetPath(featureToken));
             }
             else
             {
@@ -317,13 +300,22 @@ namespace StellarNet.Lite.Editor
                 EditorGUILayout.LabelField("协议文件", BuildProtocolFileAssetPath(featureToken));
                 EditorGUILayout.LabelField("服务端模块文件", BuildServerModuleFileAssetPath(featureToken));
                 EditorGUILayout.LabelField("客户端模块文件", BuildClientModuleFileAssetPath(featureToken));
-                EditorGUILayout.LabelField("生成全局模块 Binder 分片", BuildGeneratedGlobalModuleBinderFileAssetPath(featureToken));
             }
 
             EditorGUILayout.LabelField("生成协议 MsgIds 分片", BuildGeneratedProtocolMsgIdsFileAssetPath(featureToken));
             EditorGUILayout.LabelField("生成协议 Meta 分片", BuildGeneratedProtocolMetaFileAssetPath(featureToken));
-            EditorGUILayout.LabelField("Manifest 文件", BuildManifestAssetPath(featureToken));
 
+            if (_businessType == ScaffoldBusinessType.RoomComponent)
+            {
+                EditorGUILayout.LabelField("生成组件常量分片", BuildGeneratedComponentIdsFileAssetPath(featureToken));
+                EditorGUILayout.LabelField("生成房间 Binder 分片", BuildGeneratedRoomBinderFileAssetPath(featureToken));
+            }
+            else
+            {
+                EditorGUILayout.LabelField("生成全局模块 Binder 分片", BuildGeneratedGlobalModuleBinderFileAssetPath(featureToken));
+            }
+
+            EditorGUILayout.LabelField("Manifest 文件", BuildManifestAssetPath(featureToken));
             EditorGUILayout.Space(10f);
         }
 
@@ -350,7 +342,7 @@ namespace StellarNet.Lite.Editor
 
             if (!CanGenerate())
             {
-                EditorGUILayout.HelpBox("当前输入配置非法，请先修正后再生成。", MessageType.Warning);
+                EditorGUILayout.HelpBox("当前输入配置非法。", MessageType.Warning);
             }
         }
 
@@ -358,7 +350,7 @@ namespace StellarNet.Lite.Editor
         {
             if (entry == null || entry.Manifest == null)
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 绘制托管条目失败: entry 或 manifest 为空, Index:{index}");
+                Debug.LogError("[StellarNetScaffoldWindow] 条目无效");
                 return;
             }
 
@@ -372,17 +364,11 @@ namespace StellarNet.Lite.Editor
                     _selectedManagedIndex = index;
                 }
 
-                string displayName = entry.Manifest.DisplayName ?? string.Empty;
-                string rootNamespace = entry.Manifest.FullRootNamespace ?? string.Empty;
-                string outputRoot = entry.Manifest.OutputRoot ?? string.Empty;
-                int sourceCount = GetSourceFiles(entry.Manifest).Length;
-                int generatedCount = GetGeneratedFiles(entry.Manifest).Length;
-
-                EditorGUILayout.LabelField("显示名", displayName);
-                EditorGUILayout.LabelField("根 Namespace", rootNamespace);
-                EditorGUILayout.LabelField("输出目录", outputRoot);
-                EditorGUILayout.LabelField("源码文件数量", sourceCount.ToString());
-                EditorGUILayout.LabelField("生成分片数量", generatedCount.ToString());
+                EditorGUILayout.LabelField("显示名", entry.Manifest.DisplayName ?? string.Empty);
+                EditorGUILayout.LabelField("根 Namespace", entry.Manifest.FullRootNamespace ?? string.Empty);
+                EditorGUILayout.LabelField("输出目录", entry.Manifest.OutputRoot ?? string.Empty);
+                EditorGUILayout.LabelField("源码文件数量", GetSourceFiles(entry.Manifest).Length.ToString());
+                EditorGUILayout.LabelField("生成分片数量", GetGeneratedFiles(entry.Manifest).Length.ToString());
             }
         }
 
@@ -390,14 +376,14 @@ namespace StellarNet.Lite.Editor
         {
             if (_selectedManagedIndex < 0 || _selectedManagedIndex >= _managedEntries.Count)
             {
-                EditorGUILayout.HelpBox("请选择一个已托管脚手架条目后再执行删除或取消托管。", MessageType.Info);
+                EditorGUILayout.HelpBox("请选择一个已托管脚手架条目后再执行操作。", MessageType.Info);
                 return;
             }
 
             ManagedManifestEntry selectedEntry = _managedEntries[_selectedManagedIndex];
             if (selectedEntry == null || selectedEntry.Manifest == null)
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 绘制托管操作失败: selectedEntry 或 manifest 为空, Index:{_selectedManagedIndex}");
+                Debug.LogError("[StellarNetScaffoldWindow] 当前选中条目无效");
                 return;
             }
 
@@ -422,18 +408,11 @@ namespace StellarNet.Lite.Editor
 
         #region 业务生成
 
-        /// <summary>
-        /// 我负责生成并托管业务脚手架。
-        /// 这里先落完整校验，再统一写文件与 manifest，避免生成一半后出现托管信息和源码不一致。
-        /// </summary>
         private void GenerateScaffold()
         {
             GenerateInternal(true);
         }
 
-        /// <summary>
-        /// 我保留“仅生成源码”模式，是为了兼容开发者只想拿模板起稿、不想让工具后续继续托管的场景。
-        /// </summary>
         private void GenerateScaffoldWithoutManifest()
         {
             GenerateInternal(false);
@@ -443,36 +422,41 @@ namespace StellarNet.Lite.Editor
         {
             if (!CanGenerate())
             {
-                Debug.LogError(
-                    $"[StellarNetScaffoldWindow] 生成失败: 输入参数非法，Type:{_businessType}，FeatureName:{_featureName}，DisplayName:{_displayName}，ComponentId:{_componentId}，C2S:{_c2sMsgId}，S2C:{_s2cMsgId}，OutputRoot:{_outputRoot}，NamespacePrefix:{_namespacePrefix}，BaseNamespace:{_baseNamespace}");
+                Debug.LogError("[StellarNetScaffoldWindow] 生成失败");
                 return;
             }
 
             string featureToken = SanitizeFeatureToken(_featureName);
             if (string.IsNullOrEmpty(featureToken))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: FeatureName 清洗后为空，原始值:{_featureName}");
+                Debug.LogError("[StellarNetScaffoldWindow] featureToken 无效");
+                return;
+            }
+
+            if (HasFeatureConflict(featureToken))
+            {
+                Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: 模块已存在, Feature:{featureToken}");
                 return;
             }
 
             string fullRootNamespace = ComposeFullRootNamespace();
             if (string.IsNullOrEmpty(fullRootNamespace))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: fullRootNamespace 为空，NamespacePrefix:{_namespacePrefix}，BaseNamespace:{_baseNamespace}");
+                Debug.LogError("[StellarNetScaffoldWindow] fullRootNamespace 无效");
                 return;
             }
 
             List<string> sourceFilePaths = BuildManagedSourceFilePaths(featureToken);
             if (sourceFilePaths == null || sourceFilePaths.Count == 0)
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: sourceFilePaths 为空，Feature:{featureToken}，Type:{_businessType}");
+                Debug.LogError("[StellarNetScaffoldWindow] sourceFilePaths 无效");
                 return;
             }
 
             List<string> generatedFilePaths = BuildManagedGeneratedFilePaths(featureToken);
             if (generatedFilePaths == null || generatedFilePaths.Count == 0)
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: generatedFilePaths 为空，Feature:{featureToken}，Type:{_businessType}");
+                Debug.LogError("[StellarNetScaffoldWindow] generatedFilePaths 无效");
                 return;
             }
 
@@ -482,7 +466,7 @@ namespace StellarNet.Lite.Editor
                 string directory = NormalizeAssetPath(Path.GetDirectoryName(filePath));
                 if (!EnsureAssetDirectory(directory))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: 目录创建失败，Directory:{directory}，FilePath:{filePath}");
+                    Debug.LogError("[StellarNetScaffoldWindow] 创建源码目录失败");
                     return;
                 }
             }
@@ -490,13 +474,13 @@ namespace StellarNet.Lite.Editor
             string protocolContent = BuildProtocolFileContent(fullRootNamespace, featureToken);
             if (string.IsNullOrEmpty(protocolContent))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: protocolContent 为空，Feature:{featureToken}");
+                Debug.LogError("[StellarNetScaffoldWindow] 协议内容无效");
                 return;
             }
 
             if (!WriteFile(BuildProtocolFileAssetPath(featureToken), protocolContent))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: 协议文件写入失败，Feature:{featureToken}");
+                Debug.LogError("[StellarNetScaffoldWindow] 协议文件写入失败");
                 return;
             }
 
@@ -507,19 +491,19 @@ namespace StellarNet.Lite.Editor
 
                 if (string.IsNullOrEmpty(serverContent) || string.IsNullOrEmpty(clientContent))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: 房间业务组件脚本内容为空，Feature:{featureToken}");
+                    Debug.LogError("[StellarNetScaffoldWindow] 房间组件内容无效");
                     return;
                 }
 
                 if (!WriteFile(BuildServerRoomComponentFileAssetPath(featureToken), serverContent))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: 服务端组件写入失败，Feature:{featureToken}");
+                    Debug.LogError("[StellarNetScaffoldWindow] 服务端组件写入失败");
                     return;
                 }
 
                 if (!WriteFile(BuildClientRoomComponentFileAssetPath(featureToken), clientContent))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: 客户端组件写入失败，Feature:{featureToken}");
+                    Debug.LogError("[StellarNetScaffoldWindow] 客户端组件写入失败");
                     return;
                 }
             }
@@ -530,19 +514,19 @@ namespace StellarNet.Lite.Editor
 
                 if (string.IsNullOrEmpty(serverContent) || string.IsNullOrEmpty(clientContent))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: 全局模块脚本内容为空，Feature:{featureToken}");
+                    Debug.LogError("[StellarNetScaffoldWindow] 全局模块内容无效");
                     return;
                 }
 
                 if (!WriteFile(BuildServerModuleFileAssetPath(featureToken), serverContent))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: 服务端模块写入失败，Feature:{featureToken}");
+                    Debug.LogError("[StellarNetScaffoldWindow] 服务端模块写入失败");
                     return;
                 }
 
                 if (!WriteFile(BuildClientModuleFileAssetPath(featureToken), clientContent))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: 客户端模块写入失败，Feature:{featureToken}");
+                    Debug.LogError("[StellarNetScaffoldWindow] 客户端模块写入失败");
                     return;
                 }
             }
@@ -552,7 +536,7 @@ namespace StellarNet.Lite.Editor
                 ScaffoldManifest manifest = BuildManifest(featureToken, fullRootNamespace, sourceFilePaths, generatedFilePaths);
                 if (manifest == null)
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: manifest 构建失败，Feature:{featureToken}");
+                    Debug.LogError("[StellarNetScaffoldWindow] manifest 无效");
                     return;
                 }
 
@@ -560,41 +544,90 @@ namespace StellarNet.Lite.Editor
                 string manifestDirectory = NormalizeAssetPath(Path.GetDirectoryName(manifestPath));
                 if (!EnsureAssetDirectory(manifestDirectory))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: manifest 目录创建失败，Directory:{manifestDirectory}");
+                    Debug.LogError("[StellarNetScaffoldWindow] manifest 目录创建失败");
                     return;
                 }
 
                 string manifestJson = JsonUtility.ToJson(manifest, true);
                 if (string.IsNullOrEmpty(manifestJson))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: manifestJson 为空，Feature:{featureToken}");
+                    Debug.LogError("[StellarNetScaffoldWindow] manifestJson 无效");
                     return;
                 }
 
                 if (!WriteFile(manifestPath, manifestJson))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 生成失败: manifest 写入失败，Path:{manifestPath}");
+                    Debug.LogError("[StellarNetScaffoldWindow] manifest 写入失败");
                     return;
                 }
             }
 
             AssetDatabase.Refresh();
+            LiteProtocolScanner.ManualRun();
             RefreshManagedEntries();
 
             EditorUtility.DisplayDialog(
                 "生成完成",
-                $"业务脚手架生成成功。\n\n类型: {_businessType}\n最终根 Namespace: {fullRootNamespace}\n输出目录: {_outputRoot}\n模块名: {featureToken}\n托管: {(writeManifest ? "是" : "否")}",
+                $"业务脚手架生成成功。\n\n类型: {_businessType}\n最终根 Namespace: {fullRootNamespace}\n模块名: {featureToken}\n托管: {(writeManifest ? "是" : "否")}",
                 "确定");
+        }
+
+        /// <summary>
+        /// 我在真正写文件前做同名冲突拦截。
+        /// 这里同时检查已托管 manifest、目标源码路径、目标 manifest 路径，是为了阻止覆盖式生成污染现有模块。
+        /// </summary>
+        private bool HasFeatureConflict(string featureToken)
+        {
+            if (string.IsNullOrEmpty(featureToken))
+            {
+                Debug.LogError("[StellarNetScaffoldWindow] HasFeatureConflict failed");
+                return true;
+            }
+
+            for (int i = 0; i < _managedEntries.Count; i++)
+            {
+                ManagedManifestEntry entry = _managedEntries[i];
+                if (entry == null || entry.Manifest == null)
+                {
+                    continue;
+                }
+
+                string existingFeature = entry.Manifest.FeatureName ?? string.Empty;
+                if (string.Equals(existingFeature, featureToken, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            string manifestPath = BuildManifestAssetPath(featureToken);
+            if (AssetFileExists(manifestPath))
+            {
+                return true;
+            }
+
+            List<string> sourceFilePaths = BuildManagedSourceFilePaths(featureToken);
+            if (sourceFilePaths == null || sourceFilePaths.Count == 0)
+            {
+                Debug.LogError("[StellarNetScaffoldWindow] HasFeatureConflict failed");
+                return true;
+            }
+
+            for (int i = 0; i < sourceFilePaths.Count; i++)
+            {
+                string filePath = sourceFilePaths[i];
+                if (AssetFileExists(filePath))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         #endregion
 
         #region 托管清单管理
 
-        /// <summary>
-        /// 我负责扫描业务目录下的脚手架 manifest。
-        /// 这里不猜业务源码归属，只根据明确的清单文件识别“哪些产物属于可托管脚手架”。
-        /// </summary>
         private void RefreshManagedEntries()
         {
             _managedEntries.Clear();
@@ -604,7 +637,7 @@ namespace StellarNet.Lite.Editor
             string manifestFolderFullPath = AssetPathToFullPath(manifestFolder);
             if (string.IsNullOrEmpty(manifestFolderFullPath))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 刷新托管清单失败: manifestFolderFullPath 为空，ManifestFolder:{manifestFolder}");
+                Debug.LogError("[StellarNetScaffoldWindow] manifestFolder 无效");
                 return;
             }
 
@@ -624,21 +657,18 @@ namespace StellarNet.Lite.Editor
                 string fullPath = files[i];
                 if (string.IsNullOrEmpty(fullPath))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 刷新托管清单失败: files[{i}] 为空。");
                     continue;
                 }
 
                 string json = File.ReadAllText(fullPath);
                 if (string.IsNullOrEmpty(json))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 刷新托管清单失败: manifest 内容为空，Path:{fullPath}");
                     continue;
                 }
 
                 ScaffoldManifest manifest = JsonUtility.FromJson<ScaffoldManifest>(json);
                 if (manifest == null)
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 刷新托管清单失败: manifest 反序列化为空，Path:{fullPath}");
                     continue;
                 }
 
@@ -647,7 +677,6 @@ namespace StellarNet.Lite.Editor
                 string assetPath = FullPathToAssetPath(fullPath);
                 if (string.IsNullOrEmpty(assetPath))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 刷新托管清单失败: 无法转换为 Asset 路径，FullPath:{fullPath}");
                     continue;
                 }
 
@@ -666,28 +695,24 @@ namespace StellarNet.Lite.Editor
             });
         }
 
-        /// <summary>
-        /// 我根据 manifest 精确删除脚手架产物。
-        /// 这里源码和 generated 分片都属于该业务单元的可回收资产，因此需要一起删除，避免脏元数据残留。
-        /// </summary>
         private void DeleteManagedScaffold(ManagedManifestEntry entry)
         {
             if (entry == null || entry.Manifest == null)
             {
-                Debug.LogError("[StellarNetScaffoldWindow] 删除失败: entry 或 manifest 为空。");
+                Debug.LogError("[StellarNetScaffoldWindow] 删除失败");
                 return;
             }
 
             string featureName = entry.Manifest.FeatureName ?? string.Empty;
             if (string.IsNullOrEmpty(featureName))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 删除失败: manifest.FeatureName 为空，ManifestPath:{entry.ManifestAssetPath}");
+                Debug.LogError("[StellarNetScaffoldWindow] FeatureName 无效");
                 return;
             }
 
             bool confirm = EditorUtility.DisplayDialog(
                 "删除脚手架产物",
-                $"将删除业务单元 {featureName} 的源码文件、generated 分片文件与 manifest。\n\n如果某些源码已经被手工改造且失去 auto-generated 标记，我会拒绝删除该源码文件并保留它。\n\n是否继续？",
+                $"将删除业务单元 {featureName} 的源码文件、generated 分片文件与 manifest。\n\n是否继续？",
                 "继续删除",
                 "取消");
 
@@ -697,25 +722,17 @@ namespace StellarNet.Lite.Editor
             }
 
             string[] sourceFiles = GetSourceFiles(entry.Manifest);
-            if (sourceFiles.Length == 0)
-            {
-                Debug.LogError($"[StellarNetScaffoldWindow] 删除失败: sourceFiles 为空，Feature:{featureName}");
-                return;
-            }
-
             for (int i = 0; i < sourceFiles.Length; i++)
             {
                 string assetPath = sourceFiles[i];
                 if (string.IsNullOrEmpty(assetPath))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 删除失败: sourceFiles[{i}] 为空，Feature:{featureName}");
                     continue;
                 }
 
                 string fullPath = AssetPathToFullPath(assetPath);
                 if (string.IsNullOrEmpty(fullPath))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 删除失败: 无法解析源码磁盘路径，Feature:{featureName}，AssetPath:{assetPath}");
                     continue;
                 }
 
@@ -727,13 +744,12 @@ namespace StellarNet.Lite.Editor
                 string content = File.ReadAllText(fullPath);
                 if (string.IsNullOrEmpty(content))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 删除失败: 源码文件内容为空，Feature:{featureName}，File:{assetPath}");
                     continue;
                 }
 
                 if (!content.Contains("// <auto-generated>") || !content.Contains($"// ScaffoldFeature: {featureName}"))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 删除阻断: 源码缺失脚手架标记，疑似已被人工接管，Feature:{featureName}，File:{assetPath}");
+                    Debug.LogError("[StellarNetScaffoldWindow] 源码已被人工接管，跳过删除");
                     continue;
                 }
 
@@ -747,14 +763,12 @@ namespace StellarNet.Lite.Editor
                 string assetPath = generatedFiles[i];
                 if (string.IsNullOrEmpty(assetPath))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 删除失败: generatedFiles[{i}] 为空，Feature:{featureName}");
                     continue;
                 }
 
                 string fullPath = AssetPathToFullPath(assetPath);
                 if (string.IsNullOrEmpty(fullPath))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 删除失败: 无法解析生成分片磁盘路径，Feature:{featureName}，AssetPath:{assetPath}");
                     continue;
                 }
 
@@ -775,31 +789,28 @@ namespace StellarNet.Lite.Editor
             }
 
             AssetDatabase.Refresh();
+            LiteProtocolScanner.ManualRun();
             RefreshManagedEntries();
         }
 
-        /// <summary>
-        /// 我提供取消托管能力。
-        /// 这里不删除源码，也不删除 generated 分片，因为源码仍然存在，下一轮扫描本来就应该继续生成这些分片。
-        /// </summary>
         private void UntrackManagedScaffold(ManagedManifestEntry entry)
         {
             if (entry == null || entry.Manifest == null)
             {
-                Debug.LogError("[StellarNetScaffoldWindow] 取消托管失败: entry 或 manifest 为空。");
+                Debug.LogError("[StellarNetScaffoldWindow] 取消托管失败");
                 return;
             }
 
             string featureName = entry.Manifest.FeatureName ?? string.Empty;
             if (string.IsNullOrEmpty(featureName))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 取消托管失败: manifest.FeatureName 为空，ManifestPath:{entry.ManifestAssetPath}");
+                Debug.LogError("[StellarNetScaffoldWindow] FeatureName 无效");
                 return;
             }
 
             bool confirm = EditorUtility.DisplayDialog(
                 "取消托管",
-                $"将取消业务单元 {featureName} 的脚手架托管。\n\n我会保留源码文件，删除 manifest，并清理 auto-generated 头。后续这些文件将不再由脚手架管理。\n\n是否继续？",
+                $"将取消业务单元 {featureName} 的脚手架托管。\n\n保留源码，删除 manifest，并清理 auto-generated 头。\n\n是否继续？",
                 "继续取消托管",
                 "取消");
 
@@ -814,14 +825,12 @@ namespace StellarNet.Lite.Editor
                 string assetPath = sourceFiles[i];
                 if (string.IsNullOrEmpty(assetPath))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 取消托管失败: sourceFiles[{i}] 为空，Feature:{featureName}");
                     continue;
                 }
 
                 string fullPath = AssetPathToFullPath(assetPath);
                 if (string.IsNullOrEmpty(fullPath))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 取消托管失败: 无法解析磁盘路径，Feature:{featureName}，AssetPath:{assetPath}");
                     continue;
                 }
 
@@ -833,14 +842,12 @@ namespace StellarNet.Lite.Editor
                 string content = File.ReadAllText(fullPath);
                 if (string.IsNullOrEmpty(content))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 取消托管失败: 文件内容为空，Feature:{featureName}，File:{assetPath}");
                     continue;
                 }
 
                 string stripped = StripAutoGeneratedHeader(content);
                 if (string.IsNullOrEmpty(stripped))
                 {
-                    Debug.LogError($"[StellarNetScaffoldWindow] 取消托管失败: 清理文件头后内容为空，Feature:{featureName}，File:{assetPath}");
                     continue;
                 }
 
@@ -855,6 +862,7 @@ namespace StellarNet.Lite.Editor
             }
 
             AssetDatabase.Refresh();
+            LiteProtocolScanner.ManualRun();
             RefreshManagedEntries();
         }
 
@@ -864,15 +872,9 @@ namespace StellarNet.Lite.Editor
 
         private string BuildProtocolFileContent(string fullRootNamespace, string featureToken)
         {
-            if (string.IsNullOrEmpty(fullRootNamespace))
+            if (string.IsNullOrEmpty(fullRootNamespace) || string.IsNullOrEmpty(featureToken))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建协议文件失败: fullRootNamespace 为空，Feature:{featureToken}");
-                return string.Empty;
-            }
-
-            if (string.IsNullOrEmpty(featureToken))
-            {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建协议文件失败: featureToken 为空，RootNamespace:{fullRootNamespace}");
+                Debug.LogError("[StellarNetScaffoldWindow] BuildProtocolFileContent failed");
                 return string.Empty;
             }
 
@@ -901,15 +903,9 @@ namespace StellarNet.Lite.Editor
 
         private string BuildServerRoomComponentFileContent(string fullRootNamespace, string featureToken)
         {
-            if (string.IsNullOrEmpty(fullRootNamespace))
+            if (string.IsNullOrEmpty(fullRootNamespace) || string.IsNullOrEmpty(featureToken))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建服务端房间组件失败: fullRootNamespace 为空，Feature:{featureToken}");
-                return string.Empty;
-            }
-
-            if (string.IsNullOrEmpty(featureToken))
-            {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建服务端房间组件失败: featureToken 为空，RootNamespace:{fullRootNamespace}");
+                Debug.LogError("[StellarNetScaffoldWindow] BuildServerRoomComponentFileContent failed");
                 return string.Empty;
             }
 
@@ -940,15 +936,9 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine();
             sb.AppendLine("        public override void OnInit()");
             sb.AppendLine("        {");
-            sb.AppendLine("            if (Room == null)");
+            sb.AppendLine("            if (Room == null || _app == null)");
             sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Component\", \"初始化失败: Room 为空\");");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
-            sb.AppendLine("            if (_app == null)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Component\", \"初始化失败: _app 为空\");");
+            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Component\", \"OnInit failed\");");
             sb.AppendLine("                return;");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
@@ -956,27 +946,9 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("        [NetHandler]");
             sb.AppendLine($"        public void OnC2S_{featureToken}Req(Session session, C2S_{featureToken}Req msg)");
             sb.AppendLine("        {");
-            sb.AppendLine("            if (session == null)");
+            sb.AppendLine("            if (session == null || msg == null || Room == null)");
             sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Component\", \"处理请求失败: session 为空\");");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
-            sb.AppendLine("            if (msg == null)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Component\", \"处理请求失败: msg 为空\");");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
-            sb.AppendLine("            if (Room == null)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Component\", \"处理请求失败: Room 为空\");");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
-            sb.AppendLine("            if (_app == null)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Component\", \"处理请求失败: _app 为空\");");
+            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Component\", \"Handle failed\");");
             sb.AppendLine("                return;");
             sb.AppendLine("            }");
             sb.AppendLine();
@@ -991,15 +963,9 @@ namespace StellarNet.Lite.Editor
 
         private string BuildClientRoomComponentFileContent(string fullRootNamespace, string featureToken)
         {
-            if (string.IsNullOrEmpty(fullRootNamespace))
+            if (string.IsNullOrEmpty(fullRootNamespace) || string.IsNullOrEmpty(featureToken))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建客户端房间组件失败: fullRootNamespace 为空，Feature:{featureToken}");
-                return string.Empty;
-            }
-
-            if (string.IsNullOrEmpty(featureToken))
-            {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建客户端房间组件失败: featureToken 为空，RootNamespace:{fullRootNamespace}");
+                Debug.LogError("[StellarNetScaffoldWindow] BuildClientRoomComponentFileContent failed");
                 return string.Empty;
             }
 
@@ -1030,15 +996,9 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine();
             sb.AppendLine("        public override void OnInit()");
             sb.AppendLine("        {");
-            sb.AppendLine("            if (Room == null)");
+            sb.AppendLine("            if (Room == null || _app == null)");
             sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Client{featureToken}Component\", \"初始化失败: Room 为空\");");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
-            sb.AppendLine("            if (_app == null)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Client{featureToken}Component\", \"初始化失败: _app 为空\");");
+            sb.AppendLine($"                NetLogger.LogError(\"Client{featureToken}Component\", \"OnInit failed\");");
             sb.AppendLine("                return;");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
@@ -1046,15 +1006,9 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("        [NetHandler]");
             sb.AppendLine($"        public void OnS2C_{featureToken}Sync(S2C_{featureToken}Sync msg)");
             sb.AppendLine("        {");
-            sb.AppendLine("            if (msg == null)");
+            sb.AppendLine("            if (msg == null || Room == null)");
             sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Client{featureToken}Component\", \"处理同步失败: msg 为空\");");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
-            sb.AppendLine("            if (Room == null)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Client{featureToken}Component\", \"处理同步失败: Room 为空\");");
+            sb.AppendLine($"                NetLogger.LogError(\"Client{featureToken}Component\", \"Handle failed\");");
             sb.AppendLine("                return;");
             sb.AppendLine("            }");
             sb.AppendLine();
@@ -1068,15 +1022,9 @@ namespace StellarNet.Lite.Editor
 
         private string BuildServerModuleFileContent(string fullRootNamespace, string featureToken)
         {
-            if (string.IsNullOrEmpty(fullRootNamespace))
+            if (string.IsNullOrEmpty(fullRootNamespace) || string.IsNullOrEmpty(featureToken))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建服务端全局模块失败: fullRootNamespace 为空，Feature:{featureToken}");
-                return string.Empty;
-            }
-
-            if (string.IsNullOrEmpty(featureToken))
-            {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建服务端全局模块失败: featureToken 为空，RootNamespace:{fullRootNamespace}");
+                Debug.LogError("[StellarNetScaffoldWindow] BuildServerModuleFileContent failed");
                 return string.Empty;
             }
 
@@ -1108,21 +1056,9 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("        [NetHandler]");
             sb.AppendLine($"        public void OnC2S_{featureToken}Req(Session session, C2S_{featureToken}Req msg)");
             sb.AppendLine("        {");
-            sb.AppendLine("            if (session == null)");
+            sb.AppendLine("            if (session == null || msg == null || _app == null)");
             sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Module\", \"处理请求失败: session 为空\");");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
-            sb.AppendLine("            if (msg == null)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Module\", \"处理请求失败: msg 为空\");");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
-            sb.AppendLine("            if (_app == null)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Module\", \"处理请求失败: _app 为空\");");
+            sb.AppendLine($"                NetLogger.LogError(\"Server{featureToken}Module\", \"Handle failed\");");
             sb.AppendLine("                return;");
             sb.AppendLine("            }");
             sb.AppendLine();
@@ -1137,15 +1073,9 @@ namespace StellarNet.Lite.Editor
 
         private string BuildClientModuleFileContent(string fullRootNamespace, string featureToken)
         {
-            if (string.IsNullOrEmpty(fullRootNamespace))
+            if (string.IsNullOrEmpty(fullRootNamespace) || string.IsNullOrEmpty(featureToken))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建客户端全局模块失败: fullRootNamespace 为空，Feature:{featureToken}");
-                return string.Empty;
-            }
-
-            if (string.IsNullOrEmpty(featureToken))
-            {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建客户端全局模块失败: featureToken 为空，RootNamespace:{fullRootNamespace}");
+                Debug.LogError("[StellarNetScaffoldWindow] BuildClientModuleFileContent failed");
                 return string.Empty;
             }
 
@@ -1178,15 +1108,9 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("        [NetHandler]");
             sb.AppendLine($"        public void OnS2C_{featureToken}Sync(S2C_{featureToken}Sync msg)");
             sb.AppendLine("        {");
-            sb.AppendLine("            if (msg == null)");
+            sb.AppendLine("            if (msg == null || _app == null)");
             sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Client{featureToken}Module\", \"处理同步失败: msg 为空\");");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
-            sb.AppendLine("            if (_app == null)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                NetLogger.LogError(\"Client{featureToken}Module\", \"处理同步失败: _app 为空\");");
+            sb.AppendLine($"                NetLogger.LogError(\"Client{featureToken}Module\", \"Handle failed\");");
             sb.AppendLine("                return;");
             sb.AppendLine("            }");
             sb.AppendLine();
@@ -1204,27 +1128,15 @@ namespace StellarNet.Lite.Editor
 
         private ScaffoldManifest BuildManifest(string featureToken, string fullRootNamespace, List<string> sourceFiles, List<string> generatedFiles)
         {
-            if (string.IsNullOrEmpty(featureToken))
+            if (string.IsNullOrEmpty(featureToken) || string.IsNullOrEmpty(fullRootNamespace))
             {
-                Debug.LogError("[StellarNetScaffoldWindow] 构建 manifest 失败: featureToken 为空。");
+                Debug.LogError("[StellarNetScaffoldWindow] BuildManifest failed");
                 return null;
             }
 
-            if (string.IsNullOrEmpty(fullRootNamespace))
+            if (sourceFiles == null || sourceFiles.Count == 0 || generatedFiles == null || generatedFiles.Count == 0)
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建 manifest 失败: fullRootNamespace 为空，Feature:{featureToken}");
-                return null;
-            }
-
-            if (sourceFiles == null || sourceFiles.Count == 0)
-            {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建 manifest 失败: sourceFiles 为空，Feature:{featureToken}");
-                return null;
-            }
-
-            if (generatedFiles == null || generatedFiles.Count == 0)
-            {
-                Debug.LogError($"[StellarNetScaffoldWindow] 构建 manifest 失败: generatedFiles 为空，Feature:{featureToken}");
+                Debug.LogError("[StellarNetScaffoldWindow] BuildManifest failed");
                 return null;
             }
 
@@ -1250,7 +1162,7 @@ namespace StellarNet.Lite.Editor
         {
             if (manifest == null)
             {
-                Debug.LogError("[StellarNetScaffoldWindow] 升级 manifest 失败: manifest 为空。");
+                Debug.LogError("[StellarNetScaffoldWindow] manifest 无效");
                 return;
             }
 
@@ -1485,7 +1397,7 @@ namespace StellarNet.Lite.Editor
         {
             if (sb == null)
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 写入文件头失败: sb 为空，Feature:{featureToken}");
+                Debug.LogError("[StellarNetScaffoldWindow] AppendAutoGeneratedHeader failed");
                 return;
             }
 
@@ -1534,11 +1446,6 @@ namespace StellarNet.Lite.Editor
         {
             _baseNamespace = DefaultBaseNamespace;
 
-            if (string.IsNullOrWhiteSpace(_baseNamespace))
-            {
-                return false;
-            }
-
             if (!IsValidNamespacePath(_baseNamespace))
             {
                 return false;
@@ -1555,12 +1462,7 @@ namespace StellarNet.Lite.Editor
             }
 
             string normalizedOutput = NormalizeAssetPath(_outputRoot);
-            if (string.IsNullOrEmpty(normalizedOutput))
-            {
-                return false;
-            }
-
-            if (!normalizedOutput.StartsWith("Assets", StringComparison.Ordinal))
+            if (string.IsNullOrEmpty(normalizedOutput) || !normalizedOutput.StartsWith("Assets", StringComparison.Ordinal))
             {
                 return false;
             }
@@ -1610,7 +1512,7 @@ namespace StellarNet.Lite.Editor
             DirectoryInfo projectRoot = Directory.GetParent(Application.dataPath);
             if (projectRoot == null)
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 选择目录失败: 无法解析项目根目录，Application.dataPath:{Application.dataPath}");
+                Debug.LogError("[StellarNetScaffoldWindow] 项目根目录无效");
                 return;
             }
 
@@ -1619,20 +1521,14 @@ namespace StellarNet.Lite.Editor
 
             if (!selectedPath.StartsWith(projectRootPath, StringComparison.Ordinal))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 选择目录失败: 路径不在当前 Unity 项目内，Selected:{selectedPath}，ProjectRoot:{projectRootPath}");
+                Debug.LogError("[StellarNetScaffoldWindow] 目录不在项目内");
                 return;
             }
 
             string relativePath = selectedPath.Substring(projectRootPath.Length).TrimStart('/');
-            if (string.IsNullOrEmpty(relativePath))
+            if (string.IsNullOrEmpty(relativePath) || !relativePath.StartsWith("Assets", StringComparison.Ordinal))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 选择目录失败: relativePath 为空，Selected:{selectedPath}");
-                return;
-            }
-
-            if (!relativePath.StartsWith("Assets", StringComparison.Ordinal))
-            {
-                Debug.LogError($"[StellarNetScaffoldWindow] 选择目录失败: 输出目录必须位于 Assets 下，RelativePath:{relativePath}");
+                Debug.LogError("[StellarNetScaffoldWindow] 目录不在 Assets 下");
                 return;
             }
 
@@ -1649,14 +1545,14 @@ namespace StellarNet.Lite.Editor
         {
             if (string.IsNullOrEmpty(assetPath))
             {
-                Debug.LogError("[StellarNetScaffoldWindow] 创建目录失败: assetPath 为空。");
+                Debug.LogError("[StellarNetScaffoldWindow] EnsureAssetDirectory failed");
                 return false;
             }
 
             string fullPath = AssetPathToFullPath(assetPath);
             if (string.IsNullOrEmpty(fullPath))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 创建目录失败: 无法转换磁盘路径，AssetPath:{assetPath}");
+                Debug.LogError("[StellarNetScaffoldWindow] EnsureAssetDirectory failed");
                 return false;
             }
 
@@ -1670,29 +1566,23 @@ namespace StellarNet.Lite.Editor
 
         private bool WriteFile(string assetPath, string content)
         {
-            if (string.IsNullOrEmpty(assetPath))
+            if (string.IsNullOrEmpty(assetPath) || string.IsNullOrEmpty(content))
             {
-                Debug.LogError("[StellarNetScaffoldWindow] 写文件失败: assetPath 为空。");
-                return false;
-            }
-
-            if (string.IsNullOrEmpty(content))
-            {
-                Debug.LogError($"[StellarNetScaffoldWindow] 写文件失败: content 为空，AssetPath:{assetPath}");
+                Debug.LogError("[StellarNetScaffoldWindow] WriteFile failed");
                 return false;
             }
 
             string fullPath = AssetPathToFullPath(assetPath);
             if (string.IsNullOrEmpty(fullPath))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 写文件失败: 无法转换磁盘路径，AssetPath:{assetPath}");
+                Debug.LogError("[StellarNetScaffoldWindow] WriteFile failed");
                 return false;
             }
 
             string directory = Path.GetDirectoryName(fullPath);
             if (string.IsNullOrEmpty(directory))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 写文件失败: 目录解析失败，AssetPath:{assetPath}，FullPath:{fullPath}");
+                Debug.LogError("[StellarNetScaffoldWindow] WriteFile failed");
                 return false;
             }
 
@@ -1705,11 +1595,29 @@ namespace StellarNet.Lite.Editor
             return true;
         }
 
+        private bool AssetFileExists(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath))
+            {
+                Debug.LogError("[StellarNetScaffoldWindow] AssetFileExists failed");
+                return false;
+            }
+
+            string fullPath = AssetPathToFullPath(assetPath);
+            if (string.IsNullOrEmpty(fullPath))
+            {
+                Debug.LogError("[StellarNetScaffoldWindow] AssetFileExists failed");
+                return false;
+            }
+
+            return File.Exists(fullPath);
+        }
+
         private void DeleteMetaFileIfExists(string fullPath)
         {
             if (string.IsNullOrEmpty(fullPath))
             {
-                Debug.LogError("[StellarNetScaffoldWindow] 删除 meta 失败: fullPath 为空。");
+                Debug.LogError("[StellarNetScaffoldWindow] DeleteMetaFileIfExists failed");
                 return;
             }
 
@@ -1728,11 +1636,6 @@ namespace StellarNet.Lite.Editor
         {
             string prefix = NormalizeNamespace(_namespacePrefix);
             string root = DefaultBaseNamespace;
-
-            if (string.IsNullOrEmpty(root))
-            {
-                return string.Empty;
-            }
 
             if (string.IsNullOrEmpty(prefix))
             {
@@ -1775,13 +1678,7 @@ namespace StellarNet.Lite.Editor
 
             for (int i = 0; i < segments.Length; i++)
             {
-                string segment = segments[i];
-                if (string.IsNullOrEmpty(segment))
-                {
-                    return false;
-                }
-
-                if (!IsValidIdentifier(segment))
+                if (!IsValidIdentifier(segments[i]))
                 {
                     return false;
                 }
@@ -1877,21 +1774,20 @@ namespace StellarNet.Lite.Editor
         {
             if (string.IsNullOrEmpty(assetPath))
             {
-                Debug.LogError("[StellarNetScaffoldWindow] 路径转换失败: assetPath 为空。");
+                Debug.LogError("[StellarNetScaffoldWindow] AssetPathToFullPath failed");
                 return string.Empty;
             }
 
             string normalizedAssetPath = NormalizeAssetPath(assetPath);
             if (!normalizedAssetPath.StartsWith("Assets", StringComparison.Ordinal))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 路径转换失败: 路径不在 Assets 下，AssetPath:{normalizedAssetPath}");
                 return string.Empty;
             }
 
             DirectoryInfo projectRoot = Directory.GetParent(Application.dataPath);
             if (projectRoot == null)
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 路径转换失败: 无法解析项目根目录，Application.dataPath:{Application.dataPath}");
+                Debug.LogError("[StellarNetScaffoldWindow] AssetPathToFullPath failed");
                 return string.Empty;
             }
 
@@ -1902,7 +1798,7 @@ namespace StellarNet.Lite.Editor
         {
             if (string.IsNullOrEmpty(fullPath))
             {
-                Debug.LogError("[StellarNetScaffoldWindow] 路径转换失败: fullPath 为空。");
+                Debug.LogError("[StellarNetScaffoldWindow] FullPathToAssetPath failed");
                 return string.Empty;
             }
 
@@ -1910,14 +1806,13 @@ namespace StellarNet.Lite.Editor
             DirectoryInfo projectRoot = Directory.GetParent(Application.dataPath);
             if (projectRoot == null)
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 路径转换失败: 无法解析项目根目录，Application.dataPath:{Application.dataPath}");
+                Debug.LogError("[StellarNetScaffoldWindow] FullPathToAssetPath failed");
                 return string.Empty;
             }
 
             string projectRootPath = projectRoot.FullName.Replace("\\", "/");
             if (!normalizedFullPath.StartsWith(projectRootPath, StringComparison.Ordinal))
             {
-                Debug.LogError($"[StellarNetScaffoldWindow] 路径转换失败: fullPath 不在项目目录内，FullPath:{normalizedFullPath}，ProjectRoot:{projectRootPath}");
                 return string.Empty;
             }
 

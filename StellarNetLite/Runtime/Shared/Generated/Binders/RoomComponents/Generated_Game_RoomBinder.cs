@@ -1,6 +1,5 @@
 ﻿// ========================================================
 // 自动生成的房间组件绑定分片。
-// 请勿手动修改！由 LiteProtocolScanner 自动生成。
 // ========================================================
 using System;
 using System.Collections.Generic;
@@ -44,17 +43,7 @@ namespace StellarNet.Lite.Shared.Generated.Binders.RoomComponents
 
         public static bool TryBindServer(StellarNet.Lite.Server.Core.RoomComponent comp, StellarNet.Lite.Server.Core.RoomDispatcher dispatcher, Func<byte[], int, int, Type, object> deserializeFunc)
         {
-            if (comp == null)
-            {
-                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("Generated_Game_RoomBinder", "TryBindServer failed");
-                return false;
-            }
-            if (dispatcher == null)
-            {
-                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("Generated_Game_RoomBinder", "TryBindServer failed");
-                return false;
-            }
-            if (deserializeFunc == null)
+            if (comp == null || dispatcher == null || deserializeFunc == null)
             {
                 StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("Generated_Game_RoomBinder", "TryBindServer failed");
                 return false;
@@ -96,17 +85,7 @@ namespace StellarNet.Lite.Shared.Generated.Binders.RoomComponents
 
         public static bool TryBindClient(StellarNet.Lite.Client.Core.ClientRoomComponent comp, StellarNet.Lite.Client.Core.ClientRoomDispatcher dispatcher, Func<byte[], int, int, Type, object> deserializeFunc)
         {
-            if (comp == null)
-            {
-                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("Generated_Game_RoomBinder", "TryBindClient failed");
-                return false;
-            }
-            if (dispatcher == null)
-            {
-                StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("Generated_Game_RoomBinder", "TryBindClient failed");
-                return false;
-            }
-            if (deserializeFunc == null)
+            if (comp == null || dispatcher == null || deserializeFunc == null)
             {
                 StellarNet.Lite.Shared.Infrastructure.NetLogger.LogError("Generated_Game_RoomBinder", "TryBindClient failed");
                 return false;

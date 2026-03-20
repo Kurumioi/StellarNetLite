@@ -170,6 +170,7 @@ namespace StellarNet.Lite.Game.Client.Views
                     DirZ = currentInput.y
                 });
             }
+            
 
             if (Input.GetKeyDown(KeyCode.Alpha1))
             {

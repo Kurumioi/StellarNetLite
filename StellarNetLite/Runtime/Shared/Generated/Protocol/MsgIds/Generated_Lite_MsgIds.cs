@@ -1,6 +1,5 @@
 ﻿// ========================================================
 // 自动生成的分片协议 ID 常量表。
-// 请勿手动修改！由 LiteProtocolScanner 自动生成。
 // ========================================================
 namespace StellarNet.Lite.Shared.Generated.Protocol.MsgIds
 {
