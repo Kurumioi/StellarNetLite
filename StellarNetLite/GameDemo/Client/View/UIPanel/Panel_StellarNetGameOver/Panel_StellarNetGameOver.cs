@@ -1,5 +1,4 @@
-﻿using Cysharp.Threading.Tasks;
-using StellarFramework.UI;
+﻿using StellarNet.UI;
 using StellarNet.Lite.Client.Components;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Shared.Protocol;
@@ -8,8 +7,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// 核心修复：对局结算态 UI 抽象。
-/// 请在 Unity 编辑器中，为本预制体添加一个 TMP_InputField 并挂载到 renameIpt 字段上。
+/// 对局结算态 UI 抽象。
 /// </summary>
 public class Panel_StellarNetGameOver : UIPanelBase
 {
@@ -32,17 +30,17 @@ public class Panel_StellarNetGameOver : UIPanelBase
 
     private void OnDestroy()
     {
-        leaveRoomBtn.onClick.RemoveAllListeners();
+        leaveRoomBtn?.onClick.RemoveAllListeners();
     }
 
-    public override async UniTask OnOpen(object uiData = null)
+    public override void OnOpen(object uiData = null)
     {
-        await base.OnOpen(uiData);
+        base.OnOpen(uiData);
+
         leaveRoomBtn.interactable = true;
         _currentReplayId = string.Empty;
         _isOwner = false;
 
-        // 判断当前玩家是否为房主
         var settingsComp = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
         if (settingsComp != null && settingsComp.Members.TryGetValue(NetClient.Session.SessionId, out var myInfo))
         {
@@ -59,11 +57,9 @@ public class Panel_StellarNetGameOver : UIPanelBase
             resultText.text = "对局结束";
         }
 
-        // 仅房主且存在录像 ID 时，显示重命名输入框
         if (_isOwner && !string.IsNullOrEmpty(_currentReplayId))
         {
             if (renameGroup != null) renameGroup.SetActive(true);
-            // 默认填入房间名
             if (renameIpt != null && settingsComp != null)
             {
                 renameIpt.text = settingsComp.RoomName;
@@ -77,7 +73,6 @@ public class Panel_StellarNetGameOver : UIPanelBase
 
     private void OnLeaveRoomBtn()
     {
-        // 如果是房主，在离开前先发送重命名请求
         if (_isOwner && !string.IsNullOrEmpty(_currentReplayId) && renameIpt != null)
         {
             string newName = renameIpt.text.Trim();
@@ -91,7 +86,6 @@ public class Panel_StellarNetGameOver : UIPanelBase
             }
         }
 
-        // 发送离房请求，交由 Router 统一接管跳转
         NetClient.Send(new C2S_LeaveRoom());
         leaveRoomBtn.interactable = false;
     }

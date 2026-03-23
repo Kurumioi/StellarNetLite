@@ -1,10 +1,9 @@
 ﻿using System;
-using Cysharp.Threading.Tasks;
-using StellarFramework;
-using StellarFramework.UI;
+using StellarNet.UI;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Protocol;
+using StellarNet.Lite.Shared.Infrastructure;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -36,16 +35,17 @@ public class Panel_StellarNetLobby : UIPanelBase
     public override void OnInit()
     {
         base.OnInit();
+
         logoutBtn.onClick.AddListener(OnLogoutBtn);
         refreshRoomListBtn.onClick.AddListener(OnRefreshRoomListBtn);
         createRoomBtn.onClick.AddListener(OnCreateRoomBtn);
         if (refreshReplayBtn != null) refreshReplayBtn.onClick.AddListener(OnRefreshReplayBtn);
 
-        GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse).UnRegisterWhenGameObjectDestroyed(gameObject);
+        GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse)
+            .UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList).UnRegisterWhenGameObjectDestroyed(gameObject);
-
-        // 修复：监听下载结果，防止网络波动导致防抖锁死锁
-        GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnS2C_DownloadReplayResult).UnRegisterWhenGameObjectDestroyed(gameObject);
+        GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnS2C_DownloadReplayResult)
+            .UnRegisterWhenGameObjectDestroyed(gameObject);
     }
 
     private void OnDestroy()
@@ -56,9 +56,9 @@ public class Panel_StellarNetLobby : UIPanelBase
         if (refreshReplayBtn != null) refreshReplayBtn.onClick.RemoveAllListeners();
     }
 
-    public override async UniTask OnOpen(object uiData = null)
+    public override void OnOpen(object uiData = null)
     {
-        await base.OnOpen(uiData);
+        base.OnOpen(uiData);
 
         if (uiData is Panel_StellarNetLobbyData data)
         {
@@ -91,12 +91,16 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     private void OnS2C_RoomListResponse(S2C_RoomListResponse msg)
     {
-        roomListContent.ClearChildren();
+        foreach (Transform child in roomListContent)
+        {
+            Destroy(child.gameObject);
+        }
+
         for (int i = 0; i < msg.Rooms.Length; i++)
         {
             var room = msg.Rooms[i];
             var roomItem = Instantiate(roomItemPrefab, roomListContent);
-            roomItem.Show();
+            roomItem.SetActive(true);
             roomItem.GetComponent<Panel_StellarNetLobby_RoomItem>()
                 .Init(room.RoomName, room.RoomId, room.MemberCount, room.MaxMembers, GetRoomStateByInt(room.State));
         }
@@ -117,14 +121,17 @@ public class Panel_StellarNetLobby : UIPanelBase
     {
         if (replayListContent == null || replayItemPrefab == null) return;
 
-        replayListContent.ClearChildren();
+        foreach (Transform child in replayListContent)
+        {
+            Destroy(child.gameObject);
+        }
 
         if (msg.Replays == null || msg.Replays.Length == 0) return;
 
         foreach (var replay in msg.Replays)
         {
             var item = Instantiate(replayItemPrefab, replayListContent);
-            item.Show();
+            item.SetActive(true);
 
             var text = item.GetComponentInChildren<TMP_Text>();
             var btn = item.GetComponentInChildren<Button>();
@@ -153,16 +160,13 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     private void OnS2C_DownloadReplayResult(S2C_DownloadReplayResult msg)
     {
-        // 修复：无论成功还是失败，都必须释放防抖锁，否则失败一次后将永远无法点击下载
         if (_downloadingReplayId == msg.ReplayId)
         {
             _downloadingReplayId = string.Empty;
-
             if (!msg.Success)
             {
-                LogKit.LogError("Panel_StellarNetLobby", $"录像下载失败: {msg.Reason}");
+                NetLogger.LogError("Panel_StellarNetLobby", $"录像下载失败: {msg.Reason}");
                 GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"录像下载失败: {msg.Reason}" });
-                // 刷新列表以重置UI状态
                 OnRefreshReplayBtn();
             }
         }

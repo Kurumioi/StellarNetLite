@@ -1,5 +1,4 @@
-﻿using Cysharp.Threading.Tasks;
-using StellarFramework.UI;
+﻿using StellarNet.UI;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using TMPro;
@@ -30,6 +29,7 @@ public class Panel_GlobalNetMonitor : UIPanelBase
     public override void OnInit()
     {
         base.OnInit();
+
         continueBtn.onClick.AddListener(OnContinueBtnClick);
         exitBtn.onClick.AddListener(OnExitBtnClick);
         promptOkBtn.onClick.AddListener(OnPromptOkBtnClick);
@@ -44,9 +44,9 @@ public class Panel_GlobalNetMonitor : UIPanelBase
             .UnRegisterWhenGameObjectDestroyed(gameObject);
     }
 
-    public override async UniTask OnOpen(object uiData = null)
+    public override void OnOpen(object uiData = null)
     {
-        await base.OnOpen(uiData);
+        base.OnOpen(uiData);
         ResetAllUI();
     }
 
@@ -60,7 +60,6 @@ public class Panel_GlobalNetMonitor : UIPanelBase
     private void Update()
     {
         var state = NetClient.State;
-
         rttGroup.SetActive(state == ClientAppState.OnlineRoom);
 
         if (state != ClientAppState.ConnectionSuspended)
@@ -79,8 +78,6 @@ public class Panel_GlobalNetMonitor : UIPanelBase
         promptGroup.SetActive(false);
     }
 
-    #region 事件处理逻辑
-
     private void HandleNetworkQuality(Local_NetworkQualityChanged evt)
     {
         if (NetClient.State != ClientAppState.OnlineRoom)
@@ -90,18 +87,9 @@ public class Panel_GlobalNetMonitor : UIPanelBase
         }
 
         rttText.text = $"{evt.RttMs} ms";
-        if (evt.RttMs < 35)
-        {
-            rttText.color = Color.green;
-        }
-        else if (evt.RttMs < 100)
-        {
-            rttText.color = Color.yellow;
-        }
-        else
-        {
-            rttText.color = Color.red;
-        }
+        if (evt.RttMs < 35) rttText.color = Color.green;
+        else if (evt.RttMs < 100) rttText.color = Color.yellow;
+        else rttText.color = Color.red;
 
         weakNetGroup.SetActive(evt.IsWeakNetBlock);
     }
@@ -125,21 +113,15 @@ public class Panel_GlobalNetMonitor : UIPanelBase
         promptGroup.SetActive(true);
     }
 
-    #endregion
-
-    #region 按钮交互逻辑
-
     private void OnContinueBtnClick()
     {
         timeoutGroup.SetActive(false);
-        // 物理重连机制由 Manager 维护，保留调用
         GameLauncher.NetManager.RestartReconnectionRoutine();
     }
 
     private void OnExitBtnClick()
     {
         timeoutGroup.SetActive(false);
-        // 核心修复：使用 NetClient.App 替代长链式调用
         NetClient.App?.AbortConnection();
     }
 
@@ -147,6 +129,4 @@ public class Panel_GlobalNetMonitor : UIPanelBase
     {
         promptGroup.SetActive(false);
     }
-
-    #endregion
 }

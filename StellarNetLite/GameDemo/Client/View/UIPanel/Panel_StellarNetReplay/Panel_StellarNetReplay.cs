@@ -1,8 +1,6 @@
-﻿using Cysharp.Threading.Tasks;
-using StellarFramework;
-using StellarFramework.UI;
+﻿using StellarNet.UI;
 using StellarNet.Lite.Client.Core;
-using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Infrastructure;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -33,6 +31,7 @@ public class Panel_StellarNetReplay : UIPanelBase
     public override void OnInit()
     {
         base.OnInit();
+
         playPauseBtn.onClick.AddListener(OnPlayPauseBtn);
         restartBtn.onClick.AddListener(OnRestartBtn);
         exitBtn.onClick.AddListener(OnExitBtn);
@@ -52,23 +51,20 @@ public class Panel_StellarNetReplay : UIPanelBase
 
     private void OnDestroy()
     {
-        playPauseBtn.onClick.RemoveAllListeners();
-        restartBtn.onClick.RemoveAllListeners();
-        exitBtn.onClick.RemoveAllListeners();
-
-        speed05Btn.onClick.RemoveAllListeners();
-        speed10Btn.onClick.RemoveAllListeners();
-        speed20Btn.onClick.RemoveAllListeners();
-        speed40Btn.onClick.RemoveAllListeners();
-
-        if (applyCustomSpeedBtn != null) applyCustomSpeedBtn.onClick.RemoveAllListeners();
-
-        progressSlider.onValueChanged.RemoveAllListeners();
+        playPauseBtn?.onClick.RemoveAllListeners();
+        restartBtn?.onClick.RemoveAllListeners();
+        exitBtn?.onClick.RemoveAllListeners();
+        speed05Btn?.onClick.RemoveAllListeners();
+        speed10Btn?.onClick.RemoveAllListeners();
+        speed20Btn?.onClick.RemoveAllListeners();
+        speed40Btn?.onClick.RemoveAllListeners();
+        applyCustomSpeedBtn?.onClick.RemoveAllListeners();
+        progressSlider?.onValueChanged.RemoveAllListeners();
     }
 
-    public override async UniTask OnOpen(object uiData = null)
+    public override void OnOpen(object uiData = null)
     {
-        await base.OnOpen(uiData);
+        base.OnOpen(uiData);
 
         if (uiData is string filePath)
         {
@@ -83,7 +79,7 @@ public class Panel_StellarNetReplay : UIPanelBase
         }
         else
         {
-            LogKit.LogError("Panel_StellarNetReplay", "打开回放面板失败：未传入合法的录像文件路径");
+            NetLogger.LogError("Panel_StellarNetReplay", "打开回放面板失败：未传入合法的录像文件路径");
             CloseSelf();
         }
     }
@@ -150,7 +146,7 @@ public class Panel_StellarNetReplay : UIPanelBase
         }
         else
         {
-            LogKit.LogError("Panel_StellarNetReplay", "请输入合法的数字倍速");
+            NetLogger.LogError("Panel_StellarNetReplay", "请输入合法的数字倍速");
         }
     }
 
@@ -174,7 +170,6 @@ public class Panel_StellarNetReplay : UIPanelBase
             _replayPlayer = null;
         }
 
-        // 修复：必须主动关闭自身面板，防止底层网络房间已销毁但 UI 残留拦截射线
         CloseSelf();
     }
 

@@ -7,7 +7,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
     /// <summary>
     /// 房间业务 UI 路由基类。
     /// </summary>
-    public abstract class RoomUIRouterBase<T> : MonoBehaviour where T : ClientRoomComponent
+    public abstract class ClientRoomUIRouterBase<T> : MonoBehaviour where T : ClientRoomComponent
     {
         protected T BoundComponent { get; private set; }
         protected ClientRoom BoundRoom => BoundComponent != null ? BoundComponent.Room : null;

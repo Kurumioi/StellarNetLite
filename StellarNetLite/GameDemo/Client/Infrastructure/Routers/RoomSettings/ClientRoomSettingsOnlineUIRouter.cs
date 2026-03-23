@@ -1,4 +1,4 @@
-﻿using StellarFramework.UI;
+﻿using StellarNet.UI;
 using StellarNet.Lite.Client.Components;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Protocol;
@@ -8,7 +8,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
     /// <summary>
     /// 通用房间设置组件 - 在线态 UI 路由
     /// </summary>
-    public class RoomSettingsOnlineUIRouter : RoomUIRouterBase<ClientRoomSettingsComponent>
+    public class ClientRoomSettingsOnlineUIRouter : ClientRoomUIRouterBase<ClientRoomSettingsComponent>
     {
         private IUnRegister _gameEndedToken;
 

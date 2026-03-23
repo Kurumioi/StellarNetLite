@@ -20,7 +20,7 @@ namespace StellarNet.Lite.Client.Components
         public bool IsPrivate { get; private set; }
 
         private GameObject _viewRoot;
-        private RoomUIRouterBase<ClientRoomSettingsComponent> _activeRouter;
+        private ClientRoomUIRouterBase<ClientRoomSettingsComponent> _activeRouter;
 
         public ClientRoomSettingsComponent(ClientApp app)
         {
@@ -58,13 +58,13 @@ namespace StellarNet.Lite.Client.Components
 
             if (_app.State == ClientAppState.OnlineRoom)
             {
-                var router = _viewRoot.AddComponent<RoomSettingsOnlineUIRouter>();
+                var router = _viewRoot.AddComponent<ClientRoomSettingsOnlineUIRouter>();
                 router.Bind(this);
                 _activeRouter = router;
             }
             else if (_app.State == ClientAppState.ReplayRoom)
             {
-                var router = _viewRoot.AddComponent<RoomSettingsReplayUIRouter>();
+                var router = _viewRoot.AddComponent<ClientRoomSettingsReplayUIRouter>();
                 router.Bind(this);
                 _activeRouter = router;
             }

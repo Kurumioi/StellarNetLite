@@ -13,7 +13,6 @@ public class SocialRoomBubbleItem : MonoBehaviour
     private float _remainTime;
     private bool _isActive;
 
-    // 剥离了 Transform 参数，跟随逻辑由外部 UGUIFollowTarget 接管
     public void Init(string content, float duration)
     {
         if (contentText == null)
@@ -42,14 +41,10 @@ public class SocialRoomBubbleItem : MonoBehaviour
 
     private void Update()
     {
-        if (!_isActive)
-        {
-            return;
-        }
+        if (!_isActive) return;
 
         _remainTime -= Time.deltaTime;
 
-        // 生命周期结束，触发自我销毁。UGUIFollowManager 会自动清理其失效引用。
         if (_remainTime <= 0f)
         {
             _isActive = false;

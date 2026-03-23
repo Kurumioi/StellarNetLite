@@ -1,10 +1,7 @@
-﻿using Cysharp.Threading.Tasks;
-using Mirror;
-using StellarFramework;
-using StellarFramework.UI;
+﻿using Mirror;
+using StellarNet.UI;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
-using StellarNet.Lite.Game.Client.Infrastructure;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.Protocol;
 using TMPro;
@@ -17,6 +14,7 @@ public class Panel_StellarNetLogin : UIPanelBase
     [SerializeField] private Button loginBtn;
     [SerializeField] private TMP_Text loginStatusTxt;
     [SerializeField] private Button restartClientBtn;
+
     [SerializeField] private Transform reconnectGroupTrans;
     [SerializeField] private Button reconnectBtn;
     [SerializeField] private Button reconnectCancelBtn;
@@ -39,44 +37,30 @@ public class Panel_StellarNetLogin : UIPanelBase
         StellarNetMirrorManager.OnClientConnectedEvent += OnClientConnected;
         StellarNetMirrorManager.OnClientDisconnectedEvent += OnClientDisconnected;
 
-
         GlobalTypeNetEvent.Register<S2C_LoginResult>(OnS2C_LoginResult).UnRegisterWhenGameObjectDestroyed(gameObject);
     }
 
-
-    public override async UniTask OnOpen(object uiData = null)
+    public override void OnOpen(object uiData = null)
     {
-        await base.OnOpen(uiData);
+        base.OnOpen(uiData);
 
         if (reconnectGroupTrans != null)
         {
             reconnectGroupTrans.gameObject.SetActive(false);
         }
 
-        if (loginBtn != null)
-        {
-            loginBtn.interactable = true;
-        }
-
-
-        if (reconnectBtn != null)
-        {
-            reconnectBtn.interactable = true;
-        }
-
-        if (reconnectCancelBtn != null)
-        {
-            reconnectCancelBtn.interactable = true;
-        }
+        if (loginBtn != null) loginBtn.interactable = true;
+        if (reconnectBtn != null) reconnectBtn.interactable = true;
+        if (reconnectCancelBtn != null) reconnectCancelBtn.interactable = true;
 
         if (NetworkClient.isConnected)
         {
-            restartClientBtn.Hide();
+            restartClientBtn.gameObject.SetActive(false);
             loginStatusTxt.text = "<color=green>服务端已连接</color>";
         }
         else
         {
-            restartClientBtn.Show();
+            restartClientBtn.gameObject.SetActive(true);
             restartClientBtn.interactable = true;
             loginStatusTxt.text = "<color=red>服务端已断开</color>";
         }
@@ -87,37 +71,22 @@ public class Panel_StellarNetLogin : UIPanelBase
         StellarNetMirrorManager.OnClientConnectedEvent -= OnClientConnected;
         StellarNetMirrorManager.OnClientDisconnectedEvent -= OnClientDisconnected;
 
-        if (loginBtn != null)
-        {
-            loginBtn.onClick.RemoveAllListeners();
-        }
-
-        if (reconnectBtn != null)
-        {
-            reconnectBtn.onClick.RemoveAllListeners();
-        }
-
-        if (reconnectCancelBtn != null)
-        {
-            reconnectCancelBtn.onClick.RemoveAllListeners();
-        }
-
-        if (restartClientBtn != null)
-        {
-            restartClientBtn.onClick.RemoveAllListeners();
-        }
+        loginBtn?.onClick.RemoveAllListeners();
+        reconnectBtn?.onClick.RemoveAllListeners();
+        reconnectCancelBtn?.onClick.RemoveAllListeners();
+        restartClientBtn?.onClick.RemoveAllListeners();
     }
 
     private void OnClientConnected()
     {
-        restartClientBtn.Hide();
+        restartClientBtn.gameObject.SetActive(false);
         restartClientBtn.interactable = false;
         loginStatusTxt.text = "<color=green>服务端已连接</color>";
     }
 
     private void OnClientDisconnected()
     {
-        restartClientBtn.Show();
+        restartClientBtn.gameObject.SetActive(true);
         restartClientBtn.interactable = true;
         loginStatusTxt.text = "<color=red>服务端已断开</color>";
     }
@@ -140,31 +109,19 @@ public class Panel_StellarNetLogin : UIPanelBase
         string safeAccountId = accountId.Trim();
         NetClient.Session.SetAccountId(safeAccountId);
 
-        if (loginBtn != null)
-        {
-            loginBtn.interactable = false;
-        }
+        if (loginBtn != null) loginBtn.interactable = false;
 
         var msg = new C2S_Login
         {
             AccountId = safeAccountId,
             ClientVersion = Application.version
         };
-
         NetClient.Send(msg);
     }
 
     private void OnRestartClientBtnClick()
     {
-        if (NetworkClient.isConnected)
-        {
-            return;
-        }
-
-        if (NetworkClient.isConnecting)
-        {
-            return;
-        }
+        if (NetworkClient.isConnected || NetworkClient.isConnecting) return;
 
         restartClientBtn.interactable = false;
         GameLauncher.Instance.StartClient();
@@ -173,31 +130,15 @@ public class Panel_StellarNetLogin : UIPanelBase
 
     private void OnReconnectBtnClick()
     {
-        if (reconnectBtn != null)
-        {
-            reconnectBtn.interactable = false;
-        }
-
-        if (reconnectCancelBtn != null)
-        {
-            reconnectCancelBtn.interactable = false;
-        }
-
+        if (reconnectBtn != null) reconnectBtn.interactable = false;
+        if (reconnectCancelBtn != null) reconnectCancelBtn.interactable = false;
         NetClient.Send(new C2S_ConfirmReconnect { Accept = true });
     }
 
     private void OnReconnectCancelBtnClick()
     {
-        if (reconnectBtn != null)
-        {
-            reconnectBtn.interactable = false;
-        }
-
-        if (reconnectCancelBtn != null)
-        {
-            reconnectCancelBtn.interactable = false;
-        }
-
+        if (reconnectBtn != null) reconnectBtn.interactable = false;
+        if (reconnectCancelBtn != null) reconnectCancelBtn.interactable = false;
         NetClient.Send(new C2S_ConfirmReconnect { Accept = false });
     }
 
@@ -211,23 +152,14 @@ public class Panel_StellarNetLogin : UIPanelBase
 
         if (!msg.Success)
         {
-            if (loginBtn != null)
-            {
-                loginBtn.interactable = true;
-            }
-
+            if (loginBtn != null) loginBtn.interactable = true;
             NetLogger.LogError($"Panel_StellarNetLogin ", $"登录失败: Reason:{msg.Reason}, Object:{name}");
             return;
         }
 
-        if (msg.HasReconnectRoom)
+        if (msg.HasReconnectRoom && reconnectGroupTrans != null)
         {
-            if (reconnectGroupTrans != null)
-            {
-                reconnectGroupTrans.gameObject.SetActive(true);
-            }
-
-            return;
+            reconnectGroupTrans.gameObject.SetActive(true);
         }
     }
 }

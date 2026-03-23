@@ -1,4 +1,4 @@
-﻿using StellarFramework.UI;
+﻿using StellarNet.UI;
 
 /// <summary>
 /// 暂时不用 采用 NetLauncher 直接启动

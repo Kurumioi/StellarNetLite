@@ -1,6 +1,6 @@
 ﻿using System;
-using StellarFramework;
-using StellarFramework.UI;
+using StellarNet.UI;
+using StellarNet.View;
 using StellarNet.Lite.Game.Client.Infrastructure;
 using StellarNet.Lite.Shared.Infrastructure;
 using UnityEngine;
@@ -20,6 +20,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
     public static StellarNetMirrorManager NetManager => Instance != null ? Instance.netManager : null;
 
     public ENetMode netMode = ENetMode.None;
+
     public bool IsClientConnectedServer { get; private set; }
 
     protected override void Awake()
@@ -41,12 +42,14 @@ public class GameLauncher : MonoSingleton<GameLauncher>
     {
         StellarNetMirrorManager.OnClientConnectedEvent += OnClientConnected;
         StellarNetMirrorManager.OnClientDisconnectedEvent += OnClientDisconnected;
+
         LauncherNetAsync(netMode);
     }
 
     protected override void OnDestroy()
     {
         base.OnDestroy();
+
         StellarNetMirrorManager.OnClientConnectedEvent -= OnClientConnected;
         StellarNetMirrorManager.OnClientDisconnectedEvent -= OnClientDisconnected;
     }
@@ -56,7 +59,6 @@ public class GameLauncher : MonoSingleton<GameLauncher>
         GlobalUIRouter.Instance.Init();
         UIKit.OpenPanel<Panel_GlobalNetMonitor>();
         UIKit.OpenPanel<Panel_StellarNetLogin>();
-        
         IsClientConnectedServer = true;
         NetLogger.LogInfo("GameLauncher", "客户端已连接服务端");
     }

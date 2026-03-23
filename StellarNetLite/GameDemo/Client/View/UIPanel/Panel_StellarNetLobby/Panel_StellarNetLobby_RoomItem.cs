@@ -1,8 +1,8 @@
-﻿using StellarFramework;
-using StellarFramework.UI;
+﻿using StellarNet.UI;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Protocol;
+using StellarNet.Lite.Shared.Infrastructure;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -28,10 +28,9 @@ public class Panel_StellarNetLobby_RoomItem : MonoBehaviour
 
     private void OnS2C_JoinRoomResult(S2C_JoinRoomResult msg)
     {
-        // 核心修复：UI 仅处理失败逻辑，成功跳转交由 Local_RoomEntered 统一处理
         if (!msg.Success)
         {
-            LogKit.Log("Panel_StellarNetLobby_RoomItem", $"加入房间失败:{msg.Reason}");
+            NetLogger.LogInfo("Panel_StellarNetLobby_RoomItem", $"加入房间失败:{msg.Reason}");
             GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"加入房间失败: {msg.Reason}" });
         }
     }

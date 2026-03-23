@@ -1,4 +1,4 @@
-﻿using StellarFramework.UI;
+﻿using StellarNet.UI;
 using StellarNet.Lite.Game.Client.Components;
 
 namespace StellarNet.Lite.Game.Client.Infrastructure
@@ -6,7 +6,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
     /// <summary>
     /// 交友房间业务组件 - 回放态 UI 路由
     /// </summary>
-    public class SocialReplayUIRouter : RoomUIRouterBase<ClientSocialRoomComponent>
+    public class SocialReplayUIRouter : ClientRoomUIRouterBase<ClientSocialRoomComponent>
     {
         protected override void OnBind(ClientSocialRoomComponent component)
         {

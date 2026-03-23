@@ -15,7 +15,7 @@ namespace StellarNet.Lite.Game.Client.Components
     {
         private readonly ClientApp _app;
         private GameObject _viewRoot;
-        private RoomUIRouterBase<ClientSocialRoomComponent> _activeRouter;
+        private ClientRoomUIRouterBase<ClientSocialRoomComponent> _activeRouter;
         private ObjectSpawnerView _spawnerView;
         private SocialRoomInputController _inputController;
         private bool _isInitialized;

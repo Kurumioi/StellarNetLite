@@ -1,5 +1,5 @@
-﻿using StellarFramework;
-using StellarFramework.UI;
+﻿using StellarNet.UI;
+using StellarNet.View;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Infrastructure;
@@ -20,24 +20,22 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
                 return;
             }
 
-
             GlobalTypeNetEvent.Register<Local_RoomEntered>(OnRoomEntered).UnRegisterWhenGameObjectDestroyed(gameObject);
             GlobalTypeNetEvent.Register<Local_RoomLeft>(OnRoomLeft).UnRegisterWhenGameObjectDestroyed(gameObject);
             GlobalTypeNetEvent.Register<S2C_LoginResult>(OnLoginResult).UnRegisterWhenGameObjectDestroyed(gameObject);
-            GlobalTypeNetEvent.Register<S2C_ReconnectResult>(OnReconnectResult).UnRegisterWhenGameObjectDestroyed(gameObject);
+            GlobalTypeNetEvent.Register<S2C_ReconnectResult>(OnReconnectResult)
+                .UnRegisterWhenGameObjectDestroyed(gameObject);
             GlobalTypeNetEvent.Register<S2C_KickOut>(OnKickOut).UnRegisterWhenGameObjectDestroyed(gameObject);
-            GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnReplayDownloaded).UnRegisterWhenGameObjectDestroyed(gameObject);
+            GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnReplayDownloaded)
+                .UnRegisterWhenGameObjectDestroyed(gameObject);
 
             _isInitialized = true;
             NetLogger.LogInfo("GlobalUIRouter", "全局 UI 路由初始化完成");
         }
 
-
         protected override void OnDestroy()
         {
             base.OnDestroy();
-
-
             _isInitialized = false;
             _lastClientState = ClientAppState.InLobby;
         }
@@ -50,8 +48,10 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             }
 
             ClientAppState currentState = NetClient.State;
+
             bool isDroppedFromRoom =
-                (_lastClientState == ClientAppState.OnlineRoom || _lastClientState == ClientAppState.ConnectionSuspended) &&
+                (_lastClientState == ClientAppState.OnlineRoom ||
+                 _lastClientState == ClientAppState.ConnectionSuspended) &&
                 currentState == ClientAppState.InLobby;
 
             if (isDroppedFromRoom)
@@ -61,7 +61,8 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
                 if (NetClient.Session != null && NetClient.Session.IsLoggedIn)
                 {
-                    UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData { uid = NetClient.Session.SessionId });
+                    UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData
+                        { uid = NetClient.Session.SessionId });
                 }
                 else
                 {
@@ -162,7 +163,8 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
             if (NetClient.Session != null && NetClient.Session.IsLoggedIn)
             {
-                UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData { uid = NetClient.Session.SessionId });
+                UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData
+                    { uid = NetClient.Session.SessionId });
             }
             else
             {
