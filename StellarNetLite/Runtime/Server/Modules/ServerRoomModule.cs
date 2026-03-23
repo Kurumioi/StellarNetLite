@@ -28,7 +28,8 @@ namespace StellarNet.Lite.Server.Modules
 
             if (session == null || msg == null)
             {
-                NetLogger.LogError("ServerRoomModule", $"创建房间失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
+                NetLogger.LogError("ServerRoomModule",
+                    $"创建房间失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
                 return;
             }
 
@@ -93,6 +94,8 @@ namespace StellarNet.Lite.Server.Modules
                 ComponentIds = uniqueComponentIds,
                 Reason = string.Empty
             });
+
+            BroadcastRoomListToLobby();
         }
 
         [NetHandler]
@@ -106,7 +109,8 @@ namespace StellarNet.Lite.Server.Modules
 
             if (session == null || msg == null)
             {
-                NetLogger.LogError("ServerRoomModule", $"加入房间失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
+                NetLogger.LogError("ServerRoomModule",
+                    $"加入房间失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
                 return;
             }
 
@@ -165,6 +169,7 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             session.AuthorizeRoom(room.RoomId);
+
             _app.SendMessageToSession(session, new S2C_JoinRoomResult
             {
                 Success = true,
@@ -185,7 +190,8 @@ namespace StellarNet.Lite.Server.Modules
 
             if (session == null || msg == null)
             {
-                NetLogger.LogError("ServerRoomModule", $"房间装配握手失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
+                NetLogger.LogError("ServerRoomModule",
+                    $"房间装配握手失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
                 return;
             }
 
@@ -224,7 +230,10 @@ namespace StellarNet.Lite.Server.Modules
 
             room.AddMember(session);
             session.ClearAuthorizedRoom();
+
             NetLogger.LogInfo("ServerRoomModule", "客户端首次装配就绪，正式加入房间", msg.RoomId, session.SessionId);
+
+            BroadcastRoomListToLobby();
         }
 
         [NetHandler]
@@ -253,7 +262,6 @@ namespace StellarNet.Lite.Server.Modules
             if (room != null)
             {
                 room.RemoveMember(session);
-
                 if (room.MemberCount == 0)
                 {
                     _app.DestroyRoom(roomId);
@@ -262,6 +270,8 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             _app.SendMessageToSession(session, new S2C_LeaveRoomResult { Success = true });
+
+            BroadcastRoomListToLobby();
         }
 
         private int[] DeduplicateComponentIds(int[] rawIds)
@@ -283,6 +293,31 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             return list.ToArray();
+        }
+
+        private void BroadcastRoomListToLobby()
+        {
+            if (_app == null)
+            {
+                return;
+            }
+
+            // 直接调用 ServerLobbyModule 的静态方法，复用组装逻辑
+            S2C_RoomListResponse response = ServerLobbyModule.BuildRoomListResponse(_app);
+
+            foreach (KeyValuePair<string, Session> kvp in _app.Sessions)
+            {
+                Session session = kvp.Value;
+                if (session == null)
+                {
+                    continue;
+                }
+
+                if (session.IsOnline && string.IsNullOrEmpty(session.CurrentRoomId))
+                {
+                    _app.SendMessageToSession(session, response);
+                }
+            }
         }
     }
 }
