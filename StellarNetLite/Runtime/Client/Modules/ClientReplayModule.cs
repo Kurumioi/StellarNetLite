@@ -17,11 +17,26 @@ namespace StellarNet.Lite.Client.Modules
         private int _expectedTotalBytes;
         private FileStream _fileStream;
 
-        public static string CacheFolderPath => Path.Combine(Application.persistentDataPath, "ClientReplays").Replace("\\", "/");
+        public static string CacheFolderPath =>
+            Path.Combine(Application.persistentDataPath, "ClientReplays").Replace("\\", "/");
 
         public ClientReplayModule(ClientApp app)
         {
             _app = app;
+            // 核心修复：监听硬中止事件，防止断线或 App 销毁时产生 FileStream 句柄泄漏
+            GlobalTypeNetEvent.Register<Local_ConnectionAborted>(OnConnectionAborted);
+        }
+
+        private void OnConnectionAborted(Local_ConnectionAborted evt)
+        {
+            if (_fileStream != null)
+            {
+                NetLogger.LogWarning("ClientReplayModule", "检测到连接硬中止，强制释放正在下载的录像文件流");
+                CloseFileStream();
+            }
+
+            _downloadingReplayId = string.Empty;
+            _expectedTotalBytes = 0;
         }
 
         public static void RequestDownload(ClientApp app, string replayId)
@@ -60,7 +75,8 @@ namespace StellarNet.Lite.Client.Modules
             if (File.Exists(tmpPath))
             {
                 startOffset = (int)new FileInfo(tmpPath).Length;
-                NetLogger.LogInfo("ClientReplayModule", $"发现未完成下载，发起断点续传。ReplayId:{replayId}, StartOffset:{startOffset}");
+                NetLogger.LogInfo("ClientReplayModule",
+                    $"发现未完成下载，发起断点续传。ReplayId:{replayId}, StartOffset:{startOffset}");
             }
 
             app.SendMessage(new C2S_DownloadReplay
@@ -97,7 +113,6 @@ namespace StellarNet.Lite.Client.Modules
             {
                 _downloadingReplayId = string.Empty;
                 _expectedTotalBytes = 0;
-
                 NetLogger.LogError("ClientReplayModule", $"录像下载请求失败: ReplayId:{msg.ReplayId}, Reason:{msg.Reason}");
                 GlobalTypeNetEvent.Broadcast(new S2C_DownloadReplayResult
                 {
@@ -122,7 +137,8 @@ namespace StellarNet.Lite.Client.Modules
 
             if (_expectedTotalBytes < 0)
             {
-                NetLogger.LogError("ClientReplayModule", $"处理下载开始失败: TotalBytes 非法, ReplayId:{_downloadingReplayId}, TotalBytes:{_expectedTotalBytes}");
+                NetLogger.LogError("ClientReplayModule",
+                    $"处理下载开始失败: TotalBytes 非法, ReplayId:{_downloadingReplayId}, TotalBytes:{_expectedTotalBytes}");
                 _downloadingReplayId = string.Empty;
                 _expectedTotalBytes = 0;
                 return;
@@ -135,6 +151,13 @@ namespace StellarNet.Lite.Client.Modules
             }
 
             _fileStream = new FileStream(tmpPath, FileMode.Append, FileAccess.Write, FileShare.None);
+
+            GlobalTypeNetEvent.Broadcast(new Local_ReplayDownloadProgress
+            {
+                ReplayId = _downloadingReplayId,
+                DownloadedBytes = msg.AcceptedOffset,
+                TotalBytes = _expectedTotalBytes
+            });
 
             if (_fileStream.Length >= _expectedTotalBytes)
             {
@@ -182,6 +205,13 @@ namespace StellarNet.Lite.Client.Modules
             _fileStream.Write(msg.ChunkData, 0, msg.ChunkData.Length);
             _fileStream.Flush();
 
+            GlobalTypeNetEvent.Broadcast(new Local_ReplayDownloadProgress
+            {
+                ReplayId = _downloadingReplayId,
+                DownloadedBytes = (int)_fileStream.Length,
+                TotalBytes = _expectedTotalBytes
+            });
+
             if (_fileStream.Length >= _expectedTotalBytes)
             {
                 FinishDownload(msg.ReplayId);
@@ -220,6 +250,7 @@ namespace StellarNet.Lite.Client.Modules
             }
 
             File.Move(tmpPath, finalPath);
+
             _downloadingReplayId = string.Empty;
             _expectedTotalBytes = 0;
 
@@ -235,6 +266,7 @@ namespace StellarNet.Lite.Client.Modules
         private void FailCurrentDownload(string replayId, string reason)
         {
             CloseFileStream();
+
             _downloadingReplayId = string.Empty;
             _expectedTotalBytes = 0;
 

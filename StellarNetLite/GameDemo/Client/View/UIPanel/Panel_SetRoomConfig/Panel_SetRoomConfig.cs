@@ -23,7 +23,12 @@ public class Panel_SetRoomConfig : UIPanelBase
         new List<RoomTypeTemplateRegistry.RoomTypeTemplate>();
 
     private readonly List<Panel_SetRoomConfig_RoomComItem> _roomTypeItems = new List<Panel_SetRoomConfig_RoomComItem>();
+
     private int _selectedTemplateIndex = -1;
+
+    private bool _isRequesting;
+    private float _requestStartTime;
+    private const float RequestTimeoutSeconds = 5f;
 
     public override void OnInit()
     {
@@ -58,12 +63,30 @@ public class Panel_SetRoomConfig : UIPanelBase
     {
         base.OnOpen(uiData);
 
+        _isRequesting = false;
+
         if (createBtn != null)
         {
             createBtn.interactable = true;
         }
 
         ApplyDefaultSelectionIfNeeded();
+    }
+
+    private void Update()
+    {
+        // 核心修复：请求超时自愈，防止因网络丢包导致 UI 永久卡死在不可点击状态
+        if (_isRequesting)
+        {
+            if (Time.realtimeSinceStartup - _requestStartTime > RequestTimeoutSeconds)
+            {
+                _isRequesting = false;
+                if (createBtn != null) createBtn.interactable = true;
+
+                NetLogger.LogWarning("Panel_SetRoomConfig", "创建房间请求超时，已恢复 UI 交互");
+                GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = "创建房间超时，请重试" });
+            }
+        }
     }
 
     private void OnMemberCountSlider(float value)
@@ -80,6 +103,7 @@ public class Panel_SetRoomConfig : UIPanelBase
         if (string.IsNullOrEmpty(roomName))
         {
             NetLogger.LogError("Panel_SetRoomConfig", "创建房间失败: 请输入房间名称");
+            GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = "请输入房间名称" });
             return;
         }
 
@@ -91,9 +115,11 @@ public class Panel_SetRoomConfig : UIPanelBase
             return;
         }
 
+        _isRequesting = true;
+        _requestStartTime = Time.realtimeSinceStartup;
         createBtn.interactable = false;
-        int memberCount = (int)memberCountSlider.value;
 
+        int memberCount = (int)memberCountSlider.value;
         NetLogger.LogInfo("Panel_SetRoomConfig", $"请求创建房间 {roomName} {memberCount} {roomComIds}");
 
         C2S_CreateRoom msg = new C2S_CreateRoom
@@ -102,7 +128,6 @@ public class Panel_SetRoomConfig : UIPanelBase
             ComponentIds = roomComIds.ToArray(),
             MaxMembers = memberCount
         };
-
         NetClient.Send(msg);
     }
 
@@ -113,6 +138,8 @@ public class Panel_SetRoomConfig : UIPanelBase
 
     private void OnS2C_CreateRoomResult(S2C_CreateRoomResult msg)
     {
+        _isRequesting = false;
+
         if (msg == null) return;
 
         if (!msg.Success)
@@ -216,7 +243,6 @@ public class Panel_SetRoomConfig : UIPanelBase
     private List<int> GetSelectedRoomTypeComponentIds()
     {
         List<int> result = new List<int>();
-
         if (_selectedTemplateIndex < 0 || _selectedTemplateIndex >= _roomTypeTemplates.Count) return result;
 
         var template = _roomTypeTemplates[_selectedTemplateIndex];

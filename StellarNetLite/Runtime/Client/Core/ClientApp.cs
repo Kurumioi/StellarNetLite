@@ -43,6 +43,9 @@ namespace StellarNet.Lite.Client.Core
             _isDisposed = true;
             NetLogger.LogWarning("ClientApp", "执行 ClientApp 深度销毁与资源回收");
 
+            // 核心修复：抛出硬中止事件，驱动全局模块（如 ReplayModule）释放文件流等非托管资源
+            GlobalTypeNetEvent.Broadcast(new Local_ConnectionAborted());
+
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
@@ -75,13 +78,15 @@ namespace StellarNet.Lite.Client.Core
 
                 if (CurrentRoom == null)
                 {
-                    NetLogger.LogWarning("ClientApp", $"房间包已丢弃: CurrentRoom 为空, MsgId:{packet.MsgId}, RoomId:{packet.RoomId}");
+                    NetLogger.LogWarning("ClientApp",
+                        $"房间包已丢弃: CurrentRoom 为空, MsgId:{packet.MsgId}, RoomId:{packet.RoomId}");
                     return;
                 }
 
                 if (packet.RoomId != CurrentRoom.RoomId)
                 {
-                    NetLogger.LogWarning("ClientApp", $"房间包已丢弃: RoomId 不匹配, Packet:{packet.RoomId}, Current:{CurrentRoom.RoomId}, MsgId:{packet.MsgId}");
+                    NetLogger.LogWarning("ClientApp",
+                        $"房间包已丢弃: RoomId 不匹配, Packet:{packet.RoomId}, Current:{CurrentRoom.RoomId}, MsgId:{packet.MsgId}");
                     return;
                 }
 
@@ -100,16 +105,19 @@ namespace StellarNet.Lite.Client.Core
             switch (State)
             {
                 case ClientAppState.InLobby:
-                    isValidTransition = targetState == ClientAppState.OnlineRoom || targetState == ClientAppState.ReplayRoom;
+                    isValidTransition = targetState == ClientAppState.OnlineRoom ||
+                                        targetState == ClientAppState.ReplayRoom;
                     break;
                 case ClientAppState.OnlineRoom:
-                    isValidTransition = targetState == ClientAppState.InLobby || targetState == ClientAppState.ConnectionSuspended;
+                    isValidTransition = targetState == ClientAppState.InLobby ||
+                                        targetState == ClientAppState.ConnectionSuspended;
                     break;
                 case ClientAppState.ReplayRoom:
                     isValidTransition = targetState == ClientAppState.InLobby;
                     break;
                 case ClientAppState.ConnectionSuspended:
-                    isValidTransition = targetState == ClientAppState.InLobby || targetState == ClientAppState.OnlineRoom;
+                    isValidTransition = targetState == ClientAppState.InLobby ||
+                                        targetState == ClientAppState.OnlineRoom;
                     break;
             }
 
@@ -151,7 +159,8 @@ namespace StellarNet.Lite.Client.Core
 
             if (CurrentRoom != null)
             {
-                NetLogger.LogWarning("ClientApp", $"进入在线房间前检测到旧房间残留，已执行覆盖销毁。OldRoom:{CurrentRoom.RoomId}, NewRoom:{roomId}");
+                NetLogger.LogWarning("ClientApp",
+                    $"进入在线房间前检测到旧房间残留，已执行覆盖销毁。OldRoom:{CurrentRoom.RoomId}, NewRoom:{roomId}");
                 CurrentRoom.Destroy();
                 CurrentRoom = null;
             }
@@ -188,7 +197,8 @@ namespace StellarNet.Lite.Client.Core
 
             if (CurrentRoom != null)
             {
-                NetLogger.LogWarning("ClientApp", $"进入回放房间前检测到旧房间残留，已执行覆盖销毁。OldRoom:{CurrentRoom.RoomId}, NewRoom:{roomId}");
+                NetLogger.LogWarning("ClientApp",
+                    $"进入回放房间前检测到旧房间残留，已执行覆盖销毁。OldRoom:{CurrentRoom.RoomId}, NewRoom:{roomId}");
                 CurrentRoom.Destroy();
                 CurrentRoom = null;
             }
@@ -250,6 +260,9 @@ namespace StellarNet.Lite.Client.Core
 
             NetLogger.LogWarning("ClientApp", "触发硬清理: 彻底清空会话与房间状态");
 
+            // 核心修复：抛出硬中止事件，确保下载流等资源被安全关闭
+            GlobalTypeNetEvent.Broadcast(new Local_ConnectionAborted());
+
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
@@ -293,7 +306,8 @@ namespace StellarNet.Lite.Client.Core
 
             if (meta.Dir != NetDir.C2S)
             {
-                NetLogger.LogError("ClientApp", $"发送阻断: 协议方向非法, Type:{typeof(T).FullName}, MsgId:{meta.Id}, Dir:{meta.Dir}");
+                NetLogger.LogError("ClientApp",
+                    $"发送阻断: 协议方向非法, Type:{typeof(T).FullName}, MsgId:{meta.Id}, Dir:{meta.Dir}");
                 return;
             }
 
@@ -319,27 +333,29 @@ namespace StellarNet.Lite.Client.Core
             {
                 if (State != ClientAppState.OnlineRoom || CurrentRoom == null)
                 {
-                    NetLogger.LogError("ClientApp", $"发送阻断: 房间协议缺失上下文, MsgId:{meta.Id}, State:{State}, CurrentRoomNull:{CurrentRoom == null}");
+                    NetLogger.LogError("ClientApp",
+                        $"发送阻断: 房间协议缺失上下文, MsgId:{meta.Id}, State:{State}, CurrentRoomNull:{CurrentRoom == null}");
                     return;
                 }
 
                 roomId = CurrentRoom.RoomId;
                 if (string.IsNullOrEmpty(roomId))
                 {
-                    NetLogger.LogError("ClientApp", $"发送阻断: CurrentRoom.RoomId 为空, MsgId:{meta.Id}, Type:{typeof(T).FullName}");
+                    NetLogger.LogError("ClientApp",
+                        $"发送阻断: CurrentRoom.RoomId 为空, MsgId:{meta.Id}, Type:{typeof(T).FullName}");
                     return;
                 }
             }
 
             _sendSeq++;
             byte[] buffer = ArrayPool<byte>.Shared.Rent(131072);
-
             try
             {
                 int length = _serializer.Serialize(msg, buffer);
                 if (length <= 0)
                 {
-                    NetLogger.LogError("ClientApp", $"发送失败: 序列化结果长度非法, MsgId:{meta.Id}, Type:{typeof(T).FullName}, Length:{length}");
+                    NetLogger.LogError("ClientApp",
+                        $"发送失败: 序列化结果长度非法, MsgId:{meta.Id}, Type:{typeof(T).FullName}, Length:{length}");
                     return;
                 }
 

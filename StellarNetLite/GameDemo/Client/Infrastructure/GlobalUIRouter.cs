@@ -57,7 +57,11 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             if (isDroppedFromRoom)
             {
                 NetLogger.LogWarning("GlobalUIRouter", "检测到状态跌落，执行 UI 回退");
+
+                // 核心修复：状态跌落时，强制清理所有可能残留的通用房间 UI
                 UIKit.ClosePanel<Panel_SetRoomConfig>();
+                UIKit.ClosePanel<Panel_StellarNetRoom>();
+                UIKit.ClosePanel<Panel_StellarNetGameOver>();
 
                 if (NetClient.Session != null && NetClient.Session.IsLoggedIn)
                 {
@@ -159,7 +163,13 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             }
 
             NetLogger.LogInfo("GlobalUIRouter", "离开房间，回退至大厅");
+
             UIKit.ClosePanel<Panel_StellarNetReplay>();
+
+            // 核心修复：增加对通用房间 UI 的兜底清理，防止 Router 异常导致 UI 残留卡死
+            UIKit.ClosePanel<Panel_StellarNetRoom>();
+            UIKit.ClosePanel<Panel_StellarNetGameOver>();
+            UIKit.ClosePanel<Panel_SetRoomConfig>();
 
             if (NetClient.Session != null && NetClient.Session.IsLoggedIn)
             {

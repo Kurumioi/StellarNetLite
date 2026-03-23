@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using StellarNet.UI;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
@@ -30,12 +31,9 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     [SerializeField] private Panel_StellarNetLobbyData dataModel;
 
-    private string _downloadingReplayId = string.Empty;
-
     public override void OnInit()
     {
         base.OnInit();
-
         logoutBtn.onClick.AddListener(OnLogoutBtn);
         refreshRoomListBtn.onClick.AddListener(OnRefreshRoomListBtn);
         createRoomBtn.onClick.AddListener(OnCreateRoomBtn);
@@ -43,7 +41,8 @@ public class Panel_StellarNetLobby : UIPanelBase
 
         GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
-        GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList).UnRegisterWhenGameObjectDestroyed(gameObject);
+        GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList)
+            .UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnS2C_DownloadReplayResult)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
     }
@@ -59,14 +58,12 @@ public class Panel_StellarNetLobby : UIPanelBase
     public override void OnOpen(object uiData = null)
     {
         base.OnOpen(uiData);
-
         if (uiData is Panel_StellarNetLobbyData data)
         {
             dataModel = data;
         }
 
         uidText.text = dataModel.uid;
-        _downloadingReplayId = string.Empty;
     }
 
     private void OnLogoutBtn()
@@ -128,47 +125,32 @@ public class Panel_StellarNetLobby : UIPanelBase
 
         if (msg.Replays == null || msg.Replays.Length == 0) return;
 
-        foreach (var replay in msg.Replays)
+        for (int i = 0; i < msg.Replays.Length; i++)
         {
+            var replay = msg.Replays[i];
             var item = Instantiate(replayItemPrefab, replayListContent);
             item.SetActive(true);
 
-            var text = item.GetComponentInChildren<TMP_Text>();
-            var btn = item.GetComponentInChildren<Button>();
-
-            if (text != null)
+            var itemCom = item.GetComponent<Panel_StellarNetLobby_ReplayItem>();
+            if (itemCom == null)
             {
-                DateTime dt = DateTimeOffset.FromUnixTimeSeconds(replay.Timestamp).LocalDateTime;
-                text.text = $"[{dt:MM-dd HH:mm}] {replay.DisplayName}";
+                itemCom = item.AddComponent<Panel_StellarNetLobby_ReplayItem>();
             }
 
-            if (btn != null)
-            {
-                string rId = replay.ReplayId;
-                btn.onClick.AddListener(() =>
-                {
-                    if (!string.IsNullOrEmpty(_downloadingReplayId)) return;
+            string finalPath = Path.Combine(StellarNet.Lite.Client.Modules.ClientReplayModule.CacheFolderPath,
+                $"{replay.ReplayId}.replay").Replace("\\", "/");
+            bool isCached = File.Exists(finalPath);
 
-                    _downloadingReplayId = rId;
-                    StellarNet.Lite.Client.Modules.ClientReplayModule.RequestDownload(NetClient.App, rId);
-
-                    if (text != null) text.text = $"{replay.DisplayName} (下载/加载中...)";
-                });
-            }
+            itemCom.Init(replay, isCached);
         }
     }
 
     private void OnS2C_DownloadReplayResult(S2C_DownloadReplayResult msg)
     {
-        if (_downloadingReplayId == msg.ReplayId)
+        if (!msg.Success)
         {
-            _downloadingReplayId = string.Empty;
-            if (!msg.Success)
-            {
-                NetLogger.LogError("Panel_StellarNetLobby", $"录像下载失败: {msg.Reason}");
-                GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"录像下载失败: {msg.Reason}" });
-                OnRefreshReplayBtn();
-            }
+            NetLogger.LogError("Panel_StellarNetLobby", $"录像下载失败: {msg.Reason}");
+            GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"录像下载失败: {msg.Reason}" });
         }
     }
 }

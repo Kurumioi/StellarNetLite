@@ -31,13 +31,26 @@ namespace StellarNet.Lite.Client.Core.Events
     public struct Local_RoomLeft
     {
         public bool IsSuspended;
-
-        // 核心修复：静默离开标记。用于回放沙盒重置等内部操作，告知 Router 不要进行 UI 跳转
         public bool IsSilent;
     }
 
     public struct Local_ReplayTimeScaleChanged
     {
         public float TimeScale;
+    }
+
+    public struct Local_ReplayDownloadProgress
+    {
+        public string ReplayId;
+        public int DownloadedBytes;
+        public int TotalBytes;
+    }
+
+    /// <summary>
+    /// 连接硬中止事件。
+    /// 职责：在 ClientApp 彻底销毁或执行硬清理时抛出，用于通知全局模块（如文件下载）释放底层非托管资源。
+    /// </summary>
+    public struct Local_ConnectionAborted
+    {
     }
 }

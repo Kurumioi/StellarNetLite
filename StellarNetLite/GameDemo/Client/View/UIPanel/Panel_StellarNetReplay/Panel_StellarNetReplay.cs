@@ -1,5 +1,6 @@
 ﻿using StellarNet.UI;
 using StellarNet.Lite.Client.Core;
+using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Infrastructure;
 using TMPro;
 using UnityEngine;
@@ -31,7 +32,6 @@ public class Panel_StellarNetReplay : UIPanelBase
     public override void OnInit()
     {
         base.OnInit();
-
         playPauseBtn.onClick.AddListener(OnPlayPauseBtn);
         restartBtn.onClick.AddListener(OnRestartBtn);
         exitBtn.onClick.AddListener(OnExitBtn);
@@ -65,22 +65,32 @@ public class Panel_StellarNetReplay : UIPanelBase
     public override void OnOpen(object uiData = null)
     {
         base.OnOpen(uiData);
-
         if (uiData is string filePath)
         {
             _replayPlayer = new ClientReplayPlayer(NetClient.App);
-            _replayPlayer.StartReplay(filePath);
+
+            // 核心修复：接收 bool 返回值，若失败则主动触发全局回退，避免卡死在空面板
+            bool success = _replayPlayer.StartReplay(filePath);
+            if (!success)
+            {
+                _replayPlayer = null;
+                NetLogger.LogError("Panel_StellarNetReplay", "录像初始化失败，自动退出回放并清理损坏文件");
+                GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = "录像文件已损坏，已自动清理，请重新下载" });
+
+                // 触发全局路由回退至大厅
+                GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSilent = false, IsSuspended = false });
+                return;
+            }
 
             progressSlider.minValue = 0;
             progressSlider.maxValue = _replayPlayer.GetTotalTicks();
-
             SetSpeed(1.0f);
             UpdateUIState();
         }
         else
         {
             NetLogger.LogError("Panel_StellarNetReplay", "打开回放面板失败：未传入合法的录像文件路径");
-            CloseSelf();
+            GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSilent = false, IsSuspended = false });
         }
     }
 
@@ -137,7 +147,6 @@ public class Panel_StellarNetReplay : UIPanelBase
     private void OnApplyCustomSpeedBtn()
     {
         if (customSpeedIpt == null) return;
-
         if (float.TryParse(customSpeedIpt.text, out float speed))
         {
             speed = Mathf.Clamp(speed, 0.1f, 100f);
@@ -153,7 +162,6 @@ public class Panel_StellarNetReplay : UIPanelBase
     private void OnSliderValueChanged(float value)
     {
         if (_replayPlayer == null) return;
-
         if (Mathf.Abs(value - _replayPlayer.CurrentTick) > 1f)
         {
             _isDraggingSlider = true;
@@ -169,8 +177,11 @@ public class Panel_StellarNetReplay : UIPanelBase
             _replayPlayer.StopReplay();
             _replayPlayer = null;
         }
-
-        CloseSelf();
+        else
+        {
+            // 防御性补救：如果 _replayPlayer 为空但玩家点击了退出，强制触发回退
+            GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSilent = false, IsSuspended = false });
+        }
     }
 
     private void UpdateUIState()

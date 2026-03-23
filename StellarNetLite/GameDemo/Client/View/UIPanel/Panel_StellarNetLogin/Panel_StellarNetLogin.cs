@@ -19,6 +19,10 @@ public class Panel_StellarNetLogin : UIPanelBase
     [SerializeField] private Button reconnectBtn;
     [SerializeField] private Button reconnectCancelBtn;
 
+    private bool _isRequesting;
+    private float _requestStartTime;
+    private const float RequestTimeoutSeconds = 5f;
+
     public override void OnInit()
     {
         base.OnInit();
@@ -43,6 +47,8 @@ public class Panel_StellarNetLogin : UIPanelBase
     public override void OnOpen(object uiData = null)
     {
         base.OnOpen(uiData);
+
+        _isRequesting = false;
 
         if (reconnectGroupTrans != null)
         {
@@ -77,6 +83,24 @@ public class Panel_StellarNetLogin : UIPanelBase
         restartClientBtn?.onClick.RemoveAllListeners();
     }
 
+    private void Update()
+    {
+        // 核心修复：请求超时自愈，防止因网络丢包导致 UI 永久卡死在不可点击状态
+        if (_isRequesting)
+        {
+            if (Time.realtimeSinceStartup - _requestStartTime > RequestTimeoutSeconds)
+            {
+                _isRequesting = false;
+                if (loginBtn != null) loginBtn.interactable = true;
+                if (reconnectBtn != null) reconnectBtn.interactable = true;
+                if (reconnectCancelBtn != null) reconnectCancelBtn.interactable = true;
+
+                NetLogger.LogWarning("Panel_StellarNetLogin", "登录或重连请求超时，已恢复 UI 交互");
+                GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = "请求超时，请重试" });
+            }
+        }
+    }
+
     private void OnClientConnected()
     {
         restartClientBtn.gameObject.SetActive(false);
@@ -89,13 +113,17 @@ public class Panel_StellarNetLogin : UIPanelBase
         restartClientBtn.gameObject.SetActive(true);
         restartClientBtn.interactable = true;
         loginStatusTxt.text = "<color=red>服务端已断开</color>";
+
+        // 断线时自动解除请求锁定
+        _isRequesting = false;
+        if (loginBtn != null) loginBtn.interactable = true;
     }
 
     private void OnLoginBtnClick()
     {
         if (NetClient.App == null || NetClient.Session == null)
         {
-            NetLogger.LogError($"Panel_StellarNetLogin", $" 登录失败: NetClient 未初始化, Object:{name}");
+            NetLogger.LogError($"Panel_StellarNetLogin", $"登录失败: NetClient 未初始化, Object:{name}");
             return;
         }
 
@@ -109,6 +137,8 @@ public class Panel_StellarNetLogin : UIPanelBase
         string safeAccountId = accountId.Trim();
         NetClient.Session.SetAccountId(safeAccountId);
 
+        _isRequesting = true;
+        _requestStartTime = Time.realtimeSinceStartup;
         if (loginBtn != null) loginBtn.interactable = false;
 
         var msg = new C2S_Login
@@ -130,30 +160,42 @@ public class Panel_StellarNetLogin : UIPanelBase
 
     private void OnReconnectBtnClick()
     {
+        _isRequesting = true;
+        _requestStartTime = Time.realtimeSinceStartup;
+
         if (reconnectBtn != null) reconnectBtn.interactable = false;
         if (reconnectCancelBtn != null) reconnectCancelBtn.interactable = false;
+
         NetClient.Send(new C2S_ConfirmReconnect { Accept = true });
     }
 
     private void OnReconnectCancelBtnClick()
     {
+        _isRequesting = true;
+        _requestStartTime = Time.realtimeSinceStartup;
+
         if (reconnectBtn != null) reconnectBtn.interactable = false;
         if (reconnectCancelBtn != null) reconnectCancelBtn.interactable = false;
+
         NetClient.Send(new C2S_ConfirmReconnect { Accept = false });
     }
 
     private void OnS2C_LoginResult(S2C_LoginResult msg)
     {
+        _isRequesting = false;
+
         if (msg == null)
         {
-            NetLogger.LogError($"Panel_StellarNetLogin", $" 处理登录结果失败: msg 为空, Object:{name}");
+            NetLogger.LogError($"Panel_StellarNetLogin", $"处理登录结果失败: msg 为空, Object:{name}");
+            if (loginBtn != null) loginBtn.interactable = true;
             return;
         }
 
         if (!msg.Success)
         {
             if (loginBtn != null) loginBtn.interactable = true;
-            NetLogger.LogError($"Panel_StellarNetLogin ", $"登录失败: Reason:{msg.Reason}, Object:{name}");
+            NetLogger.LogError($"Panel_StellarNetLogin", $"登录失败: Reason:{msg.Reason}, Object:{name}");
+            GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"登录失败: {msg.Reason}" });
             return;
         }
 
