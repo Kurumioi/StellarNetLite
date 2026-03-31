@@ -29,7 +29,8 @@ namespace StellarNet.Lite.Server.Modules
 
             if (session == null || msg == null)
             {
-                NetLogger.LogError("ServerUserModule", $"登录失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
+                NetLogger.LogError("ServerUserModule",
+                    $"登录失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
                 return;
             }
 
@@ -93,9 +94,11 @@ namespace StellarNet.Lite.Server.Modules
             {
                 if (oldSession == session)
                 {
-                    NetLogger.LogInfo("ServerUserModule", "忽略重复登录请求，返回当前会话结果", oldSession.CurrentRoomId, oldSession.SessionId);
+                    NetLogger.LogInfo("ServerUserModule", "忽略重复登录请求，返回当前会话结果", oldSession.CurrentRoomId,
+                        oldSession.SessionId);
 
-                    bool hasReconnectRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) && _app.GetRoom(oldSession.CurrentRoomId) != null;
+                    bool hasReconnectRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) &&
+                                            _app.GetRoom(oldSession.CurrentRoomId) != null;
                     _app.SendMessageToSession(oldSession, new S2C_LoginResult
                     {
                         Success = true,
@@ -103,12 +106,14 @@ namespace StellarNet.Lite.Server.Modules
                         HasReconnectRoom = hasReconnectRoom,
                         Reason = string.Empty
                     });
+                    ServerLobbyModule.BroadcastOnlinePlayerList(_app);
                     return;
                 }
 
                 if (oldSession.IsOnline)
                 {
-                    NetLogger.LogWarning("ServerUserModule", "账号在其他设备登录，踢出旧连接", oldSession.CurrentRoomId, oldSession.SessionId);
+                    NetLogger.LogWarning("ServerUserModule", "账号在其他设备登录，踢出旧连接", oldSession.CurrentRoomId,
+                        oldSession.SessionId);
                     _app.SendMessageToSession(oldSession, new S2C_KickOut { Reason = "账号在其他设备登录" });
                     _app.UnbindConnection(oldSession);
                 }
@@ -117,7 +122,8 @@ namespace StellarNet.Lite.Server.Modules
                 _app.BindConnection(oldSession, session.ConnectionId);
                 oldSession.ResetSeq(session.LastReceivedSeq);
 
-                bool hasRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) && _app.GetRoom(oldSession.CurrentRoomId) != null;
+                bool hasRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) &&
+                               _app.GetRoom(oldSession.CurrentRoomId) != null;
                 _app.SendMessageToSession(oldSession, new S2C_LoginResult
                 {
                     Success = true,
@@ -127,6 +133,7 @@ namespace StellarNet.Lite.Server.Modules
                 });
 
                 NetLogger.LogInfo("ServerUserModule", "玩家断线重连(顶号)成功", oldSession.CurrentRoomId, oldSession.SessionId);
+                ServerLobbyModule.BroadcastOnlinePlayerList(_app);
                 return;
             }
 
@@ -147,6 +154,7 @@ namespace StellarNet.Lite.Server.Modules
             });
 
             NetLogger.LogInfo("ServerUserModule", "玩家全新登录成功", "-", authSession.SessionId);
+            ServerLobbyModule.BroadcastOnlinePlayerList(_app);
         }
 
         [NetHandler]
@@ -160,7 +168,8 @@ namespace StellarNet.Lite.Server.Modules
 
             if (session == null || msg == null)
             {
-                NetLogger.LogError("ServerUserModule", $"确认重连失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
+                NetLogger.LogError("ServerUserModule",
+                    $"确认重连失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
                 return;
             }
 
@@ -214,7 +223,8 @@ namespace StellarNet.Lite.Server.Modules
 
             if (session == null || msg == null)
             {
-                NetLogger.LogError("ServerUserModule", $"重连就绪失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
+                NetLogger.LogError("ServerUserModule",
+                    $"重连就绪失败: session 或 msg 为空, Session:{session?.SessionId ?? "null"}");
                 return;
             }
 

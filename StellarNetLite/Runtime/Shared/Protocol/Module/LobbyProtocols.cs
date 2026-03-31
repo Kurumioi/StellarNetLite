@@ -15,6 +15,15 @@ namespace StellarNet.Lite.Shared.Protocol
         public int State; // 0: Waiting, 1: Playing, 2: Finished
     }
 
+    public sealed class OnlinePlayerInfo
+    {
+        public string SessionId;
+        public string Uid;
+        public string DisplayName;
+        public bool IsInRoom;
+        public string RoomId;
+    }
+
     /// <summary>
     /// 客户端请求获取大厅房间列表
     /// </summary>
@@ -30,5 +39,11 @@ namespace StellarNet.Lite.Shared.Protocol
     public sealed class S2C_RoomListResponse
     {
         public RoomBriefInfo[] Rooms;
+    }
+
+    [NetMsg(212, NetScope.Global, NetDir.S2C)]
+    public sealed class S2C_OnlinePlayerListSync
+    {
+        public OnlinePlayerInfo[] Players;
     }
 }

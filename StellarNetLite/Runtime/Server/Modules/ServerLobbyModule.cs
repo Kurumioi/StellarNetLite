@@ -68,5 +68,92 @@ namespace StellarNet.Lite.Server.Modules
 
             return new S2C_RoomListResponse { Rooms = roomList.ToArray() };
         }
+
+        /// <summary>
+        ///  推送 在线玩家列表
+        /// </summary>
+        /// <param name="app"></param>
+        /// <returns></returns>
+        public static S2C_OnlinePlayerListSync BuildOnlinePlayerListResponse(ServerApp app)
+        {
+            if (app == null)
+            {
+                return new S2C_OnlinePlayerListSync
+                {
+                    Players = Array.Empty<OnlinePlayerInfo>()
+                };
+            }
+
+            var playerList = new List<OnlinePlayerInfo>();
+
+            foreach (KeyValuePair<string, Session> kvp in app.Sessions)
+            {
+                Session session = kvp.Value;
+                if (session == null)
+                {
+                    continue;
+                }
+
+                if (!session.IsOnline)
+                {
+                    continue;
+                }
+
+                bool isInRoom = !string.IsNullOrEmpty(session.CurrentRoomId);
+                string roomId = isInRoom ? session.CurrentRoomId : string.Empty;
+                string uid = string.IsNullOrEmpty(session.Uid) ? string.Empty : session.Uid;
+                string displayName = string.IsNullOrEmpty(uid) ? "Unknown" : uid;
+
+                playerList.Add(new OnlinePlayerInfo
+                {
+                    SessionId = session.SessionId ?? string.Empty,
+                    Uid = uid,
+                    DisplayName = displayName,
+                    IsInRoom = isInRoom,
+                    RoomId = roomId
+                });
+            }
+
+            return new S2C_OnlinePlayerListSync
+            {
+                Players = playerList.ToArray()
+            };
+        }
+
+        /// <summary>
+        ///  广播 在线玩家列表
+        /// </summary>
+        /// <param name="app"></param>
+        public static void BroadcastOnlinePlayerList(ServerApp app)
+        {
+            if (app == null)
+            {
+                NetLogger.LogError("ServerLobbyModule", "广播在线玩家列表失败: app 为空");
+                return;
+            }
+
+            S2C_OnlinePlayerListSync response = BuildOnlinePlayerListResponse(app);
+            if (response == null)
+            {
+                NetLogger.LogError("ServerLobbyModule", "广播在线玩家列表失败: response 为空");
+                return;
+            }
+
+            foreach (KeyValuePair<string, Session> kvp in app.Sessions)
+            {
+                Session session = kvp.Value;
+                if (session == null)
+                {
+                    continue;
+                }
+
+                if (!session.IsOnline)
+                {
+                    continue;
+                }
+
+                app.SendMessageToSession(session, response);
+            }
+        }
     }
 }

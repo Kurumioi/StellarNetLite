@@ -5,6 +5,7 @@ using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Client.Infrastructure;
 using StellarNet.Lite.Server.Core;
+using StellarNet.Lite.Server.Modules;
 using StellarNet.Lite.Shared.Binders;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Protocol;
@@ -64,7 +65,8 @@ namespace StellarNet.Lite.Shared.Infrastructure
             Transport transport = GetComponent<Transport>();
             if (transport == null)
             {
-                NetLogger.LogWarning("StellarNetMirrorManager", $"未找到 Transport 组件，已仅应用逻辑层配置。Ip:{config.Ip}, Port:{config.Port}");
+                NetLogger.LogWarning("StellarNetMirrorManager",
+                    $"未找到 Transport 组件，已仅应用逻辑层配置。Ip:{config.Ip}, Port:{config.Port}");
                 return;
             }
 
@@ -110,9 +112,11 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         public void SendToClient(int connectionId, Packet packet)
         {
-            if (!NetworkServer.connections.TryGetValue(connectionId, out NetworkConnectionToClient conn) || conn == null)
+            if (!NetworkServer.connections.TryGetValue(connectionId, out NetworkConnectionToClient conn) ||
+                conn == null)
             {
-                NetLogger.LogError("StellarNetMirrorManager", $"发送到客户端失败: 连接不存在, ConnId:{connectionId}, MsgId:{packet.MsgId}");
+                NetLogger.LogError("StellarNetMirrorManager",
+                    $"发送到客户端失败: 连接不存在, ConnId:{connectionId}, MsgId:{packet.MsgId}");
                 return;
             }
 
@@ -121,7 +125,8 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         public void DisconnectClient(int connectionId)
         {
-            if (!NetworkServer.connections.TryGetValue(connectionId, out NetworkConnectionToClient conn) || conn == null)
+            if (!NetworkServer.connections.TryGetValue(connectionId, out NetworkConnectionToClient conn) ||
+                conn == null)
             {
                 NetLogger.LogWarning("StellarNetMirrorManager", $"断开客户端失败: 连接不存在, ConnId:{connectionId}");
                 return;
@@ -226,10 +231,13 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 Session session = ServerApp.TryGetSessionByConnectionId(conn.connectionId);
                 if (session != null)
                 {
-                    NetLogger.LogInfo("StellarNetMirrorManager", "物理连接断开，触发会话离线", "-", session.SessionId, $"ConnId:{conn.connectionId}");
+                    NetLogger.LogInfo("StellarNetMirrorManager", "物理连接断开，触发会话离线", "-", session.SessionId,
+                        $"ConnId:{conn.connectionId}");
                     ServerApp.UnbindConnection(session);
                 }
             }
+
+            ServerLobbyModule.BroadcastOnlinePlayerList(ServerApp);
 
             OnServerClientDisconnectedEvent?.Invoke(conn.connectionId);
             base.OnServerDisconnect(conn);

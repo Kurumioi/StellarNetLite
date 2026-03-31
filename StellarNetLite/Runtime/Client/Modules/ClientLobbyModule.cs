@@ -30,5 +30,27 @@ namespace StellarNet.Lite.Client.Modules
 
             GlobalTypeNetEvent.Broadcast(msg);
         }
+
+        /// <summary>
+        ///   在线玩家列表同步
+        /// </summary>
+        /// <param name="msg"></param>
+        [NetHandler]
+        public void OnS2C_OnlinePlayerListSync(S2C_OnlinePlayerListSync msg)
+        {
+            if (msg == null)
+            {
+                NetLogger.LogError("ClientLobbyModule", "收到在线玩家列表失败: msg 为空");
+                return;
+            }
+
+            if (msg.Players == null)
+            {
+                NetLogger.LogError("ClientLobbyModule", "收到在线玩家列表失败: Players 为空");
+                return;
+            }
+
+            GlobalTypeNetEvent.Broadcast(msg);
+        }
     }
 }

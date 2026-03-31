@@ -234,6 +234,7 @@ namespace StellarNet.Lite.Server.Modules
             NetLogger.LogInfo("ServerRoomModule", "客户端首次装配就绪，正式加入房间", msg.RoomId, session.SessionId);
 
             BroadcastRoomListToLobby();
+            ServerLobbyModule.BroadcastOnlinePlayerList(_app);
         }
 
         [NetHandler]
@@ -272,6 +273,7 @@ namespace StellarNet.Lite.Server.Modules
             _app.SendMessageToSession(session, new S2C_LeaveRoomResult { Success = true });
 
             BroadcastRoomListToLobby();
+            ServerLobbyModule.BroadcastOnlinePlayerList(_app);
         }
 
         private int[] DeduplicateComponentIds(int[] rawIds)
