@@ -7,6 +7,10 @@ using StellarNet.Lite.Shared.Core;
 
 namespace StellarNet.Lite.Shared.Infrastructure
 {
+    /// <summary>
+    /// 框架序列化抽象。
+    /// 用于屏蔽 JSON / 二进制协议的具体实现。
+    /// </summary>
     public interface INetSerializer
     {
         byte[] Serialize(object obj);
@@ -14,12 +18,20 @@ namespace StellarNet.Lite.Shared.Infrastructure
         object Deserialize(byte[] data, int offset, int length, Type type);
     }
 
+    /// <summary>
+    /// 高频协议自定义二进制接口。
+    /// 适合对象同步、回放分块这类高频/大体积消息。
+    /// </summary>
     public interface ILiteNetSerializable
     {
         void Serialize(BinaryWriter writer);
         void Deserialize(BinaryReader reader);
     }
 
+    /// <summary>
+    /// 默认混合序列化器。
+    /// ILiteNetSerializable 走二进制，其余对象走 JSON。
+    /// </summary>
     public sealed class LiteNetSerializer : INetSerializer
     {
         private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
@@ -32,6 +44,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return Array.Empty<byte>();
             }
 
+            // 高频消息优先走手写二进制，减少 GC 和字符串开销。
             if (obj is ILiteNetSerializable serializable)
             {
                 using (var ms = new MemoryStream())
@@ -51,6 +64,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 }
             }
 
+            // 低频消息走 JSON，换取开发效率。
             string json = JsonConvert.SerializeObject(obj);
             if (string.IsNullOrEmpty(json))
             {
@@ -81,6 +95,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return 0;
             }
 
+            // 复用外部 buffer，避免发包时频繁 new byte[]。
             if (obj is ILiteNetSerializable serializable)
             {
                 using (var ms = new MemoryStream(buffer, 0, buffer.Length, true, true))
@@ -160,6 +175,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return null;
             }
 
+            // 反序列化时按类型能力选择 JSON 或二进制解码。
             if (typeof(ILiteNetSerializable).IsAssignableFrom(type))
             {
                 object instance = Activator.CreateInstance(type);
@@ -214,6 +230,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
     public struct MirrorPacketMsg : NetworkMessage
     {
+        // Seq 由客户端发包递增，用于服务端防重放。
         public uint Seq;
         public int MsgId;
         public byte Scope;
@@ -227,6 +244,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
             Scope = (byte)packet.Scope;
             RoomId = packet.RoomId ?? string.Empty;
 
+            // Packet 内部允许使用共享 buffer + offset/count。
             if (packet.Payload == null)
             {
                 Payload = default;
@@ -253,6 +271,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return new Packet(Seq, MsgId, (NetScope)Scope, RoomId, Array.Empty<byte>(), 0, 0);
             }
 
+            // Mirror 的 ArraySegment 在这里恢复成框架 Packet。
             return new Packet(Seq, MsgId, (NetScope)Scope, RoomId, Payload.Array, Payload.Offset, Payload.Count);
         }
     }

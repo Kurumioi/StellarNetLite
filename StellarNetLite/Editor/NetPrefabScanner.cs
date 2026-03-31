@@ -10,6 +10,10 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Editor
 {
+    /// <summary>
+    /// 网络预制体扫描器。
+    /// 扫描挂载 NetIdentity 的 Resources 预制体并生成 hash 常量表。
+    /// </summary>
     public static class NetPrefabScanner
     {
         /// <summary>
@@ -26,6 +30,7 @@ namespace StellarNet.Lite.Editor
 
         private static void RunScanAndGenerate()
         {
+            // 扫描全项目 Prefab，再筛出符合网络预制体约定的资源。
             string[] prefabGuids = AssetDatabase.FindAssets("t:Prefab");
             if (prefabGuids == null || prefabGuids.Length == 0)
             {

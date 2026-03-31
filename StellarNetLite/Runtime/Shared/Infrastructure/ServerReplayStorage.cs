@@ -9,6 +9,10 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Server.Infrastructure
 {
+    /// <summary>
+    /// 服务端录像存储中心。
+    /// 负责录制、落盘、滚动清理和关键帧写入。
+    /// </summary>
     public static class ServerReplayStorage
     {
         public const string ReplayFolderName = "Replays";
@@ -25,6 +29,7 @@ namespace StellarNet.Lite.Server.Infrastructure
             public string TempFilePath;
         }
 
+        // RoomId -> 正在录制的上下文。
         private static readonly Dictionary<string, RecordContext> ActiveRecords = new Dictionary<string, RecordContext>();
 
         public static void StartRecord(string roomId)
@@ -35,6 +40,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                 return;
             }
 
+            // 录制中的 payload 先写入 gzip 临时文件，结束时再补 replay 头。
             string folderPath = Path.Combine(Application.persistentDataPath, ReplayFolderName).Replace("\\", "/");
             if (string.IsNullOrEmpty(folderPath))
             {
@@ -112,6 +118,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                 return;
             }
 
+            // 普通消息帧只保存 Tick、MsgId 和 payload。
             WriteFrameHeader(ctx.Writer, ReplayFrameKind.Message, tick, msgId, payloadLength);
 
             if (payloadLength > 0)
@@ -149,6 +156,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                 return;
             }
 
+            // 对象关键帧写成独立帧类型，供回放 Seek 使用。
             byte[] payload = EncodeSnapshotFrame(snapshotFrame);
             if (payload == null)
             {
@@ -178,6 +186,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                 return;
             }
 
+            // 停止录制后，生成最终 replay 文件：头信息 + 压缩 raw 数据。
             ActiveRecords.Remove(roomId);
 
             ctx.Writer?.Dispose();
@@ -197,6 +206,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                 Directory.CreateDirectory(folderPath);
             }
 
+            // 文件名里额外编码展示名和总 Tick，便于大厅列表直接读取。
             string finalDisplayName = string.IsNullOrWhiteSpace(displayName) ? "未命名录像" : displayName.Trim();
             string safeBase64Name = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(finalDisplayName))
                 .Replace('+', '-')
@@ -251,6 +261,7 @@ namespace StellarNet.Lite.Server.Infrastructure
 
             TryDeleteTempFile(ctx.TempFilePath);
             NetLogger.LogInfo("ServerReplayStorage", $"录像保存成功: {Path.GetFileName(finalPath)}", roomId);
+            // 限制最大录像数量，超出后按时间回收旧文件。
             EnforceRollingLimit(folderPath, config != null ? config.MaxReplayFiles : 100);
         }
 

@@ -25,6 +25,7 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
+            // 登录成功后，客户端会根据服务端结果决定是否进入恢复链。
             if (msg.Success)
             {
                 string safeUid = !string.IsNullOrEmpty(_app?.Session?.AccountId)
@@ -40,6 +41,7 @@ namespace StellarNet.Lite.Client.Modules
                 _app.Session.OnLoginSuccess(msg.SessionId, safeUid);
                 NetLogger.LogInfo("ClientUserModule", $"登录成功, SessionId:{msg.SessionId}, Uid:{safeUid}");
 
+                // 有恢复房间时，不直接回大厅，而是继续走重连确认。
                 if (msg.HasReconnectRoom)
                 {
                     if (_app.State == ClientAppState.ConnectionSuspended)
@@ -63,6 +65,7 @@ namespace StellarNet.Lite.Client.Modules
             }
             else
             {
+                // 挂起态下如果恢复失败，直接回到大厅并清掉恢复上下文。
                 if (_app != null && _app.State == ClientAppState.ConnectionSuspended)
                 {
                     _app.AbortConnection();
@@ -93,6 +96,7 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
+            // 重连成功后，本地重新创建在线房间并重建组件。
             if (msg.Success)
             {
                 _app.EnterOnlineRoom(msg.RoomId);
@@ -116,6 +120,7 @@ namespace StellarNet.Lite.Client.Modules
                 GlobalTypeNetEvent.Broadcast(new Local_RoomEntered { Room = _app.CurrentRoom });
                 NetLogger.LogInfo("ClientUserModule", $"重连房间本地装配完毕，准备发送就绪握手。RoomId:{msg.RoomId}");
 
+                // 本地装配完成后，再向服务端发送 ReconnectReady。
                 var readyMsg = new C2S_ReconnectReady();
                 _app.SendMessage(readyMsg);
             }
@@ -151,6 +156,7 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
+            // 踢下线属于硬清理场景，会彻底清空本地会话。
             if (_app.State == ClientAppState.OnlineRoom || _app.State == ClientAppState.ConnectionSuspended)
             {
                 _app.LeaveRoom();

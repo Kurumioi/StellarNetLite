@@ -2,6 +2,10 @@
 
 namespace UGUIFollow
 {
+    /// <summary>
+    /// 单个 UGUI 跟随组件。
+    /// 负责把世界坐标目标映射到 Canvas 上的 UI 位置。
+    /// </summary>
     public enum FollowMode
     {
         Direct, // 直接跟随：适用于血条、名字板等需要严格对齐的元素
@@ -30,12 +34,13 @@ namespace UGUIFollow
         [Tooltip("控制显示的CanvasGroup（可选，强烈建议挂载以优化性能）")]
         public CanvasGroup canvasGroup;
 
+        // 运行时缓存。
         private RectTransform _rectTransform;
         private RectTransform _canvasRectTransform;
         private bool _isInitialized = false;
         private Vector2 _targetAnchoredPosition;
 
-        // 暴露给业务层的初始化接口，业务层在实例化 UI 后主动调用此方法注入依赖
+        // 暴露给业务层的初始化接口，业务层在实例化 UI 后主动调用。
         public void Init()
         {
             _rectTransform = GetComponent<RectTransform>();
@@ -77,6 +82,7 @@ namespace UGUIFollow
                 canvasGroup = GetComponent<CanvasGroup>();
             }
 
+            // 初始化成功后交给全局 FollowManager 统一驱动。
             _isInitialized = true;
             UGUIFollowManager.Instance.Register(this);
         }
@@ -89,7 +95,7 @@ namespace UGUIFollow
             }
         }
 
-        // 由 UGUIFollowManager 统一驱动，不使用 Unity 内置的 Update
+        // 由 UGUIFollowManager 统一驱动，不使用 Unity 内置的 Update。
         public void OnUpdatePosition(float deltaTime)
         {
             if (!_isInitialized)
@@ -97,7 +103,7 @@ namespace UGUIFollow
                 return;
             }
 
-            // 若目标丢失，自动隐藏 UI 并中断计算
+            // 若目标丢失，自动隐藏 UI 并中断计算。
             if (targetTransform == null)
             {
                 SetVisibility(false);
@@ -106,7 +112,7 @@ namespace UGUIFollow
 
             Vector3 worldPos = targetTransform.position + worldOffset;
 
-            // 通过点乘判断目标是否处于相机视锥体后方，防止 UI 坐标反向映射到屏幕上
+            // 通过点乘判断目标是否处于相机背后。
             Vector3 toTarget = worldPos - worldCamera.transform.position;
             bool isBehindCamera = Vector3.Dot(worldCamera.transform.forward, toTarget) < 0f;
 
@@ -118,14 +124,14 @@ namespace UGUIFollow
 
             SetVisibility(true);
 
-            // 将 3D 世界坐标转换为屏幕空间坐标
+            // 将 3D 世界坐标转换为屏幕空间坐标。
             Vector2 screenPoint = worldCamera.WorldToScreenPoint(worldPos);
             screenPoint += screenOffset;
 
-            // 根据 Canvas 的渲染模式决定是否传入相机参数
+            // 根据 Canvas 渲染模式决定是否需要 UI Camera。
             Camera uiCamera = parentCanvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : parentCanvas.worldCamera;
 
-            // 将屏幕坐标转换为 Canvas 局部坐标系下的 AnchoredPosition
+            // 将屏幕坐标转换为 Canvas 局部坐标系下的 AnchoredPosition。
             bool success = RectTransformUtility.ScreenPointToLocalPointInRectangle(
                 _canvasRectTransform,
                 screenPoint,
@@ -139,7 +145,7 @@ namespace UGUIFollow
 
             _targetAnchoredPosition = localPoint;
 
-            // 根据配置的跟随模式执行坐标应用
+            // 根据跟随模式决定是硬跟随还是平滑跟随。
             if (followMode == FollowMode.Direct)
             {
                 _rectTransform.anchoredPosition = _targetAnchoredPosition;
@@ -150,7 +156,7 @@ namespace UGUIFollow
             }
         }
 
-        // 统一的可见性控制接口，优先使用 CanvasGroup 规避 SetActive 带来的性能消耗
+        // 统一的可见性控制接口，优先使用 CanvasGroup。
         private void SetVisibility(bool isVisible)
         {
             if (canvasGroup != null)
@@ -165,7 +171,7 @@ namespace UGUIFollow
             }
             else
             {
-                // 退化处理：若未挂载 CanvasGroup，则回退至 GameObject 显隐控制
+                // 退化处理：若未挂载 CanvasGroup，则回退至 GameObject 显隐控制。
                 if (gameObject.activeSelf != isVisible)
                 {
                     gameObject.SetActive(isVisible);

@@ -14,8 +14,11 @@ namespace StellarNet.Lite.Game.Client.Views
     /// </summary>
     public class SocialRoomInputController : MonoBehaviour
     {
+        // 当前绑定的房间实例。
         private ClientRoom _boundRoom;
+        // 弱网阻断期间停止发送输入。
         private bool _isInputBlockedByWeakNet;
+        // 上一帧输入缓存，用于只在变更时发包。
         private Vector2 _lastInput = Vector2.zero;
         private bool _isInitialized;
         private IUnRegister _networkQualityToken;
@@ -42,6 +45,7 @@ namespace StellarNet.Lite.Game.Client.Views
             _boundRoom = room;
             _lastInput = Vector2.zero;
             _isInputBlockedByWeakNet = false;
+            // 输入控制器只关注房间级弱网事件。
             _networkQualityToken = GlobalTypeNetEvent.Register<Local_NetworkQualityChanged>(HandleNetworkQualityChanged);
             _isInitialized = true;
         }
@@ -79,6 +83,7 @@ namespace StellarNet.Lite.Game.Client.Views
                 return;
             }
 
+            // 聊天气泡属于房间业务请求。
             NetClient.Send(new C2S_SocialBubbleReq { Content = content });
         }
 
@@ -109,6 +114,7 @@ namespace StellarNet.Lite.Game.Client.Views
                 return;
             }
 
+            // 只有房主可发结束对局请求。
             if (!myInfo.IsOwner)
             {
                 NetLogger.LogWarning("SocialRoomInputController", $"结束对局被拦截: 当前玩家不是房主, SessionId:{NetClient.Session.SessionId}, RoomId:{_boundRoom.RoomId}");
@@ -129,6 +135,7 @@ namespace StellarNet.Lite.Game.Client.Views
             ClientRoomSettingsComponent settingsComp = _boundRoom.GetComponent<ClientRoomSettingsComponent>();
             bool isGameStarted = settingsComp != null && settingsComp.IsGameStarted;
 
+            // 只有在线房间且游戏已开始时才处理输入。
             if (NetClient.State == ClientAppState.OnlineRoom && isGameStarted)
             {
                 ProcessInput();
@@ -137,11 +144,13 @@ namespace StellarNet.Lite.Game.Client.Views
 
         private void ProcessInput()
         {
+            // 输入被弱网熔断时直接暂停发包。
             if (_isInputBlockedByWeakNet)
             {
                 return;
             }
 
+            // 输入框聚焦时禁止把 WASD 输入发到服务端。
             if (EventSystem.current != null && EventSystem.current.currentSelectedGameObject != null)
             {
                 var tmpInput = EventSystem.current.currentSelectedGameObject.GetComponent<TMPro.TMP_InputField>();
@@ -161,6 +170,7 @@ namespace StellarNet.Lite.Game.Client.Views
             float v = Input.GetAxisRaw("Vertical");
             Vector2 currentInput = new Vector2(h, v);
 
+            // 只有输入变化时才发移动包，减少无意义高频包。
             if (currentInput != _lastInput)
             {
                 _lastInput = currentInput;

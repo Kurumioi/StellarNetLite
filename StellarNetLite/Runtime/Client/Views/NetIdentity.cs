@@ -10,9 +10,12 @@ namespace StellarNet.Lite.Client.Components.Views
     [DisallowMultipleComponent]
     public class NetIdentity : MonoBehaviour
     {
+        // 运行时网络实体 Id。
         public int NetId { get; private set; }
+        // 所属的对象同步服务。
         public ClientObjectSyncComponent SyncService { get; private set; }
 
+        // 由生成器在实例化后注入实体身份。
         public void Init(int netId, ClientObjectSyncComponent syncService)
         {
             NetId = netId;

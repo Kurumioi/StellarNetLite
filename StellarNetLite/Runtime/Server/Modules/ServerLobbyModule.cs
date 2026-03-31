@@ -7,6 +7,7 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Modules
 {
+    // 服务端大厅模块，负责聚合大厅列表类数据。
     [ServerModule("ServerLobbyModule", "大厅信息模块")]
     public sealed class ServerLobbyModule
     {
@@ -26,15 +27,12 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            // 复用静态构建逻辑，保证主动拉取与被动推送的数据结构绝对一致
+            // 主动拉取与后续被动推送共用同一份组装逻辑。
             S2C_RoomListResponse response = BuildRoomListResponse(_app);
             _app.SendMessageToSession(session, response);
         }
 
-        /// <summary>
-        /// 提取公共聚合逻辑，供其他模块（如 ServerRoomModule）复用。
-        /// 将大厅列表的组装职责收敛于此，避免后续扩展字段时产生多处散落的修改点。
-        /// </summary>
+        // 构建大厅房间列表。
         public static S2C_RoomListResponse BuildRoomListResponse(ServerApp app)
         {
             if (app == null)
@@ -48,6 +46,7 @@ namespace StellarNet.Lite.Server.Modules
                 Room room = kvp.Value;
                 if (room == null || room.State == RoomState.Finished)
                 {
+                    // 已结束房间不再出现在大厅列表。
                     continue;
                 }
 
@@ -69,11 +68,7 @@ namespace StellarNet.Lite.Server.Modules
             return new S2C_RoomListResponse { Rooms = roomList.ToArray() };
         }
 
-        /// <summary>
-        ///  推送 在线玩家列表
-        /// </summary>
-        /// <param name="app"></param>
-        /// <returns></returns>
+        // 构建在线玩家列表。
         public static S2C_OnlinePlayerListSync BuildOnlinePlayerListResponse(ServerApp app)
         {
             if (app == null)
@@ -102,6 +97,7 @@ namespace StellarNet.Lite.Server.Modules
                 bool isInRoom = !string.IsNullOrEmpty(session.CurrentRoomId);
                 string roomId = isInRoom ? session.CurrentRoomId : string.Empty;
                 string uid = string.IsNullOrEmpty(session.Uid) ? string.Empty : session.Uid;
+                // 默认直接用 uid 作为展示名。
                 string displayName = string.IsNullOrEmpty(uid) ? "Unknown" : uid;
 
                 playerList.Add(new OnlinePlayerInfo
@@ -120,10 +116,7 @@ namespace StellarNet.Lite.Server.Modules
             };
         }
 
-        /// <summary>
-        ///  广播 在线玩家列表
-        /// </summary>
-        /// <param name="app"></param>
+        // 向所有在线会话广播在线玩家列表。
         public static void BroadcastOnlinePlayerList(ServerApp app)
         {
             if (app == null)
@@ -152,6 +145,7 @@ namespace StellarNet.Lite.Server.Modules
                     continue;
                 }
 
+                // 仅向在线连接推送大厅同步。
                 app.SendMessageToSession(session, response);
             }
         }

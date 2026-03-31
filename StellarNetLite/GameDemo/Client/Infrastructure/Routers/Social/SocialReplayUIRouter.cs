@@ -10,12 +10,13 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
     {
         protected override void OnBind(ClientSocialRoomComponent component)
         {
-            // 回放模式下不需要UI
+            // 当前示例中，回放态不拉起社交输入 UI。
             // UIKit.OpenPanel<Panel_SocialRoomView>();
         }
 
         protected override void OnUnbind()
         {
+            // 若后续回放态也有 UI，可在这里统一清理。
             // UIKit.ClosePanel<Panel_SocialRoomView>();
         }
     }

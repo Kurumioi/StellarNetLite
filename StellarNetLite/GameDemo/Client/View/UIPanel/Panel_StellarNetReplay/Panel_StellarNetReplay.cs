@@ -8,6 +8,7 @@ using UnityEngine.UI;
 
 public class Panel_StellarNetReplay : UIPanelBase
 {
+    // 回放进度与控制按钮。
     [SerializeField] private TMP_Text progressText;
     [SerializeField] private Slider progressSlider;
     [SerializeField] private Button playPauseBtn;
@@ -26,7 +27,9 @@ public class Panel_StellarNetReplay : UIPanelBase
 
     [SerializeField] private Button applyCustomSpeedBtn;
 
+    // 当前回放播放器实例。
     private ClientReplayPlayer _replayPlayer;
+    // 拖动滑条时避免和播放器自动刷新互相打架。
     private bool _isDraggingSlider = false;
 
     public override void OnInit()
@@ -65,11 +68,12 @@ public class Panel_StellarNetReplay : UIPanelBase
     public override void OnOpen(object uiData = null)
     {
         base.OnOpen(uiData);
+        // 回放面板内部独立管理一个本地播放器。
         if (uiData is string filePath)
         {
             _replayPlayer = new ClientReplayPlayer(NetClient.App);
 
-            // 核心修复：接收 bool 返回值，若失败则主动触发全局回退，避免卡死在空面板
+            // 初始化失败时直接回退大厅，避免停在空回放页。
             bool success = _replayPlayer.StartReplay(filePath);
             if (!success)
             {
@@ -104,6 +108,7 @@ public class Panel_StellarNetReplay : UIPanelBase
 
     private void Update()
     {
+        // 面板每帧驱动播放器并刷新进度文案。
         if (_replayPlayer == null) return;
 
         _replayPlayer.Update(Time.deltaTime);
@@ -140,6 +145,7 @@ public class Panel_StellarNetReplay : UIPanelBase
     public void SetSpeed(float speed)
     {
         if (_replayPlayer == null) return;
+        // 倍速变化直接同步到播放器。
         _replayPlayer.PlaybackSpeed = speed;
         currentSpeedText.text = $"当前倍速: {speed}x";
     }
@@ -162,6 +168,7 @@ public class Panel_StellarNetReplay : UIPanelBase
     private void OnSliderValueChanged(float value)
     {
         if (_replayPlayer == null) return;
+        // 用户拖动时间轴时执行 Seek。
         if (Mathf.Abs(value - _replayPlayer.CurrentTick) > 1f)
         {
             _isDraggingSlider = true;
@@ -172,6 +179,7 @@ public class Panel_StellarNetReplay : UIPanelBase
 
     private void OnExitBtn()
     {
+        // 退出回放时销毁本地回放房间。
         if (_replayPlayer != null)
         {
             _replayPlayer.StopReplay();

@@ -43,6 +43,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 先对组件清单去重，避免重复装配同一组件。
             int[] uniqueComponentIds = DeduplicateComponentIds(msg.ComponentIds);
             if (uniqueComponentIds.Length == 0)
             {
@@ -56,6 +57,7 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             string roomId = Guid.NewGuid().ToString("N").Substring(0, 8);
+            // 先建空房，再尝试装配组件；失败就整体回滚。
             Room room = _app.CreateRoom(roomId);
             if (room == null)
             {
@@ -84,6 +86,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 建房成功后并不立刻入房，而是先给客户端返回组件清单做本地装配。
             room.SetComponentIds(uniqueComponentIds);
             session.AuthorizeRoom(roomId);
 
@@ -168,6 +171,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 加房成功同样走“两阶段握手”，先授权，再等待客户端 ready。
             session.AuthorizeRoom(room.RoomId);
 
             _app.SendMessageToSession(session, new S2C_JoinRoomResult
@@ -201,6 +205,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 只有授权房间匹配时，客户端才允许正式入房。
             if (string.IsNullOrEmpty(session.AuthorizedRoomId) || session.AuthorizedRoomId != msg.RoomId)
             {
                 NetLogger.LogError(
@@ -228,6 +233,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 真正加入房间发生在 ready 握手成功之后。
             room.AddMember(session);
             session.ClearAuthorizedRoom();
 
@@ -260,6 +266,7 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             Room room = _app.GetRoom(roomId);
+            // 空房离开后会自动销毁，避免占用资源。
             if (room != null)
             {
                 room.RemoveMember(session);

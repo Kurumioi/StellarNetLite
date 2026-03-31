@@ -12,13 +12,19 @@ using UnityEngine.UI;
 /// </summary>
 public class Panel_StellarNetLobby_ReplayItem : MonoBehaviour
 {
+    // 录像基础展示。
     [SerializeField] private TMP_Text infoText;
+    // 下载/播放入口按钮。
     [SerializeField] private Button actionBtn;
     [SerializeField] private TMP_Text btnText;
+    // 下载进度条。
     [SerializeField] private Image progressSlider;
 
+    // 当前列表项绑定的录像 Id。
     private string _replayId;
+    // 当前录像展示名。
     private string _displayName;
+    // 是否正处于下载中。
     private bool _isDownloading;
 
     public void Init(ReplayBriefInfo info, bool isLocalCached)
@@ -52,6 +58,7 @@ public class Panel_StellarNetLobby_ReplayItem : MonoBehaviour
             actionBtn.onClick.AddListener(OnActionBtnClick);
         }
 
+        // 列表项只关心自己的下载进度和结果。
         GlobalTypeNetEvent.Register<Local_ReplayDownloadProgress>(OnDownloadProgress)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnDownloadResult)
@@ -64,6 +71,7 @@ public class Panel_StellarNetLobby_ReplayItem : MonoBehaviour
 
         if (btnText != null && btnText.text == "播放")
         {
+            // 统一复用下载入口；命中本地缓存时会立即广播成功并跳转回放。
             StellarNet.Lite.Client.Modules.ClientReplayModule.RequestDownload(NetClient.App, _replayId);
             return;
         }
@@ -91,6 +99,7 @@ public class Panel_StellarNetLobby_ReplayItem : MonoBehaviour
 
         if (btnText != null)
         {
+            // 按百分比更新按钮文案。
             float percent = evt.TotalBytes > 0 ? ((float)evt.DownloadedBytes / evt.TotalBytes) * 100f : 0f;
             btnText.text = $"{percent:F1}%";
         }
@@ -105,10 +114,12 @@ public class Panel_StellarNetLobby_ReplayItem : MonoBehaviour
 
         if (msg.Success)
         {
+            // 下载完成后切为播放态。
             if (btnText != null) btnText.text = "播放";
         }
         else
         {
+            // 失败后保留可见提示，等待用户重新触发。
             if (btnText != null) btnText.text = "下载失败";
         }
     }

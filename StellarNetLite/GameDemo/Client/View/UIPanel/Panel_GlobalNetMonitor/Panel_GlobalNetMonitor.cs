@@ -7,6 +7,7 @@ using UnityEngine.UI;
 
 public class Panel_GlobalNetMonitor : UIPanelBase
 {
+    // 在线 RTT 显示区域。
     [Header("RTT 监控")] [SerializeField] private GameObject rttGroup;
     [SerializeField] private TMP_Text rttText;
 
@@ -18,10 +19,12 @@ public class Panel_GlobalNetMonitor : UIPanelBase
 
     [SerializeField] private TMP_Text suspendTimeText;
 
+    // 自动重连超时后的决策区域。
     [Header("超时决断框")] [SerializeField] private GameObject timeoutGroup;
     [SerializeField] private Button continueBtn;
     [SerializeField] private Button exitBtn;
 
+    // 全局系统提示区域。
     [Header("系统提示框")] [SerializeField] private GameObject promptGroup;
     [SerializeField] private TMP_Text promptText;
     [SerializeField] private Button promptOkBtn;
@@ -34,6 +37,7 @@ public class Panel_GlobalNetMonitor : UIPanelBase
         exitBtn.onClick.AddListener(OnExitBtnClick);
         promptOkBtn.onClick.AddListener(OnPromptOkBtnClick);
 
+        // 这里只监听全局网络状态事件。
         GlobalTypeNetEvent.Register<Local_NetworkQualityChanged>(HandleNetworkQuality)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<Local_ConnectionSuspended>(HandleConnectionSuspended)
@@ -62,6 +66,7 @@ public class Panel_GlobalNetMonitor : UIPanelBase
         var state = NetClient.State;
         rttGroup.SetActive(state == ClientAppState.OnlineRoom);
 
+        // 非挂起态时自动收起挂起遮罩和超时决策框。
         if (state != ClientAppState.ConnectionSuspended)
         {
             if (suspendGroup.activeSelf) suspendGroup.SetActive(false);
@@ -71,6 +76,7 @@ public class Panel_GlobalNetMonitor : UIPanelBase
 
     private void ResetAllUI()
     {
+        // 面板打开时先回到干净初始状态。
         rttGroup.SetActive(false);
         weakNetGroup.SetActive(false);
         suspendGroup.SetActive(false);
@@ -80,6 +86,7 @@ public class Panel_GlobalNetMonitor : UIPanelBase
 
     private void HandleNetworkQuality(Local_NetworkQualityChanged evt)
     {
+        // 在线房间内才显示 RTT 和弱网阻断遮罩。
         if (NetClient.State != ClientAppState.OnlineRoom)
         {
             weakNetGroup.SetActive(false);
@@ -96,6 +103,7 @@ public class Panel_GlobalNetMonitor : UIPanelBase
 
     private void HandleConnectionSuspended(Local_ConnectionSuspended evt)
     {
+        // 进入挂起态后显示倒计时恢复提示。
         weakNetGroup.SetActive(false);
         suspendGroup.SetActive(true);
         suspendTimeText.text = $"正在尝试恢复... ({evt.RemainingSeconds:F1}s)";
@@ -103,12 +111,14 @@ public class Panel_GlobalNetMonitor : UIPanelBase
 
     private void HandleReconnectTimeout(Local_ReconnectTimeout evt)
     {
+        // 自动重连超时后切换到玩家决策框。
         suspendGroup.SetActive(false);
         timeoutGroup.SetActive(true);
     }
 
     private void HandleSystemPrompt(Local_SystemPrompt evt)
     {
+        // 系统提示统一走一层轻提示弹窗。
         promptText.text = evt.Message;
         promptGroup.SetActive(true);
     }

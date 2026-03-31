@@ -15,6 +15,7 @@ namespace StellarNet.Lite.Client.Core.Events
         {
             if (onEvent == null) return new CustomUnRegister(null);
 
+            // 全局事件按类型聚合订阅。
             EventBox<T>.Subscribers += onEvent;
             return EventBox<T>.AllocateToken(onEvent);
         }
@@ -31,6 +32,7 @@ namespace StellarNet.Lite.Client.Core.Events
 
         public static void Broadcast<T>(T e)
         {
+            // 全局事件广播给当前类型的所有订阅者。
             EventBox<T>.Subscribers?.Invoke(e);
         }
 
@@ -47,11 +49,14 @@ namespace StellarNet.Lite.Client.Core.Events
 
         private static class EventBox<T>
         {
+            // 当前类型的全部订阅者。
             public static Action<T> Subscribers;
+            // 令牌池，减少频繁注册/注销时的分配。
             private static readonly Stack<EventToken> _pool = new Stack<EventToken>();
 
             public static EventToken AllocateToken(Action<T> callback)
             {
+                // 优先复用旧令牌，降低 GC。
                 EventToken token = _pool.Count > 0 ? _pool.Pop() : new EventToken();
                 token.Handler = callback;
                 token.IsRecycled = false;
@@ -73,6 +78,7 @@ namespace StellarNet.Lite.Client.Core.Events
 
             public class EventToken : IUnRegister
             {
+                // 当前令牌持有的回调。
                 public Action<T> Handler;
                 public bool IsRecycled;
 

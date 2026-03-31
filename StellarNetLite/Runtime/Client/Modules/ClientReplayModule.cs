@@ -13,6 +13,7 @@ namespace StellarNet.Lite.Client.Modules
     public sealed class ClientReplayModule
     {
         private readonly ClientApp _app;
+        // 当前正在下载的录像上下文。
         private string _downloadingReplayId;
         private int _expectedTotalBytes;
         private FileStream _fileStream;
@@ -23,7 +24,7 @@ namespace StellarNet.Lite.Client.Modules
         public ClientReplayModule(ClientApp app)
         {
             _app = app;
-            // 核心修复：监听硬中止事件，防止断线或 App 销毁时产生 FileStream 句柄泄漏
+            // 连接被硬中止时，下载文件流也必须立即释放。
             GlobalTypeNetEvent.Register<Local_ConnectionAborted>(OnConnectionAborted);
         }
 
@@ -55,6 +56,7 @@ namespace StellarNet.Lite.Client.Modules
 
             EnsureCacheFolderExists();
 
+            // 先查本地缓存，命中则直接进入回放，不再向服务端拉取。
             string finalPath = Path.Combine(CacheFolderPath, $"{replayId}.replay").Replace("\\", "/");
             string tmpPath = Path.Combine(CacheFolderPath, $"{replayId}.tmp").Replace("\\", "/");
 
@@ -72,6 +74,7 @@ namespace StellarNet.Lite.Client.Modules
             }
 
             int startOffset = 0;
+            // 存在临时文件时使用断点续传。
             if (File.Exists(tmpPath))
             {
                 startOffset = (int)new FileInfo(tmpPath).Length;
@@ -109,6 +112,7 @@ namespace StellarNet.Lite.Client.Modules
 
             CloseFileStream();
 
+            // Start 包决定本次下载是否开始、从哪个 offset 继续写。
             if (!msg.Success)
             {
                 _downloadingReplayId = string.Empty;
@@ -144,6 +148,7 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
+            // 服务端 acceptedOffset 为 0 时，说明本次从头开始写 tmp。
             string tmpPath = Path.Combine(CacheFolderPath, $"{_downloadingReplayId}.tmp").Replace("\\", "/");
             if (msg.AcceptedOffset == 0 && File.Exists(tmpPath))
             {
@@ -202,6 +207,7 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
+            // 每收到一个 chunk 就立即落盘，并回 Ack 请求下一个分块。
             _fileStream.Write(msg.ChunkData, 0, msg.ChunkData.Length);
             _fileStream.Flush();
 
@@ -234,6 +240,7 @@ namespace StellarNet.Lite.Client.Modules
 
             CloseFileStream();
 
+            // 下载完成后把 tmp 原子切成 replay 文件。
             string tmpPath = Path.Combine(CacheFolderPath, $"{replayId}.tmp").Replace("\\", "/");
             string finalPath = Path.Combine(CacheFolderPath, $"{replayId}.replay").Replace("\\", "/");
 

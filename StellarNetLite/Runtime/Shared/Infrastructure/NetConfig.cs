@@ -16,15 +16,20 @@ namespace StellarNet.Lite.Shared.Infrastructure
     [Serializable]
     public sealed class NetConfig
     {
+        // 基础物理连接配置。
         public string Ip = "127.0.0.1";
         public ushort Port = 7777;
         public int MaxConnections = 200;
         public int TickRate = 60;
+
+        // 运行治理配置。
         public int MaxRoomLifetimeHours = 24;
         public int MaxReplayFiles = 100;
         public int OfflineTimeoutLobbyMinutes = 5;
         public int OfflineTimeoutRoomMinutes = 60;
         public int EmptyRoomTimeoutMinutes = 5;
+
+        // 登录准入配置。
         public string MinClientVersion = "0.0.1";
     }
 
@@ -33,6 +38,10 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public const string ConfigFolderName = "NetConfig";
         public const string ConfigFileName = "netconfig.json";
 
+        /// <summary>
+        /// 异步加载配置。
+        /// Android 的 StreamingAssets 必须走 WebRequest。
+        /// </summary>
         public static async Task<NetConfig> LoadAsync(ConfigRootPath rootPath)
         {
             string fullPath = GetFullPath(rootPath);
@@ -64,6 +73,10 @@ namespace StellarNet.Lite.Shared.Infrastructure
             return DeserializeOrDefault(jsonContent, fullPath, "普通异步读取");
         }
 
+        /// <summary>
+        /// 同步加载配置。
+        /// 主要用于框架早期初始化阶段。
+        /// </summary>
         public static NetConfig LoadServerConfigSync(ConfigRootPath rootPath)
         {
             if (rootPath == ConfigRootPath.StreamingAssets && Application.platform == RuntimePlatform.Android)
@@ -119,6 +132,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return CreateDefaultConfigWithLog("反序列化前内容为空");
             }
 
+            // 反序列化成功后还要做一次兜底归一化。
             NetConfig config = JsonConvert.DeserializeObject<NetConfig>(jsonContent);
             if (config == null)
             {
@@ -138,6 +152,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return;
             }
 
+            // 所有非法值都回退到安全默认值，避免运行时炸掉主链。
             if (string.IsNullOrWhiteSpace(config.Ip))
             {
                 NetLogger.LogWarning("NetConfigLoader", $"配置修正: Ip 为空，已回退默认值 127.0.0.1。Path:{fullPath}");

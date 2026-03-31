@@ -13,29 +13,38 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Client.Core
 {
+    /// <summary>
+    /// 本地回放播放器。
+    /// 负责解压 replay、建立索引、顺序播放、Seek 和回放沙盒重建。
+    /// </summary>
     public sealed class ClientReplayPlayer : IDisposable
     {
         private readonly ClientApp _app;
 
+        // 播放时钟。
         public int CurrentTick { get; private set; }
         public float PlaybackSpeed { get; set; } = 1f;
         public bool IsPaused { get; set; }
 
+        // 回放运行状态。
         private bool _isPlaying;
         private float _tickAccumulator;
         private const float TickInterval = 1f / 60f;
         private float _lastReportedTimeScale = -1f;
 
+        // 回放文件和解压后的 raw 文件句柄。
         private string _replayFilePath;
         private string _rawFilePath;
         private FileStream _rawFs;
         private BinaryReader _rawReader;
 
+        // 回放头信息。
         private string _roomId;
         private int[] _componentIds;
         private int _realTotalTicks = ReplayFormatDefines.DefaultTotalTicksFallback;
         private byte _replayVersion = ReplayFormatDefines.VersionLegacy;
 
+        // 稀疏消息索引 + 关键帧索引，用于 Seek。
         private readonly Dictionary<int, long> _messageFrameIndex = new Dictionary<int, long>();
         private readonly SortedDictionary<int, long> _snapshotFrameIndex = new SortedDictionary<int, long>();
         private const int SparseIndexIntervalTicks = 300;
@@ -80,6 +89,7 @@ namespace StellarNet.Lite.Client.Core
                 return false;
             }
 
+            // 回放只能从大厅态进入，避免和在线房间串线。
             if (_app.State != ClientAppState.InLobby)
             {
                 NetLogger.LogError("ClientReplayPlayer", $"启动回放失败: 当前状态非法, State:{_app.State}, FilePath:{filePath}");
@@ -93,12 +103,13 @@ namespace StellarNet.Lite.Client.Core
             _tickAccumulator = 0f;
             _lastReportedTimeScale = -1f;
 
+            // 先初始化流和索引，再创建本地回放房间。
             bool initSuccess = InitStream();
             if (!initSuccess)
             {
                 StopReplay();
 
-                // 核心修复：清理可能损坏的本地缓存文件，以便玩家可以重新下载
+                // 初始化失败时顺手清理本地坏文件，便于重新下载。
                 try
                 {
                     if (File.Exists(_replayFilePath))
@@ -140,6 +151,7 @@ namespace StellarNet.Lite.Client.Core
                 return false;
             }
 
+            // replay 文件头保存房间信息，raw 数据部分保存逐帧内容。
             using (FileStream fs = new FileStream(_replayFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 byte[] lengthBytes = new byte[4];
@@ -191,6 +203,7 @@ namespace StellarNet.Lite.Client.Core
                         return false;
                     }
 
+                    // 头信息决定回放房间该装哪些组件。
                     _componentIds = new int[compCount];
                     for (int i = 0; i < compCount; i++)
                     {
@@ -217,6 +230,7 @@ namespace StellarNet.Lite.Client.Core
                 }
 
                 _rawFilePath = _replayFilePath + ".raw";
+                // 第一次播放时先把压缩 raw 解到缓存文件，后续可直接复用。
                 if (!File.Exists(_rawFilePath))
                 {
                     NetLogger.LogInfo("ClientReplayPlayer", $"首次播放录像，开始解压 Raw 缓存文件。Replay:{_replayFilePath}");
@@ -261,6 +275,7 @@ namespace StellarNet.Lite.Client.Core
 
             _rawFs.Position = 0;
 
+            // 顺序扫 raw 文件，把关键跳转点记下来。
             while (_rawFs.Position < _rawFs.Length)
             {
                 long offset = _rawFs.Position;
@@ -280,6 +295,7 @@ namespace StellarNet.Lite.Client.Core
                     break;
                 }
 
+                // 关键帧索引用于对象世界恢复。
                 if (frameKind == ReplayFrameKind.ObjectSnapshot)
                 {
                     if (!_snapshotFrameIndex.ContainsKey(tick))
@@ -287,6 +303,7 @@ namespace StellarNet.Lite.Client.Core
                         _snapshotFrameIndex.Add(tick, offset);
                     }
                 }
+                // 消息稀疏索引用于长距离快进时减少从头补播。
                 else if (frameKind == ReplayFrameKind.Message)
                 {
                     if (tick % SparseIndexIntervalTicks == 0 && !_messageFrameIndex.ContainsKey(tick))
@@ -332,6 +349,7 @@ namespace StellarNet.Lite.Client.Core
             _isPlaying = false;
             CleanupStream();
 
+            // 停止回放时要销毁 ReplayRoom，并把倍速恢复成 1。
             if (_app != null)
             {
                 _app.LeaveRoom(false);
@@ -342,6 +360,7 @@ namespace StellarNet.Lite.Client.Core
 
         public void Update(float deltaTime)
         {
+            // 倍速变化会通过全局事件同步给动画/表现层。
             float currentTimeScale = IsPaused ? 0f : PlaybackSpeed;
             if (Mathf.Abs(_lastReportedTimeScale - currentTimeScale) > 0.001f)
             {
@@ -363,6 +382,7 @@ namespace StellarNet.Lite.Client.Core
 
             _tickAccumulator += deltaTime * PlaybackSpeed;
 
+            // 累加到 1 Tick 就推进一次回放逻辑。
             while (_tickAccumulator >= TickInterval)
             {
                 _tickAccumulator -= TickInterval;
@@ -398,11 +418,13 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // 回退 Seek 直接重建沙盒，保证状态绝对干净。
             if (targetTick < CurrentTick)
             {
                 RestartSandbox();
             }
 
+            // 先找最近对象关键帧；没有则退回稀疏消息索引。
             int snapshotTick = FindNearestSnapshotTick(targetTick);
             if (snapshotTick >= 0 && _snapshotFrameIndex.TryGetValue(snapshotTick, out long snapshotOffset))
             {
@@ -450,6 +472,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // 每次重建都会重新创建本地房间并按头信息装配组件。
             if (_app.State == ClientAppState.ReplayRoom)
             {
                 _app.LeaveRoom(true);
@@ -691,6 +714,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // 当前 Tick 内会把所有 <= CurrentTick 的帧都消费掉。
             while (true)
             {
                 if (!_nextFrame.HasValue && _rawFs != null && _rawFs.Position < _rawFs.Length)
@@ -710,6 +734,7 @@ namespace StellarNet.Lite.Client.Core
 
                 ReplayFrameData frame = _nextFrame.Value;
 
+                // 普通消息帧走房间分发链，关键帧直接恢复对象世界。
                 if (frame.FrameKind == ReplayFrameKind.Message)
                 {
                     Packet packet = new Packet(0, frame.MsgId, NetScope.Room, _roomId,

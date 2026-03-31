@@ -14,6 +14,10 @@ using UnityEngine;
 namespace StellarNet.Lite.Editor
 {
     [InitializeOnLoad]
+    /// <summary>
+    /// 协议与组件扫描器。
+    /// 负责生成 MsgId 常量、组件常量、静态元数据表和 AutoRegistry。
+    /// </summary>
     public static class LiteProtocolScanner
     {
         #region 常量路径
@@ -89,6 +93,7 @@ namespace StellarNet.Lite.Editor
 
         static LiteProtocolScanner()
         {
+            // 编辑器加载后自动做一次增量扫描。
             RunScanAndGenerate(false);
         }
 
@@ -138,6 +143,7 @@ namespace StellarNet.Lite.Editor
 
         private static void RunScanAndGenerate(bool forceWrite)
         {
+            // 协议和组件扫描分两条链，任一失败都阻断刷新。
             ScanResultState protocolResult = ScanAndGenerateProtocols(forceWrite);
             ScanResultState componentResult = ScanAndGenerateComponentsAndRegistry(forceWrite);
 

@@ -1,19 +1,31 @@
-﻿using System;
+using System;
 using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Client.Core
 {
+    /// <summary>
+    /// 客户端会话镜像。
+    /// 保存登录态、房间态和断线恢复上下文。
+    /// </summary>
     public sealed class ClientSession
     {
+        // 服务端返回的正式 SessionId。
         public string SessionId { get; private set; }
+        // 当前账号显示用 Uid。
         public string Uid { get; private set; }
+        // 当前所在房间 Id。
         public string CurrentRoomId { get; private set; }
         public bool IsLoggedIn => !string.IsNullOrEmpty(SessionId);
 
+        // 本地输入的账号 Id。
         public string AccountId { get; private set; }
+        // 物理连接是否在线。
         public bool IsPhysicalOnline { get; set; } = true;
+        // 最近一次成功绑定过的房间，用于恢复提示。
         public string LastBoundRoomId { get; private set; }
+        // 最近一次掉线时间。
         public DateTime LastDisconnectRealtime { get; set; }
+        // 当前是否处于恢复链中。
         public bool IsReconnecting { get; set; }
 
         public void SetAccountId(string accountId)
@@ -35,6 +47,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // 登录成功后更新正式身份，并退出恢复等待态。
             SessionId = sessionId;
             Uid = uid ?? string.Empty;
             IsPhysicalOnline = true;
@@ -49,6 +62,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // 绑定房间时顺便刷新最近房间上下文。
             CurrentRoomId = roomId;
             LastBoundRoomId = roomId;
         }
@@ -60,6 +74,7 @@ namespace StellarNet.Lite.Client.Core
 
         public void Clear()
         {
+            // 硬清理会话时一并清掉恢复链上下文。
             SessionId = string.Empty;
             Uid = string.Empty;
             CurrentRoomId = string.Empty;

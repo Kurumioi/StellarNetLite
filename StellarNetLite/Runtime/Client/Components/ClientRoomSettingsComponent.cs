@@ -8,18 +8,26 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Client.Components
 {
+    // 客户端房间基础信息组件。
     [RoomComponent(1, "RoomSettings", "基础房间设置")]
     public sealed class ClientRoomSettingsComponent : ClientRoomComponent
     {
         private readonly ClientApp _app;
 
+        // 本地房间成员缓存，供 UI 和业务查询。
         public readonly Dictionary<string, MemberInfo> Members = new Dictionary<string, MemberInfo>();
+        // 当前房间是否已进入游戏中。
         public bool IsGameStarted { get; private set; }
+        // 房间展示名。
         public string RoomName { get; private set; } = string.Empty;
+        // 房间最大人数。
         public int MaxMembers { get; private set; }
+        // 是否为私有房间。
         public bool IsPrivate { get; private set; }
 
+        // 当前组件对应的表现层根节点。
         private GameObject _viewRoot;
+        // 在线/回放态共用的房间设置路由。
         private ClientRoomUIRouterBase<ClientRoomSettingsComponent> _activeRouter;
 
         public ClientRoomSettingsComponent(ClientApp app)
@@ -47,14 +55,15 @@ namespace StellarNet.Lite.Client.Components
                 return;
             }
 
-            _viewRoot = new GameObject($"[View] RoomSettings_{Room.RoomId}");
-            Object.DontDestroyOnLoad(_viewRoot);
-
             if (_app == null)
             {
                 NetLogger.LogError("ClientRoomSettingsComponent", $"初始化失败: _app 为空, RoomId:{Room.RoomId}");
                 return;
             }
+
+            // 先确认 App 可用，再创建常驻视图节点，避免提前 return 留下残留对象。
+            _viewRoot = new GameObject($"[View] RoomSettings_{Room.RoomId}");
+            Object.DontDestroyOnLoad(_viewRoot);
 
             if (_app.State == ClientAppState.OnlineRoom)
             {
@@ -72,6 +81,7 @@ namespace StellarNet.Lite.Client.Components
 
         public override void OnDestroy()
         {
+            // 先解绑路由，再销毁承载节点。
             if (_activeRouter != null)
             {
                 _activeRouter.Unbind();
@@ -100,6 +110,7 @@ namespace StellarNet.Lite.Client.Components
             MaxMembers = msg.MaxMembers;
             IsPrivate = msg.IsPrivate;
 
+            // 快照以服务端全量数据为准，先清空再重建本地缓存。
             Members.Clear();
             for (int i = 0; i < msg.Members.Length; i++)
             {
@@ -131,6 +142,7 @@ namespace StellarNet.Lite.Client.Components
                 return;
             }
 
+            // 单人增量加入时只刷新该成员。
             Members[msg.Member.SessionId] = msg.Member;
 
             if (Room == null)
@@ -151,6 +163,7 @@ namespace StellarNet.Lite.Client.Components
                 return;
             }
 
+            // 单人离开时移除本地缓存。
             Members.Remove(msg.SessionId);
 
             if (Room == null)
@@ -173,6 +186,7 @@ namespace StellarNet.Lite.Client.Components
 
             if (Members.TryGetValue(msg.SessionId, out MemberInfo member))
             {
+                // MemberInfo 是引用类型，直接改字段即可同步到缓存。
                 member.IsReady = msg.IsReady;
             }
 
@@ -194,6 +208,7 @@ namespace StellarNet.Lite.Client.Components
                 return;
             }
 
+            // 游戏开始后切换本地房间状态。
             IsGameStarted = true;
 
             if (Room == null)
@@ -214,6 +229,7 @@ namespace StellarNet.Lite.Client.Components
                 return;
             }
 
+            // 游戏结束后回到未开始态，并重置所有准备标记。
             IsGameStarted = false;
 
             foreach (var kvp in Members)

@@ -9,6 +9,10 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Components
 {
+    /// <summary>
+    /// 服务端权威对象状态。
+    /// 保存可同步实体的运行时真相。
+    /// </summary>
     public class ServerSyncEntity
     {
         public int NetId;
@@ -26,16 +30,22 @@ namespace StellarNet.Lite.Server.Components
         public float FloatParam3;
     }
 
+    /// <summary>
+    /// 服务端对象同步组件。
+    /// 负责生成对象、增量同步、重连快照和回放关键帧导出。
+    /// </summary>
     [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
     public sealed class ServerObjectSyncComponent : RoomComponent, ITickableComponent
     {
         private readonly ServerApp _app;
+        // 当前房间内全部权威实体。
         private readonly Dictionary<int, ServerSyncEntity> _entities = new Dictionary<int, ServerSyncEntity>();
         private int _netIdCounter = 0;
 
         private const int SyncIntervalTicks = 3;
         private const int RecordIntervalTicks = 3;
 
+        // 增量同步消息做复用，降低频繁分配成本。
         private ObjectSyncState[] _syncStateBuffer = new ObjectSyncState[64];
         private readonly S2C_ObjectSync _reusableSyncMsg = new S2C_ObjectSync();
 
@@ -103,11 +113,13 @@ namespace StellarNet.Lite.Server.Components
                 return;
             }
 
+            // 非 Playing 态或无实体时不做同步。
             if (Room.State != RoomState.Playing || _entities.Count == 0)
             {
                 return;
             }
 
+            // 在线广播和录像采样都按固定 Tick 间隔执行。
             bool shouldSyncOnline = Room.CurrentTick % SyncIntervalTicks == 0;
             bool shouldRecord = Room.CurrentTick % RecordIntervalTicks == 0;
             if (!shouldSyncOnline && !shouldRecord)
@@ -115,6 +127,7 @@ namespace StellarNet.Lite.Server.Components
                 return;
             }
 
+            // 实体数量增长时扩容缓存数组，避免每帧 new。
             if (_entities.Count > _syncStateBuffer.Length)
             {
                 int newSize = Mathf.NextPowerOfTwo(_entities.Count);
@@ -125,6 +138,7 @@ namespace StellarNet.Lite.Server.Components
             int index = 0;
             float currentServerTime = Time.realtimeSinceStartup;
 
+            // 将权威实体压成连续同步状态数组。
             foreach (KeyValuePair<int, ServerSyncEntity> kvp in _entities)
             {
                 ServerSyncEntity entity = kvp.Value;
@@ -203,6 +217,7 @@ namespace StellarNet.Lite.Server.Components
                 return null;
             }
 
+            // 服务端生成对象后会立即广播完整生成态。
             _netIdCounter++;
             ServerSyncEntity entity = new ServerSyncEntity
             {
@@ -243,6 +258,7 @@ namespace StellarNet.Lite.Server.Components
                 return;
             }
 
+            // 销毁对象只需广播 NetId，客户端自行清理表现层。
             if (_entities.Remove(netId))
             {
                 S2C_ObjectDestroy destroyMsg = new S2C_ObjectDestroy { NetId = netId };
@@ -270,6 +286,7 @@ namespace StellarNet.Lite.Server.Components
             ObjectSpawnState[] result = new ObjectSpawnState[_entities.Count];
             int index = 0;
 
+            // 导出的是“完整生成态”，专供重连和回放关键帧使用。
             foreach (KeyValuePair<int, ServerSyncEntity> kvp in _entities)
             {
                 ServerSyncEntity entity = kvp.Value;

@@ -19,16 +19,20 @@ using UGUIFollow;
 /// </summary>
 public class Panel_SocialRoomView : UIPanelBase
 {
+    // 社交房面板引用。
     [Header("UI 引用")] [SerializeField] private TMP_InputField chatInput;
     [SerializeField] private Button sendBtn;
     [SerializeField] private Button endGameBtn;
     [SerializeField] private RectTransform bubbleContainer;
     [SerializeField] private GameObject bubblePrefab;
 
+    // 表现层依赖的对象生成器和输入控制器。
     private StellarNet.Lite.Client.Components.Views.ObjectSpawnerView _spawnerView;
     private StellarNet.Lite.Game.Client.Views.SocialRoomInputController _inputController;
+    // 本地玩家对应的 NetId。
     private int _localNetId = -1;
 
+    // 当前正在显示的头顶气泡。
     private readonly Dictionary<int, SocialRoomBubbleItem> _activeBubbles = new Dictionary<int, SocialRoomBubbleItem>();
 
     public override void OnInit()
@@ -42,6 +46,7 @@ public class Panel_SocialRoomView : UIPanelBase
             return;
         }
 
+        // 只负责聊天气泡和结算按钮，不接管房间生命周期。
         sendBtn.onClick.AddListener(OnSendBtnClick);
         endGameBtn.onClick.AddListener(OnEndGameBtnClick);
         chatInput.onSubmit.AddListener(OnChatInputSubmit);
@@ -58,6 +63,7 @@ public class Panel_SocialRoomView : UIPanelBase
     {
         base.OnOpen(uiData);
 
+        // 面板打开时重新绑定当前房间和表现层依赖。
         _spawnerView = FindObjectOfType<StellarNet.Lite.Client.Components.Views.ObjectSpawnerView>();
         _inputController = FindObjectOfType<StellarNet.Lite.Game.Client.Views.SocialRoomInputController>();
         _localNetId = -1;
@@ -84,6 +90,7 @@ public class Panel_SocialRoomView : UIPanelBase
             }
         }
 
+        // 回放态关闭输入，只保留只读表现。
         bool isReplay = NetClient.State == ClientAppState.ReplayRoom;
         chatInput.gameObject.SetActive(!isReplay);
         sendBtn.gameObject.SetActive(!isReplay);
@@ -117,6 +124,7 @@ public class Panel_SocialRoomView : UIPanelBase
             return;
         }
 
+        // 记录本地玩家的 NetId，便于本地立即显示自己的气泡。
         if (state.OwnerSessionId == NetClient.Session.SessionId)
         {
             _localNetId = state.NetId;
@@ -125,6 +133,7 @@ public class Panel_SocialRoomView : UIPanelBase
 
     private void HandleBubbleSync(S2C_SocialBubbleSync evt)
     {
+        // 气泡同步到达时，根据 NetId 更新或创建 UI 气泡。
         if (evt == null) return;
         CreateOrUpdateBubble(evt.NetId, evt.Content);
     }
@@ -133,6 +142,7 @@ public class Panel_SocialRoomView : UIPanelBase
     {
         if (netId <= 0) return;
 
+        // 同一对象复用已有气泡，只刷新内容和寿命。
         if (_activeBubbles.TryGetValue(netId, out SocialRoomBubbleItem existingBubble))
         {
             if (existingBubble != null)
@@ -160,6 +170,7 @@ public class Panel_SocialRoomView : UIPanelBase
         SocialRoomBubbleItem bubbleItem = uiObj.GetComponent<SocialRoomBubbleItem>();
         if (bubbleItem == null) bubbleItem = uiObj.AddComponent<SocialRoomBubbleItem>();
 
+        // 用跟随组件把气泡挂到 3D 对象头顶。
         UGUIFollowTarget followTarget = uiObj.GetComponent<UGUIFollowTarget>();
         if (followTarget == null) followTarget = uiObj.AddComponent<UGUIFollowTarget>();
 
@@ -215,6 +226,7 @@ public class Panel_SocialRoomView : UIPanelBase
             NetClient.Send(new C2S_SocialBubbleReq { Content = safeText });
         }
 
+        // 发送聊天后，本地也先乐观显示一次自己的气泡。
         if (_localNetId != -1)
         {
             string displayContent = safeText.Length > 30 ? safeText.Substring(0, 30) + "..." : safeText;

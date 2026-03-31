@@ -1,12 +1,17 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Core
 {
+    /// <summary>
+    /// 服务端全局域消息分发器。
+    /// 用于登录、大厅、建房等不依赖房间上下文的协议。
+    /// </summary>
     public sealed class GlobalDispatcher
     {
+        // MsgId -> Handler。
         private readonly Dictionary<int, Action<Session, Packet>> _handlers =
             new Dictionary<int, Action<Session, Packet>>();
 
@@ -18,6 +23,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 每个 MsgId 只允许注册一个处理器，避免重复触发。
             if (_handlers.ContainsKey(msgId))
             {
                 NetLogger.LogError("GlobalDispatcher", $"注册失败: MsgId 重复注册会导致重复分发, MsgId:{msgId}");
@@ -35,6 +41,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 分发时同时携带 Session 和原始 Packet。
             if (_handlers.TryGetValue(packet.MsgId, out Action<Session, Packet> handler))
             {
                 handler.Invoke(session, packet);
@@ -50,11 +57,17 @@ namespace StellarNet.Lite.Server.Core
         }
     }
 
+    /// <summary>
+    /// 服务端房间域消息分发器。
+    /// 仅处理已经通过房间上下文校验的协议。
+    /// </summary>
     public sealed class RoomDispatcher
     {
+        // MsgId -> Handler。
         private readonly Dictionary<int, Action<Session, Packet>> _handlers =
             new Dictionary<int, Action<Session, Packet>>();
 
+        // 当前分发器归属的房间 Id，仅用于日志定位。
         private readonly string _roomId;
 
         public RoomDispatcher(string roomId)
@@ -70,6 +83,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 每个 MsgId 只允许注册一个处理器，避免重复触发。
             if (_handlers.ContainsKey(msgId))
             {
                 NetLogger.LogError("RoomDispatcher", $"注册失败: MsgId 重复注册会导致重复分发, RoomId:{_roomId}, MsgId:{msgId}");
@@ -87,6 +101,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 房间分发器只关心当前房间内的消息处理。
             if (_handlers.TryGetValue(packet.MsgId, out Action<Session, Packet> handler))
             {
                 handler.Invoke(session, packet);

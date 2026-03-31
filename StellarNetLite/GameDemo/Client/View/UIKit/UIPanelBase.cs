@@ -9,6 +9,7 @@ namespace StellarNet.UI
     [RequireComponent(typeof(CanvasGroup))]
     public abstract class UIPanelBase : MonoBehaviour
     {
+        // 面板挂载层级。
         public enum PanelLayer
         {
             Bottom = 0,
@@ -21,8 +22,10 @@ namespace StellarNet.UI
         [Header("UI Settings")] [SerializeField]
         protected PanelLayer layer = PanelLayer.Middle;
 
+        // 关闭时是否直接销毁实例。
         [SerializeField] protected bool destroyOnClose = false;
 
+        // 惰性缓存常用组件。
         private CanvasGroup _canvasGroup;
         private RectTransform _rectTransform;
 
@@ -59,6 +62,7 @@ namespace StellarNet.UI
         /// </summary>
         public virtual void OnOpen(object uiData = null)
         {
+            // 打开时统一恢复交互和显隐状态。
             gameObject.SetActive(true);
             transform.SetAsLastSibling();
 
@@ -81,6 +85,7 @@ namespace StellarNet.UI
         /// </summary>
         public virtual void OnClose()
         {
+            // 基类只做隐藏，不销毁实例。
             gameObject.SetActive(false);
         }
 

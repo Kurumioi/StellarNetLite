@@ -13,17 +13,25 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Shared.Infrastructure
 {
+    /// <summary>
+    /// 框架运行时总入口。
+    /// 负责把 Mirror 生命周期接到 StellarNet Lite 的双端核心上。
+    /// </summary>
     public class StellarNetMirrorManager : NetworkManager, INetworkTransport
     {
+        // 统一的序列化入口，双端共用。
         public INetSerializer Serializer { get; private set; }
 
+        // 当前生效的网络配置。
         private NetConfig _netConfig;
+        // 标记 Shared/Registry/Factory 是否已完成初始化。
         private bool _isCoreInitialized;
 
         public override void Awake()
         {
             base.Awake();
 
+            // 先初始化基础设施，再装配自动注册表和房间工厂。
             Serializer = new LiteNetSerializer();
             _netConfig = NetConfigLoader.LoadServerConfigSync(ConfigRootPath.StreamingAssets);
             ApplyConfigInternal(_netConfig);
@@ -59,6 +67,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return;
             }
 
+            // 逻辑层配置直接应用到 Mirror Manager。
             maxConnections = config.MaxConnections;
             networkAddress = config.Ip;
 
@@ -70,6 +79,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return;
             }
 
+            // 端口只允许通过约定接口设置，避免运行时反射改底层传输。
             if (transport is PortTransport portTransport)
             {
                 portTransport.Port = config.Port;
@@ -84,6 +94,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         private void FixedUpdate()
         {
+            // 只有服务端活跃时才推进权威逻辑帧。
             if (!NetworkServer.active)
             {
                 return;
@@ -154,6 +165,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         #region ================= 服务端专属 =================
 
+        // 服务端权威内核。
         public ServerApp ServerApp { get; private set; }
 
         public static event Action OnServerStartedEvent;
@@ -177,6 +189,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return;
             }
 
+            // 服务端启动时创建权威 App，并注册所有全局模块处理器。
             NetworkServer.tickRate = _netConfig.TickRate;
             ServerApp = new ServerApp(this, Serializer, _netConfig);
 
@@ -226,6 +239,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return;
             }
 
+            // 物理断开时只解绑连接，不直接销毁业务 Session。
             if (ServerApp != null)
             {
                 Session session = ServerApp.TryGetSessionByConnectionId(conn.connectionId);
@@ -251,6 +265,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return;
             }
 
+            // Mirror 消息在这里转换回框架 Packet。
             ServerApp?.OnReceivePacket(conn.connectionId, msg.ToPacket());
         }
 
@@ -258,9 +273,12 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         #region ================= 客户端专属 =================
 
+        // 客户端轻状态内核。
         public ClientApp ClientApp { get; private set; }
+        // 客户端网络质量监控器。
         public ClientNetworkMonitor NetworkMonitor { get; private set; }
 
+        // 自动重连协程句柄。
         private Coroutine _reconnectCoroutine;
 
         public static event Action OnClientStartedEvent;
@@ -278,6 +296,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 return;
             }
 
+            // 客户端只在首次启动时创建 App 和自动注册表。
             if (ClientApp == null)
             {
                 ClientApp = new ClientApp(this, Serializer);
@@ -288,6 +307,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 NetworkClient.RegisterHandler<MirrorPacketMsg>(OnClientReceivePacket, false);
             }
 
+            // 网络监控器挂在同一节点，方便感知 RTT 和熔断。
             if (NetworkMonitor == null)
             {
                 NetworkMonitor = gameObject.GetComponent<ClientNetworkMonitor>();
@@ -335,6 +355,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 _reconnectCoroutine = null;
             }
 
+            // 挂起态重连成功后，会自动重发 Login 进入恢复链。
             if (ClientApp != null && ClientApp.Session.IsReconnecting)
             {
                 if (string.IsNullOrEmpty(ClientApp.Session.AccountId))
@@ -363,6 +384,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
         {
             if (ClientApp != null)
             {
+                // 在线房间掉线走软挂起，其他状态直接硬清理。
                 if (ClientApp.State == ClientAppState.OnlineRoom)
                 {
                     NetLogger.LogWarning("StellarNetMirrorManager", "物理连接意外断开，进入软挂起与自动重试链");
@@ -398,6 +420,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
                 yield break;
             }
 
+            // 自动重连窗口固定 15 秒，超时后交给 UI 决策。
             ClientApp.Session.IsReconnecting = true;
             DateTime startTime = ClientApp.Session.LastDisconnectRealtime;
             float timeoutSeconds = 15f;
@@ -417,8 +440,10 @@ namespace StellarNet.Lite.Shared.Infrastructure
                     yield break;
                 }
 
+                // 周期性广播剩余时间，供 UI 更新提示。
                 GlobalTypeNetEvent.Broadcast(new Local_ConnectionSuspended { RemainingSeconds = remaining });
 
+                // 未处于活跃连接时才重新发起 Mirror 物理重连。
                 if (Time.realtimeSinceStartup - lastRetryTime >= retryInterval)
                 {
                     if (!NetworkClient.active && !NetworkClient.isConnected)
@@ -459,6 +484,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
 
         private void OnClientReceivePacket(MirrorPacketMsg msg)
         {
+            // 收包先喂给网络监控，再交给客户端内核。
             NetworkMonitor?.OnPacketReceived();
             ClientApp?.OnReceivePacket(msg.ToPacket());
         }

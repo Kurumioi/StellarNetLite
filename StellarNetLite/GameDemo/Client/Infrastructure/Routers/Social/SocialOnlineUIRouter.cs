@@ -10,11 +10,13 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
     /// </summary>
     public class SocialOnlineUIRouter : ClientRoomUIRouterBase<ClientSocialRoomComponent>
     {
+        // 对局开始/结束事件订阅令牌。
         private IUnRegister _gameStartedToken;
         private IUnRegister _gameEndedToken;
 
         protected override void OnBind(ClientSocialRoomComponent component)
         {
+            // 在线态只关心对局开始和结束两个节点。
             _gameStartedToken = BoundRoom.NetEventSystem.Register<S2C_GameStarted>(OnGameStarted);
             _gameEndedToken = BoundRoom.NetEventSystem.Register<S2C_GameEnded>(OnGameEnded);
         }
@@ -33,6 +35,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
         protected override void OnUnbind()
         {
+            // 解绑时必须主动清理事件和房间内 UI。
             _gameStartedToken?.UnRegister();
             _gameStartedToken = null;
 

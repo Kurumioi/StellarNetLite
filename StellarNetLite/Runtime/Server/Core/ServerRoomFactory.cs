@@ -4,10 +4,16 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Core
 {
+    /// <summary>
+    /// 服务端房间组件工厂。
+    /// 按组件 Id 负责创建、绑定和初始化组件。
+    /// </summary>
     public static class ServerRoomFactory
     {
+        // 自动生成的 Handler 绑定器。
         public static Action<RoomComponent, RoomDispatcher> ComponentBinder;
 
+        // ComponentId -> 构造函数。
         private static readonly Dictionary<int, Func<RoomComponent>> Registry =
             new Dictionary<int, Func<RoomComponent>>();
 
@@ -47,6 +53,7 @@ namespace StellarNet.Lite.Server.Core
                 return true;
             }
 
+            // 先批量创建组件，确保中途失败时可以整体回滚。
             var pendingComponents = new List<RoomComponent>(componentIds.Length);
 
             for (int i = 0; i < componentIds.Length; i++)
@@ -78,6 +85,7 @@ namespace StellarNet.Lite.Server.Core
                     return false;
                 }
 
+                // 组件加入房间后，再绑定自动生成的消息处理器。
                 room.AddComponent(component);
 
                 if (ComponentBinder != null)
@@ -86,6 +94,7 @@ namespace StellarNet.Lite.Server.Core
                 }
             }
 
+            // 全部组件都挂好后，最后统一初始化。
             room.InitializeComponents();
             return true;
         }

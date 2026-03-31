@@ -2,12 +2,15 @@
 
 namespace StellarNet.Lite.Shared.Protocol
 {
-    // 架构约束：协议层仅作为 DTO (数据传输对象)，保持扁平化，不与服务端内部模型耦合
+    // 房间调度协议。
+    // 负责建房、加房、离房和房间装配握手。
 
     [NetMsg(200, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_CreateRoom
     {
+        // 房间展示名。
         public string RoomName;
+        // 客户端选中的组件模板。
         public int[] ComponentIds;
         public int MaxMembers; // 客户端请求的配置字段
 
@@ -54,6 +57,7 @@ namespace StellarNet.Lite.Shared.Protocol
     [NetMsg(206, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_RoomSetupReady
     {
+        // 客户端本地装配完成的目标房间。
         public string RoomId;
     }
 }

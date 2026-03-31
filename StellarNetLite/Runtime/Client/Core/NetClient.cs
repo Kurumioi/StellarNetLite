@@ -8,6 +8,7 @@ namespace StellarNet.Lite.Client.Core
     /// </summary>
     public static class NetClient
     {
+        // 当前绑定的客户端主状态机。
         private static ClientApp _app;
 
         /// <summary>
@@ -18,6 +19,7 @@ namespace StellarNet.Lite.Client.Core
 
         public static void Initialize(ClientApp app)
         {
+            // 由 MirrorManager 在客户端启动/销毁时统一设置。
             _app = app;
         }
 
@@ -29,9 +31,11 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // UI 和 View 层统一从门面发包，不直接碰 ClientApp。
             _app.SendMessage(msg);
         }
 
+        // 以下属性是给表现层读状态用的快捷入口。
         public static ClientSession Session => _app?.Session;
 
         public static ClientAppState State => _app?.State ?? ClientAppState.InLobby;

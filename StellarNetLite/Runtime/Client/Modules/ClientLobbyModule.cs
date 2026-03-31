@@ -7,7 +7,7 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Client.Modules
 {
-    // 核心修复 P0-5：使用 ClientModule 明确端侧归属
+    // 客户端大厅模块，负责转发大厅级同步消息。
     [ClientModule("ClientLobbyModule", "客户端大厅模块")]
     public sealed class ClientLobbyModule
     {
@@ -21,20 +21,16 @@ namespace StellarNet.Lite.Client.Modules
         [NetHandler]
         public void OnS2C_RoomListResponse(S2C_RoomListResponse msg)
         {
-            // 核心修复 P0-2：补充阻断日志，拒绝静默 return
             if (msg == null)
             {
                 NetLogger.LogError("ClientLobbyModule", "收到非法同步包: Msg 为空");
                 return;
             }
 
+            // 大厅面板通过全局事件自己决定如何渲染列表。
             GlobalTypeNetEvent.Broadcast(msg);
         }
 
-        /// <summary>
-        ///   在线玩家列表同步
-        /// </summary>
-        /// <param name="msg"></param>
         [NetHandler]
         public void OnS2C_OnlinePlayerListSync(S2C_OnlinePlayerListSync msg)
         {
@@ -50,6 +46,7 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
+            // 在线玩家列表也走事件总线，避免模块直接依赖具体 UI。
             GlobalTypeNetEvent.Broadcast(msg);
         }
     }

@@ -10,14 +10,15 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
     /// </summary>
     public class ClientRoomSettingsOnlineUIRouter : ClientRoomUIRouterBase<ClientRoomSettingsComponent>
     {
+        // 结算事件订阅令牌。
         private IUnRegister _gameEndedToken;
 
         protected override void OnBind(ClientRoomSettingsComponent component)
         {
-            // 进入在线房间，首先拉起准备大厅 UI
+            // 进入在线房间时，先拉起准备大厅 UI。
             UIKit.OpenPanel<Panel_StellarNetRoom>();
 
-            // 注册对局结束事件，用于弹出结算面板
+            // 在线态监听结算事件，用于弹出结算面板。
             _gameEndedToken = BoundRoom.NetEventSystem.Register<S2C_GameEnded>(OnGameEnded);
         }
 
@@ -28,10 +29,10 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
         protected override void OnUnbind()
         {
+            // 离开房间时统一清理通用房间 UI。
             _gameEndedToken?.UnRegister();
             _gameEndedToken = null;
 
-            // 离开房间时，强制清理残留的通用业务 UI
             UIKit.ClosePanel<Panel_StellarNetRoom>();
             UIKit.ClosePanel<Panel_StellarNetGameOver>();
         }

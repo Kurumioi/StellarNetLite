@@ -10,15 +10,18 @@ using UnityEngine.UI;
 
 public class Panel_StellarNetLogin : UIPanelBase
 {
+    // 登录表单。
     [SerializeField] private TMP_InputField accountIpt;
     [SerializeField] private Button loginBtn;
     [SerializeField] private TMP_Text loginStatusTxt;
     [SerializeField] private Button restartClientBtn;
 
+    // 重连决策区域。
     [SerializeField] private Transform reconnectGroupTrans;
     [SerializeField] private Button reconnectBtn;
     [SerializeField] private Button reconnectCancelBtn;
 
+    // 防止重复点击的本地请求锁。
     private bool _isRequesting;
     private float _requestStartTime;
     private const float RequestTimeoutSeconds = 5f;
@@ -38,6 +41,7 @@ public class Panel_StellarNetLogin : UIPanelBase
         reconnectBtn.onClick.AddListener(OnReconnectBtnClick);
         reconnectCancelBtn.onClick.AddListener(OnReconnectCancelBtnClick);
 
+        // 登录页只监听物理连接和登录结果。
         StellarNetMirrorManager.OnClientConnectedEvent += OnClientConnected;
         StellarNetMirrorManager.OnClientDisconnectedEvent += OnClientDisconnected;
 
@@ -59,6 +63,7 @@ public class Panel_StellarNetLogin : UIPanelBase
         if (reconnectBtn != null) reconnectBtn.interactable = true;
         if (reconnectCancelBtn != null) reconnectCancelBtn.interactable = true;
 
+        // 打开时根据物理连接状态刷新按钮和提示文案。
         if (NetworkClient.isConnected)
         {
             restartClientBtn.gameObject.SetActive(false);
@@ -85,7 +90,7 @@ public class Panel_StellarNetLogin : UIPanelBase
 
     private void Update()
     {
-        // 核心修复：请求超时自愈，防止因网络丢包导致 UI 永久卡死在不可点击状态
+        // 请求超时后自动解锁按钮，防止 UI 卡死。
         if (_isRequesting)
         {
             if (Time.realtimeSinceStartup - _requestStartTime > RequestTimeoutSeconds)
@@ -134,6 +139,7 @@ public class Panel_StellarNetLogin : UIPanelBase
             return;
         }
 
+        // 登录请求会把本地输入账号写入 ClientSession。
         string safeAccountId = accountId.Trim();
         NetClient.Session.SetAccountId(safeAccountId);
 
@@ -166,6 +172,7 @@ public class Panel_StellarNetLogin : UIPanelBase
         if (reconnectBtn != null) reconnectBtn.interactable = false;
         if (reconnectCancelBtn != null) reconnectCancelBtn.interactable = false;
 
+        // 挂起态下，玩家可以决定继续恢复或放弃恢复。
         NetClient.Send(new C2S_ConfirmReconnect { Accept = true });
     }
 
@@ -199,6 +206,7 @@ public class Panel_StellarNetLogin : UIPanelBase
             return;
         }
 
+        // 登录成功但存在恢复房间时，拉起重连决策 UI。
         if (msg.HasReconnectRoom && reconnectGroupTrans != null)
         {
             reconnectGroupTrans.gameObject.SetActive(true);

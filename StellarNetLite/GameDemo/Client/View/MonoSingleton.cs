@@ -8,8 +8,11 @@ namespace StellarNet.View
     /// </summary>
     public abstract class MonoSingleton<T> : MonoBehaviour where T : MonoSingleton<T>
     {
+        // 当前单例实例。
         private static T _instance;
+        // 惰性初始化锁。
         private static readonly object _lock = new object();
+        // 程序退出时禁止再次创建单例。
         private static bool _applicationIsQuitting = false;
 
         public static T Instance
@@ -28,6 +31,7 @@ namespace StellarNet.View
                     {
                         _instance = (T)FindObjectOfType(typeof(T));
 
+                        // 场景里不存在时自动创建一个常驻节点。
                         if (_instance == null)
                         {
                             GameObject singleton = new GameObject();
@@ -44,11 +48,13 @@ namespace StellarNet.View
 
         protected virtual void Awake()
         {
+            // 第一次挂载的实例成为正式单例。
             if (_instance == null)
             {
                 _instance = this as T;
                 DontDestroyOnLoad(gameObject);
             }
+            // 防止场景里出现重复副本。
             else if (_instance != this)
             {
                 Debug.LogWarning($"[MonoSingleton] 场景中存在重复单例: {typeof(T)}，已销毁副本。");

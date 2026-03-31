@@ -7,6 +7,10 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Editor
 {
+    /// <summary>
+    /// 业务脚手架生成器。
+    /// 用于创建房间组件或全局模块的模板源码和 manifest。
+    /// </summary>
     public sealed class StellarNetScaffoldWindow : EditorWindow
     {
         #region 常量
@@ -70,6 +74,7 @@ namespace StellarNet.Lite.Editor
 
         #region 字段
 
+        // 当前创建表单状态。
         private ScaffoldBusinessType _businessType = ScaffoldBusinessType.RoomComponent;
         private string _namespacePrefix = string.Empty;
         private string _baseNamespace = DefaultBaseNamespace;
@@ -81,6 +86,7 @@ namespace StellarNet.Lite.Editor
         private int _s2cMsgId = DefaultRoomS2CMsgId;
         private Vector2 _createScrollPosition;
         private Vector2 _managedScrollPosition;
+        // 已托管脚手架清单。
         private readonly List<ManagedManifestEntry> _managedEntries = new List<ManagedManifestEntry>(64);
         private int _selectedManagedIndex = -1;
 

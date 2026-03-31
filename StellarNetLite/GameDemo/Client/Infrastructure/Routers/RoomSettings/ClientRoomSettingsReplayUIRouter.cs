@@ -10,10 +10,12 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
     {
         protected override void OnBind(ClientRoomSettingsComponent component)
         {
+            // 当前示例中，回放态不需要通用准备大厅 UI。
         }
 
         protected override void OnUnbind()
         {
+            // 若后续回放态增加 UI，可在这里统一清理。
         }
     }
 }

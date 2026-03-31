@@ -4,8 +4,11 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Shared.Protocol
 {
+    // 回放协议。
+    // 负责录像列表、分块下载和录像重命名。
     public sealed class ReplayBriefInfo
     {
+        // 录像唯一 Id。
         public string ReplayId;
         public string DisplayName;
         public long Timestamp;

@@ -29,6 +29,7 @@ public class Panel_StellarNetLobby : UIPanelBase
     [SerializeField] private Transform replayListContent;
     [SerializeField] private GameObject replayItemPrefab;
 
+    // 面板数据模型。
     [SerializeField] private Panel_StellarNetLobbyData dataModel;
 
     public override void OnInit()
@@ -39,6 +40,7 @@ public class Panel_StellarNetLobby : UIPanelBase
         createRoomBtn.onClick.AddListener(OnCreateRoomBtn);
         if (refreshReplayBtn != null) refreshReplayBtn.onClick.AddListener(OnRefreshReplayBtn);
 
+        // 大厅只监听房间列表、录像列表和录像下载结果。
         GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList)
@@ -63,6 +65,7 @@ public class Panel_StellarNetLobby : UIPanelBase
             dataModel = data;
         }
 
+        // 打开大厅时刷新本地显示用 uid。
         uidText.text = dataModel.uid;
     }
 
@@ -73,21 +76,25 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     private void OnRefreshRoomListBtn()
     {
+        // 主动拉取大厅房间列表。
         NetClient.Send(new C2S_GetRoomList());
     }
 
     private void OnCreateRoomBtn()
     {
+        // 建房走单独的配置面板。
         UIKit.OpenPanel<Panel_SetRoomConfig>();
     }
 
     private void OnRefreshReplayBtn()
     {
+        // 主动拉取录像列表。
         NetClient.Send(new C2S_GetReplayList());
     }
 
     private void OnS2C_RoomListResponse(S2C_RoomListResponse msg)
     {
+        // 收到最新列表后重建大厅房间项。
         foreach (Transform child in roomListContent)
         {
             Destroy(child.gameObject);
@@ -118,6 +125,7 @@ public class Panel_StellarNetLobby : UIPanelBase
     {
         if (replayListContent == null || replayItemPrefab == null) return;
 
+        // 收到录像列表后重建录像项。
         foreach (Transform child in replayListContent)
         {
             Destroy(child.gameObject);

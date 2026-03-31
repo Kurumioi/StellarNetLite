@@ -14,9 +14,13 @@ namespace StellarNet.Lite.Game.Client.Components
     public sealed class ClientSocialRoomComponent : ClientRoomComponent
     {
         private readonly ClientApp _app;
+        // 当前业务组件的表现层根节点。
         private GameObject _viewRoot;
+        // 在线态或回放态对应的 UI Router。
         private ClientRoomUIRouterBase<ClientSocialRoomComponent> _activeRouter;
+        // 对象生成表现层。
         private ObjectSpawnerView _spawnerView;
+        // 在线输入控制器。
         private SocialRoomInputController _inputController;
         private bool _isInitialized;
 
@@ -51,6 +55,7 @@ namespace StellarNet.Lite.Game.Client.Components
                 return;
             }
 
+            // SocialRoom 强依赖 ObjectSync 组件，不存在则直接阻断初始化。
             ClientObjectSyncComponent objectSyncComponent = Room.GetComponent<ClientObjectSyncComponent>();
             if (objectSyncComponent == null)
             {
@@ -70,6 +75,7 @@ namespace StellarNet.Lite.Game.Client.Components
                 return;
             }
 
+            // 在线态挂输入和在线 Router；回放态只挂回放 Router。
             if (_app.State == ClientAppState.OnlineRoom)
             {
                 SocialOnlineUIRouter router = _viewRoot.AddComponent<SocialOnlineUIRouter>();
@@ -134,6 +140,7 @@ namespace StellarNet.Lite.Game.Client.Components
                 return;
             }
 
+            // 气泡协议只做事件转发，具体表现由 UIPanel 处理。
             Room.NetEventSystem.Broadcast(msg);
         }
 

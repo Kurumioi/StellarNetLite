@@ -9,12 +9,14 @@ namespace StellarNet.Lite.Shared.Infrastructure
     /// </summary>
     public static class NetLogger
     {
+        // 普通信息日志，可被宏关闭。
         [Conditional("ENABLE_LOG")]
         public static void LogInfo(string module, string message, string roomId = "-", string sessionId = "-", string extraContext = "")
         {
             Debug.Log(FormatMessage("INFO", module, message, roomId, sessionId, extraContext));
         }
 
+        // 警告日志，可被宏关闭。
         [Conditional("ENABLE_LOG")]
         public static void LogWarning(string module, string message, string roomId = "-", string sessionId = "-", string extraContext = "")
         {
@@ -27,6 +29,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
             Debug.LogError(FormatMessage("ERROR", module, message, roomId, sessionId, extraContext));
         }
 
+        // 统一拼装结构化日志文本。
         private static string FormatMessage(string level, string module, string message, string roomId, string sessionId, string extraContext)
         {
             string roomStr = string.IsNullOrEmpty(roomId) ? "-" : roomId;

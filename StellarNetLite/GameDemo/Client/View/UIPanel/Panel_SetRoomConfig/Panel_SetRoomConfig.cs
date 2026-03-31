@@ -11,6 +11,7 @@ using UnityEngine.UI;
 
 public class Panel_SetRoomConfig : UIPanelBase
 {
+    // 建房基础配置。
     [SerializeField] private TMP_InputField roomNameIpt;
     [SerializeField] private Slider memberCountSlider;
     [SerializeField] private TMP_Text memberCountText;
@@ -19,13 +20,16 @@ public class Panel_SetRoomConfig : UIPanelBase
     [SerializeField] private Button cancelBtn;
     [SerializeField] private Button createBtn;
 
+    // 房型模板缓存和对应 UI 项。
     private readonly List<RoomTypeTemplateRegistry.RoomTypeTemplate> _roomTypeTemplates =
         new List<RoomTypeTemplateRegistry.RoomTypeTemplate>();
 
     private readonly List<Panel_SetRoomConfig_RoomComItem> _roomTypeItems = new List<Panel_SetRoomConfig_RoomComItem>();
 
+    // 当前选中的模板索引。
     private int _selectedTemplateIndex = -1;
 
+    // 防止重复点击的本地请求锁。
     private bool _isRequesting;
     private float _requestStartTime;
     private const float RequestTimeoutSeconds = 5f;
@@ -45,6 +49,7 @@ public class Panel_SetRoomConfig : UIPanelBase
         createBtn.onClick.AddListener(OnCreateBtn);
         memberCountSlider.onValueChanged.AddListener(OnMemberCountSlider);
 
+        // 建房配置页只监听建房结果。
         GlobalTypeNetEvent.Register<S2C_CreateRoomResult>(OnS2C_CreateRoomResult)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
 
@@ -63,6 +68,7 @@ public class Panel_SetRoomConfig : UIPanelBase
     {
         base.OnOpen(uiData);
 
+        // 打开时解锁创建按钮，并恢复默认选中项。
         _isRequesting = false;
 
         if (createBtn != null)
@@ -75,7 +81,7 @@ public class Panel_SetRoomConfig : UIPanelBase
 
     private void Update()
     {
-        // 核心修复：请求超时自愈，防止因网络丢包导致 UI 永久卡死在不可点击状态
+        // 请求超时后自动解锁按钮，防止 UI 卡死。
         if (_isRequesting)
         {
             if (Time.realtimeSinceStartup - _requestStartTime > RequestTimeoutSeconds)
@@ -107,6 +113,7 @@ public class Panel_SetRoomConfig : UIPanelBase
             return;
         }
 
+        // 建房前必须先选中一个合法模板。
         List<int> roomComIds = GetSelectedRoomTypeComponentIds();
         if (roomComIds.Count == 0)
         {
@@ -122,6 +129,7 @@ public class Panel_SetRoomConfig : UIPanelBase
         int memberCount = (int)memberCountSlider.value;
         NetLogger.LogInfo("Panel_SetRoomConfig", $"请求创建房间 {roomName} {memberCount} {roomComIds}");
 
+        // 创建房间时最终发给服务端的是模板映射后的组件 Id 列表。
         C2S_CreateRoom msg = new C2S_CreateRoom
         {
             RoomName = roomName,
@@ -159,6 +167,7 @@ public class Panel_SetRoomConfig : UIPanelBase
             Destroy(child.gameObject);
         }
 
+        // 重新根据模板表生成选项 UI。
         _roomTypeTemplates.Clear();
         _roomTypeItems.Clear();
         _selectedTemplateIndex = -1;
@@ -205,6 +214,7 @@ public class Panel_SetRoomConfig : UIPanelBase
 
     private void OnRoomTypeToggleChanged(int templateIndex, bool isOn)
     {
+        // 只允许单选模板。
         if (!isOn)
         {
             if (_selectedTemplateIndex == templateIndex) _selectedTemplateIndex = -1;
@@ -232,6 +242,7 @@ public class Panel_SetRoomConfig : UIPanelBase
             (_selectedTemplateIndex >= 0 && _selectedTemplateIndex < _roomTypeTemplates.Count))
             return;
 
+        // 第一次打开时默认选中第一个模板。
         var firstItem = _roomTypeItems[0];
         if (firstItem != null)
         {

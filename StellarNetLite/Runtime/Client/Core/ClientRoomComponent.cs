@@ -6,12 +6,15 @@
     /// </summary>
     public abstract class ClientRoomComponent
     {
+        // 当前组件所属的客户端房间。
         public ClientRoom Room { get; internal set; }
 
+        // 房间组件初始化入口。
         public virtual void OnInit()
         {
         }
 
+        // 房间组件销毁入口。
         public virtual void OnDestroy()
         {
         }

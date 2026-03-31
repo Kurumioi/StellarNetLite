@@ -16,8 +16,13 @@ namespace StellarNet.Lite.Server.Core
         Finished
     }
 
+    /// <summary>
+    /// 服务端单个房间实例。
+    /// 负责成员、组件、状态机、录制和房间级广播。
+    /// </summary>
     public sealed class Room
     {
+        // 对象关键帧采样间隔。
         private const int ReplaySnapshotIntervalTicks = 150;
 
         public string RoomId { get; }
@@ -33,9 +38,11 @@ namespace StellarNet.Lite.Server.Core
         public RoomState State { get; private set; } = RoomState.Waiting;
         public string LastReplayId { get; private set; }
 
+        // 房间内在线成员。
         private readonly Dictionary<string, Session> _members = new Dictionary<string, Session>();
         public IReadOnlyDictionary<string, Session> Members => _members;
 
+        // 横向扩展组件和可 Tick 组件。
         private readonly List<RoomComponent> _components = new List<RoomComponent>();
         private readonly List<ITickableComponent> _tickableComponents = new List<ITickableComponent>();
         private readonly INetworkTransport _transport;
@@ -91,6 +98,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 组件加入房间时会自动挂上 Room 上下文。
             component.Room = this;
             _components.Add(component);
 
@@ -121,6 +129,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 装配完成后统一调用 OnInit，保证组件看到的是完整房间。
             for (int i = 0; i < _components.Count; i++)
             {
                 if (_components[i] == null)
@@ -153,12 +162,14 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // Finished 房间不再接受新成员。
             if (State == RoomState.Finished)
             {
                 NetLogger.LogWarning("Room", "拦截加入: 房间已结束", RoomId, session.SessionId);
                 return;
             }
 
+            // 成员正式加入后交给所有组件感知。
             _members.Add(session.SessionId, session);
             session.BindRoom(RoomId);
             EmptySince = DateTime.MaxValue;
@@ -187,6 +198,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 离房顺序是：组件通知 -> 成员字典移除 -> Session 解绑。
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnMemberLeft(session);
@@ -267,6 +279,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 重连恢复由每个组件自己决定如何给该成员补快照。
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnSendSnapshot(session);
@@ -287,6 +300,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 进入 Playing 后立刻开启录制并通知组件。
             State = RoomState.Playing;
             LastReplayId = string.Empty;
             _hasWrittenInitialReplaySnapshot = false;
@@ -314,6 +328,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 结束对局前先补一次终局关键帧，保证 Seek 到结尾可恢复。
             TryRecordFinalReplaySnapshot();
 
             State = RoomState.Finished;
@@ -357,6 +372,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 房间广播是服务端推给所有在线且已 ready 的成员。
             if (!NetMessageMapper.TryGetMeta(typeof(T), out NetMessageMeta meta))
             {
                 NetLogger.LogError("Room", $"广播失败: 未找到静态网络元数据, Type:{typeof(T).FullName}", RoomId);
@@ -381,6 +397,7 @@ namespace StellarNet.Lite.Server.Core
 
                 Packet packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, 0, length);
 
+                // 回放只记录房间内真实广播过的消息。
                 if (recordToReplay && IsRecording)
                 {
                     int relativeTick = CurrentTick - _recordStartTick;
@@ -395,6 +412,7 @@ namespace StellarNet.Lite.Server.Core
                         continue;
                     }
 
+                    // 只有在线且已完成房间装配的成员才能收到房间包。
                     if (!session.IsOnline || !session.IsRoomReady)
                     {
                         continue;
@@ -514,6 +532,7 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            // 每帧先推进逻辑时钟，再采样关键帧，再驱动组件 Tick。
             CurrentTick++;
 
             TryRecordPeriodicReplaySnapshot();
@@ -523,6 +542,7 @@ namespace StellarNet.Lite.Server.Core
                 _tickableComponents[i].OnTick();
             }
 
+            // Finished 房间会在较长延迟后清理残留成员，防止僵尸房间。
             if (State != RoomState.Finished)
             {
                 return;
@@ -559,6 +579,7 @@ namespace StellarNet.Lite.Server.Core
 
             _isDestroyed = true;
 
+            // Playing 状态销毁时会先走一遍正常 EndGame 收尾。
             if (State == RoomState.Playing)
             {
                 EndGame();
@@ -584,6 +605,7 @@ namespace StellarNet.Lite.Server.Core
             _components.Clear();
             _tickableComponents.Clear();
 
+            // 最后统一解除成员和分发器引用。
             foreach (KeyValuePair<string, Session> kvp in _members)
             {
                 Session session = kvp.Value;

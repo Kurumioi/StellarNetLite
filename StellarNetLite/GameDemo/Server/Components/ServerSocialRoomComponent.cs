@@ -9,20 +9,27 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Game.Server.Components
 {
+    // Demo 交友房服务端组件。
     [RoomComponent(102, "SocialRoom", "简易交友房间")]
     public sealed class ServerSocialRoomComponent : RoomComponent, ITickableComponent
     {
         private readonly ServerApp _app;
+        // 对象同步服务，负责网络实体生成与同步。
         private ServerObjectSyncComponent _syncService;
 
+        // SessionId -> NetId 映射。
         private readonly Dictionary<string, int> _sessionToNetId = new Dictionary<string, int>();
+        // 临时动作结束时间表，用于自动回 Idle。
         private readonly Dictionary<int, float> _actionEndTimes = new Dictionary<int, float>();
 
+        // Demo 玩家预制体 Hash。
         private const int PlayerPrefabHash = NetPrefabConsts.NetPrefabs_SocialPlayer;
+        // Demo 用到的动画状态 Hash。
         private static readonly int AnimHash_Idle = Animator.StringToHash("Idle");
         private static readonly int AnimHash_Walk = Animator.StringToHash("Walk");
         private static readonly int AnimHash_Wave = Animator.StringToHash("Wave");
         private static readonly int AnimHash_Dance = Animator.StringToHash("Dance");
+        // 玩家移动速度。
         private const float PlayerMoveSpeed = 4.0f;
 
         public ServerSocialRoomComponent(ServerApp app)
@@ -32,6 +39,7 @@ namespace StellarNet.Lite.Game.Server.Components
 
         public override void OnInit()
         {
+            // 组件初始化时清空运行态缓存。
             _sessionToNetId.Clear();
             _actionEndTimes.Clear();
 
@@ -41,6 +49,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 return;
             }
 
+            // 交友房依赖对象同步组件承载玩家实体。
             _syncService = Room.GetComponent<ServerObjectSyncComponent>();
             if (_syncService == null)
             {
@@ -62,6 +71,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 return;
             }
 
+            // 开局时为房间内每个成员生成一个玩家实体。
             _sessionToNetId.Clear();
             _actionEndTimes.Clear();
 
@@ -87,6 +97,7 @@ namespace StellarNet.Lite.Game.Server.Components
 
             if (Room.State == RoomState.Playing)
             {
+                // 游戏中途加入时需要即时补生成实体。
                 SpawnPlayerForSession(session);
             }
         }
@@ -101,6 +112,7 @@ namespace StellarNet.Lite.Game.Server.Components
 
             if (_sessionToNetId.TryGetValue(session.SessionId, out int netId))
             {
+                // 离房时销毁该成员对应的网络实体。
                 _syncService?.DestroyObject(netId);
                 _sessionToNetId.Remove(session.SessionId);
                 _actionEndTimes.Remove(netId);
@@ -111,6 +123,7 @@ namespace StellarNet.Lite.Game.Server.Components
         {
             if (_syncService != null)
             {
+                // 结算时统一清理所有玩家实体。
                 foreach (var kvp in _sessionToNetId)
                 {
                     _syncService.DestroyObject(kvp.Value);
@@ -143,9 +156,11 @@ namespace StellarNet.Lite.Game.Server.Components
 
             if (_sessionToNetId.ContainsKey(session.SessionId))
             {
+                // 已存在实体映射则不重复生成。
                 return;
             }
 
+            // 在房间中心附近随机一个出生点。
             Vector2 randomCircle = Random.insideUnitCircle * 3f;
             Vector3 spawnPos = new Vector3(randomCircle.x, 0f, randomCircle.y);
 
@@ -163,6 +178,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 return;
             }
 
+            // 初始动画默认站立。
             syncEntity.AnimStateHash = AnimHash_Idle;
             syncEntity.AnimNormalizedTime = 0f;
             _sessionToNetId.Add(session.SessionId, syncEntity.NetId);
@@ -180,6 +196,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 return;
             }
 
+            // 用固定 Tick 驱动服务端权威移动和动画切换。
             float deltaTime = 1f / _app.Config.TickRate;
             float currentTime = Time.realtimeSinceStartup;
 
@@ -193,6 +210,7 @@ namespace StellarNet.Lite.Game.Server.Components
 
                 if (playerSync.Velocity.sqrMagnitude > 0.01f)
                 {
+                    // 有速度时推进位置并切到 Walk。
                     playerSync.Position += playerSync.Velocity * deltaTime;
 
                     if (playerSync.AnimStateHash != AnimHash_Walk)
@@ -203,6 +221,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 }
                 else
                 {
+                    // 停止移动后回 Idle，或等待动作播放结束。
                     if (playerSync.AnimStateHash == AnimHash_Walk)
                     {
                         playerSync.AnimStateHash = AnimHash_Idle;
@@ -249,12 +268,14 @@ namespace StellarNet.Lite.Game.Server.Components
                 return;
             }
 
+            // 输入方向超过 1 时归一化，避免斜向更快。
             Vector3 inputDir = new Vector3(msg.DirX, 0f, msg.DirZ);
             if (inputDir.sqrMagnitude > 1f)
             {
                 inputDir.Normalize();
             }
 
+            // 服务端写入权威速度和朝向。
             playerSync.Velocity = inputDir * PlayerMoveSpeed;
             if (inputDir.sqrMagnitude > 0.01f)
             {
@@ -291,16 +312,19 @@ namespace StellarNet.Lite.Game.Server.Components
                 return;
             }
 
+            // 动作期间强制停下，避免边走边播动作。
             playerSync.Velocity = Vector3.zero;
 
             if (msg.ActionId == 1)
             {
+                // 挥手动作。
                 playerSync.AnimStateHash = AnimHash_Wave;
                 playerSync.AnimNormalizedTime = 0f;
                 _actionEndTimes[netId] = Time.realtimeSinceStartup + 2.5f;
             }
             else if (msg.ActionId == 2)
             {
+                // 跳舞动作。
                 playerSync.AnimStateHash = AnimHash_Dance;
                 playerSync.AnimNormalizedTime = 0f;
                 _actionEndTimes[netId] = Time.realtimeSinceStartup + 4.0f;
@@ -333,6 +357,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 return;
             }
 
+            // 聊天气泡只做长度裁剪，不录入回放。
             string safeContent = msg.Content.Length > 30 ? msg.Content.Substring(0, 30) + "..." : msg.Content;
             Room.BroadcastMessage(new S2C_SocialBubbleSync
             {

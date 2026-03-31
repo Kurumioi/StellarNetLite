@@ -11,12 +11,18 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Server.Modules
 {
+    // 单个会话的录像下载任务。
     public class ReplayDownloadTask : IDisposable
     {
+        // 当前下载的录像 Id。
         public string ReplayId;
+        // 读取录像文件的文件流。
         public FileStream FS;
+        // 文件总长度。
         public long TotalLength;
+        // 当前已读偏移。
         public long CurrentOffset;
+        // 最近活跃时间，用于超时清理。
         public DateTime LastActiveTimeUtc;
 
         public void Dispose()
@@ -35,7 +41,9 @@ namespace StellarNet.Lite.Server.Modules
     public sealed class ServerReplayModule
     {
         private readonly ServerApp _app;
+        // 单次下发的分块大小。
         private const int ChunkSize = 64 * 1024;
+        // SessionId -> 下载任务。
         private readonly Dictionary<string, ReplayDownloadTask> _downloadTasks = new Dictionary<string, ReplayDownloadTask>();
 
         public ServerReplayModule(ServerApp app)
@@ -52,6 +60,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 大厅只展示最近 10 条录像。
             string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
             var replayList = new List<ReplayBriefInfo>();
 
@@ -79,6 +88,7 @@ namespace StellarNet.Lite.Server.Modules
 
                     if (parts.Length > 1)
                     {
+                        // 文件名第二段用 base64url 编码录像显示名。
                         string b64 = parts[1].Replace('-', '+').Replace('_', '/');
                         int mod4 = b64.Length % 4;
                         if (mod4 > 0)
@@ -101,6 +111,7 @@ namespace StellarNet.Lite.Server.Modules
 
                     if (parts.Length > 2)
                     {
+                        // 文件名第三段存总 Tick，供大厅显示。
                         int.TryParse(parts[2], out totalTicks);
                     }
 
@@ -148,6 +159,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 当前策略只允许在录制结束后 5 分钟内重命名。
             FileInfo targetFile = files[0];
             if ((DateTime.UtcNow - targetFile.CreationTimeUtc).TotalMinutes > 5)
             {
@@ -155,6 +167,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 新文件名结构: ReplayId@Base64Name@Ticks.replay
             string newName = string.IsNullOrWhiteSpace(msg.NewName) ? "未命名录像" : msg.NewName.Trim();
             string base64Name = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(newName));
             string safeBase64Name = base64Name.Replace('+', '-').Replace('/', '_');
@@ -179,10 +192,12 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 每次新下载请求前先清理超时任务。
             CleanupDeadTasks();
 
             if (_downloadTasks.TryGetValue(session.SessionId, out ReplayDownloadTask oldTask))
             {
+                // 同一会话只保留一个活跃下载任务。
                 oldTask.Dispose();
                 _downloadTasks.Remove(session.SessionId);
             }
@@ -225,6 +240,7 @@ namespace StellarNet.Lite.Server.Modules
 
             if (startOffset < 0 || startOffset > totalLength)
             {
+                // 断点偏移非法时回退到从头开始。
                 startOffset = 0;
             }
 
@@ -241,6 +257,7 @@ namespace StellarNet.Lite.Server.Modules
 
             _downloadTasks[session.SessionId] = task;
 
+            // 先回开始包，再立即下发第一块数据。
             _app.SendMessageToSession(session, new S2C_DownloadReplayStart
             {
                 Success = true,
@@ -278,6 +295,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 客户端 Ack 到来后继续推送下一块。
             task.LastActiveTimeUtc = DateTime.UtcNow;
             SendNextChunk(session, task);
         }
@@ -300,10 +318,12 @@ namespace StellarNet.Lite.Server.Modules
             long remaining = task.TotalLength - task.CurrentOffset;
             if (remaining <= 0)
             {
+                // 已传输完成时清掉任务。
                 CleanupTask(session.SessionId);
                 return;
             }
 
+            // 按固定块大小顺序发送文件内容。
             int size = (int)Math.Min(ChunkSize, remaining);
             byte[] chunk = new byte[size];
             int bytesRead = task.FS.Read(chunk, 0, size);
@@ -319,6 +339,7 @@ namespace StellarNet.Lite.Server.Modules
             byte[] actualChunk = chunk;
             if (bytesRead < size)
             {
+                // 最后一块可能不足 ChunkSize，需要裁剪有效长度。
                 actualChunk = new byte[bytesRead];
                 Buffer.BlockCopy(chunk, 0, actualChunk, 0, bytesRead);
             }
@@ -345,6 +366,7 @@ namespace StellarNet.Lite.Server.Modules
                     continue;
                 }
 
+                // 会话离线或超过 5 分钟无 Ack 都会清理任务。
                 bool invalidSession = !_app.Sessions.TryGetValue(sessionId, out Session activeSession) || activeSession == null || !activeSession.IsOnline;
                 bool timeout = (DateTime.UtcNow - task.LastActiveTimeUtc).TotalMinutes > 5;
 
@@ -372,6 +394,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 清理文件流并移除任务索引。
             task?.Dispose();
             _downloadTasks.Remove(sessionId);
         }

@@ -41,6 +41,10 @@ namespace StellarNet.Lite.Client.Components
     {
         private readonly ClientApp _app;
 
+        /// <summary>
+        /// 客户端对象缓存。
+        /// 这里只存最近一次权威数据，不直接生成/销毁 GameObject。
+        /// </summary>
         private sealed class SyncEntityData
         {
             public int PrefabHash;
@@ -59,7 +63,9 @@ namespace StellarNet.Lite.Client.Components
             public float ServerTime;
         }
 
+        // NetId -> 最近一份同步缓存。
         private readonly Dictionary<int, SyncEntityData> _entities = new Dictionary<int, SyncEntityData>();
+        // 回放倍速会影响表现层预测速度。
         private float _replayTimeScale = 1f;
         private IUnRegister _timeScaleEventToken;
         private bool _isInitialized;
@@ -80,7 +86,7 @@ namespace StellarNet.Lite.Client.Components
             _entities.Clear();
             _replayTimeScale = 1f;
 
-            // 我先注销旧 token 再注册新监听，是为了防止异常生命周期下重复 OnInit 导致同一事件被重复订阅。
+            // 先清旧监听，再注册新监听，避免重复订阅。
             _timeScaleEventToken?.UnRegister();
             _timeScaleEventToken = GlobalTypeNetEvent.Register<Local_ReplayTimeScaleChanged>(OnReplayTimeScaleChanged);
 
@@ -145,6 +151,7 @@ namespace StellarNet.Lite.Client.Components
                 return;
             }
 
+            // 增量同步只刷新已有对象缓存，不负责补建对象。
             float currentLocalTime = Time.realtimeSinceStartup;
             int count = Mathf.Min(msg.ValidCount, msg.States.Length);
             for (int i = 0; i < count; i++)
@@ -155,6 +162,7 @@ namespace StellarNet.Lite.Client.Components
                     continue;
                 }
 
+                // 只更新消息里声明过的同步域。
                 if ((state.Mask & (byte)EntitySyncMask.Transform) != 0)
                 {
                     data.RawPos.x = state.PosX;
@@ -197,6 +205,7 @@ namespace StellarNet.Lite.Client.Components
                 return;
             }
 
+            // Seek 时先清空对象世界，再按完整生成态重建。
             ClearAllEntities(true);
             if (states == null || states.Length == 0)
             {
@@ -226,6 +235,7 @@ namespace StellarNet.Lite.Client.Components
                 return;
             }
 
+            // 在线销毁和回放重建都复用这条清场链。
             if (broadcastDestroyEvent)
             {
                 List<int> netIds = new List<int>(_entities.Keys);
@@ -246,6 +256,7 @@ namespace StellarNet.Lite.Client.Components
                 return false;
             }
 
+            // 在线态做简单外推；回放态直接使用快照值。
             float timeSinceLastPacket = Time.realtimeSinceStartup - data.LocalReceiveTime;
             if (_app.State == ClientAppState.ReplayRoom)
             {
@@ -282,6 +293,7 @@ namespace StellarNet.Lite.Client.Components
                 return false;
             }
 
+            // 动画层也区分在线预测和回放只读两种模式。
             float timeSinceLastPacket = Time.realtimeSinceStartup - data.LocalReceiveTime;
             if (_app.State == ClientAppState.ReplayRoom)
             {
@@ -329,6 +341,7 @@ namespace StellarNet.Lite.Client.Components
                 return;
             }
 
+            // 这里既写入缓存，也负责向表现层抛出本地生成事件。
             if (!_entities.TryGetValue(state.NetId, out SyncEntityData data))
             {
                 data = new SyncEntityData();

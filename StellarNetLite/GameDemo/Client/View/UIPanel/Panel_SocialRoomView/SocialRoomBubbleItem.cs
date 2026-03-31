@@ -10,11 +10,13 @@ public class SocialRoomBubbleItem : MonoBehaviour
     [Header("UI 引用")] [Tooltip("用于显示聊天内容的文本组件")]
     public TextMeshProUGUI contentText;
 
+    // 剩余显示时间。
     private float _remainTime;
     private bool _isActive;
 
     public void Init(string content, float duration)
     {
+        // 初始化阶段只确保文本引用可用，然后复用更新逻辑。
         if (contentText == null)
         {
             contentText = GetComponentInChildren<TextMeshProUGUI>();
@@ -30,6 +32,7 @@ public class SocialRoomBubbleItem : MonoBehaviour
 
     public void UpdateContent(string content, float duration)
     {
+        // 刷新文本并重置寿命。
         if (contentText != null)
         {
             contentText.text = content;
@@ -45,6 +48,7 @@ public class SocialRoomBubbleItem : MonoBehaviour
 
         _remainTime -= Time.deltaTime;
 
+        // 气泡到时自动销毁。
         if (_remainTime <= 0f)
         {
             _isActive = false;

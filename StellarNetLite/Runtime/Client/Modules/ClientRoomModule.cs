@@ -32,6 +32,7 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
+            // 建房成功后，客户端先本地创建房间并装配组件。
             if (msg.Success)
             {
                 _app.EnterOnlineRoom(msg.RoomId);
@@ -46,6 +47,7 @@ namespace StellarNet.Lite.Client.Modules
                 GlobalTypeNetEvent.Broadcast(new Local_RoomEntered { Room = _app.CurrentRoom });
                 NetLogger.LogInfo("ClientRoomModule", $"建房成功, 本地装配完毕，准备发送就绪握手。房间: {msg.RoomId}");
 
+                // 本地准备好后，再向服务端发送 RoomSetupReady 完成握手。
                 var readyMsg = new C2S_RoomSetupReady { RoomId = msg.RoomId };
                 _app.SendMessage(readyMsg);
             }
@@ -72,6 +74,7 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
+            // 加房成功与建房成功的本地处理链完全一致。
             if (msg.Success)
             {
                 _app.EnterOnlineRoom(msg.RoomId);
@@ -112,6 +115,7 @@ namespace StellarNet.Lite.Client.Modules
                 return;
             }
 
+            // 收到离房确认后统一走 ClientApp.LeaveRoom 收尾。
             _app.LeaveRoom();
             NetLogger.LogInfo("ClientRoomModule", "已离开房间");
             GlobalTypeNetEvent.Broadcast(msg);

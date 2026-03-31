@@ -7,9 +7,11 @@ using UnityEngine.UI;
 /// </summary>
 public class Panel_SetRoomConfig_RoomComItem : MonoBehaviour
 {
+    // 单个房型条目的 Toggle 和名称文本。
     [SerializeField] private Toggle chooseTog;
     [SerializeField] private TMP_Text comNameText;
 
+    // 对应模板在列表中的索引。
     public int TemplateIndex { get; private set; } = -1;
 
     public void Init(string displayName, int templateIndex)
@@ -20,6 +22,7 @@ public class Panel_SetRoomConfig_RoomComItem : MonoBehaviour
             return;
         }
 
+        // 条目初始化时只负责显示，不直接注册点击逻辑。
         TemplateIndex = templateIndex;
         chooseTog.isOn = false;
         chooseTog.interactable = true;
@@ -28,6 +31,7 @@ public class Panel_SetRoomConfig_RoomComItem : MonoBehaviour
 
     public void SetSelected(bool selected)
     {
+        // 由上层面板统一控制单选状态。
         if (chooseTog != null)
         {
             chooseTog.isOn = selected;

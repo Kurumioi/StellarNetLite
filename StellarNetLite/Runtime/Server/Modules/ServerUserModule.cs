@@ -11,6 +11,7 @@ namespace StellarNet.Lite.Server.Modules
     public sealed class ServerUserModule
     {
         private readonly ServerApp _app;
+        // AccountId -> 正式 Session，用于顶号和断线恢复。
         private readonly Dictionary<string, Session> _accountToSession = new Dictionary<string, Session>();
 
         public ServerUserModule(ServerApp app)
@@ -51,10 +52,12 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 登录前先做账号映射表清理，剔除已经失效的脏引用。
             CleanupInvalidAccountMappings();
 
             string accountId = msg.AccountId.Trim();
 
+            // 版本校验失败直接拦截，不进入后续会话恢复流程。
             if (Version.TryParse(msg.ClientVersion, out Version clientVer) &&
                 Version.TryParse(_app.Config.MinClientVersion, out Version minVer))
             {
@@ -90,6 +93,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 同账号重复登录时，优先复用旧正式 Session。
             if (_accountToSession.TryGetValue(accountId, out Session oldSession) && oldSession != null)
             {
                 if (oldSession == session)
@@ -118,6 +122,7 @@ namespace StellarNet.Lite.Server.Modules
                     _app.UnbindConnection(oldSession);
                 }
 
+                // 顶号重连：新匿名 Session 被移除，旧正式 Session 接管新连接。
                 _app.RemoveSession(session.SessionId);
                 _app.BindConnection(oldSession, session.ConnectionId);
                 oldSession.ResetSeq(session.LastReceivedSeq);
@@ -137,6 +142,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 首次登录：把匿名 Session 升级成正式账号 Session。
             _app.RemoveSession(session.SessionId);
 
             var authSession = new Session(session.SessionId, accountId, session.ConnectionId);
@@ -176,6 +182,7 @@ namespace StellarNet.Lite.Server.Modules
             string roomId = session.CurrentRoomId;
             Room room = string.IsNullOrEmpty(roomId) ? null : _app.GetRoom(roomId);
 
+            // 玩家可以选择接受重连或主动放弃恢复。
             if (!msg.Accept)
             {
                 if (room != null)
@@ -242,6 +249,7 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            // 客户端本地房间装配完成后，服务端才下发重连快照。
             session.SetRoomReady(true);
             room.TriggerReconnectSnapshot(session);
             NetLogger.LogInfo("ServerUserModule", "客户端重连装配就绪，已下发快照", roomId, session.SessionId);

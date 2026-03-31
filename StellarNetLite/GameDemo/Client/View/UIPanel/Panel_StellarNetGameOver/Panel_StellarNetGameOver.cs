@@ -11,6 +11,7 @@ using UnityEngine.UI;
 /// </summary>
 public class Panel_StellarNetGameOver : UIPanelBase
 {
+    // 结算文本。
     [SerializeField] private TMP_Text resultText;
     [SerializeField] private Button leaveRoomBtn;
 
@@ -19,7 +20,9 @@ public class Panel_StellarNetGameOver : UIPanelBase
 
     [SerializeField] private TMP_InputField renameIpt;
 
+    // 最近一局的录像 Id，仅房主可重命名。
     private string _currentReplayId;
+    // 当前玩家是否房主。
     private bool _isOwner;
 
     public override void OnInit()
@@ -41,6 +44,7 @@ public class Panel_StellarNetGameOver : UIPanelBase
         _currentReplayId = string.Empty;
         _isOwner = false;
 
+        // 房主且有录像时，结算页允许重命名回放。
         var settingsComp = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
         if (settingsComp != null && settingsComp.Members.TryGetValue(NetClient.Session.SessionId, out var myInfo))
         {
@@ -73,6 +77,7 @@ public class Panel_StellarNetGameOver : UIPanelBase
 
     private void OnLeaveRoomBtn()
     {
+        // 离房前如果满足条件，会先发送录像重命名请求。
         if (_isOwner && !string.IsNullOrEmpty(_currentReplayId) && renameIpt != null)
         {
             string newName = renameIpt.text.Trim();

@@ -15,18 +15,22 @@ public enum ENetMode
 
 public class GameLauncher : MonoSingleton<GameLauncher>
 {
+    // 场景内唯一的网络入口。
     [SerializeField] private StellarNetMirrorManager netManager;
 
     public static StellarNetMirrorManager NetManager => Instance != null ? Instance.netManager : null;
 
+    // 当前启动模式。
     public ENetMode netMode = ENetMode.None;
 
+    // 仅表示客户端物理链路是否已连接到服务端。
     public bool IsClientConnectedServer { get; private set; }
 
     protected override void Awake()
     {
         base.Awake();
 
+        // 客户端模式才初始化 UI 根节点。
         if (netMode != ENetMode.Server)
         {
             UIKit.Instance.Init();
@@ -43,6 +47,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
         StellarNetMirrorManager.OnClientConnectedEvent += OnClientConnected;
         StellarNetMirrorManager.OnClientDisconnectedEvent += OnClientDisconnected;
 
+        // 启动时根据模式自动拉起客户端、服务端或 Host。
         LauncherNetAsync(netMode);
     }
 
@@ -56,6 +61,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
 
     private void OnClientConnected()
     {
+        // 客户端连上服务端后，打开全局网络监控和登录页。
         GlobalUIRouter.Instance.Init();
         UIKit.OpenPanel<Panel_GlobalNetMonitor>();
         UIKit.OpenPanel<Panel_StellarNetLogin>();
@@ -65,6 +71,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
 
     private void OnClientDisconnected()
     {
+        // 物理断开时统一交给全局 Router 做 UI 回退。
         if (GlobalUIRouter.Instance != null)
         {
             GlobalUIRouter.Instance.HandlePhysicalDisconnect();
@@ -88,6 +95,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
             return;
         }
 
+        // 先异步加载配置，再把配置应用到 MirrorManager。
         NetConfig config = await NetConfigLoader.LoadAsync(ConfigRootPath.StreamingAssets);
         if (config == null)
         {
@@ -97,6 +105,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
 
         netManager.ApplyConfig(config);
 
+        // 根据枚举切到不同启动链路。
         switch (eNetMode)
         {
             case ENetMode.Client:

@@ -15,10 +15,17 @@ namespace StellarNet.Lite.Client.Core
         ConnectionSuspended
     }
 
+    /// <summary>
+    /// 客户端主状态机。
+    /// 负责收发包、房间生命周期、回放态和挂起态切换。
+    /// </summary>
     public sealed class ClientApp
     {
+        // 客户端轻量会话镜像。
         public ClientSession Session { get; } = new ClientSession();
+        // 全局域消息分发器。
         public ClientGlobalDispatcher GlobalDispatcher { get; } = new ClientGlobalDispatcher();
+        // 当前激活的房间实例，在线态和回放态都会使用。
         public ClientRoom CurrentRoom { get; private set; }
         public ClientAppState State { get; private set; } = ClientAppState.InLobby;
 
@@ -43,7 +50,7 @@ namespace StellarNet.Lite.Client.Core
             _isDisposed = true;
             NetLogger.LogWarning("ClientApp", "执行 ClientApp 深度销毁与资源回收");
 
-            // 核心修复：抛出硬中止事件，驱动全局模块（如 ReplayModule）释放文件流等非托管资源
+            // 先广播硬中止，让下载/回放等模块释放外部资源。
             GlobalTypeNetEvent.Broadcast(new Local_ConnectionAborted());
 
             if (CurrentRoom != null)
@@ -63,6 +70,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // Global 包不依赖房间上下文，可直接分发。
             if (packet.Scope == NetScope.Global)
             {
                 GlobalDispatcher.Dispatch(packet);
@@ -71,6 +79,7 @@ namespace StellarNet.Lite.Client.Core
 
             if (packet.Scope == NetScope.Room)
             {
+                // 回放态和挂起态不消费在线房间消息。
                 if (State == ClientAppState.ReplayRoom || State == ClientAppState.ConnectionSuspended)
                 {
                     return;
@@ -83,6 +92,7 @@ namespace StellarNet.Lite.Client.Core
                     return;
                 }
 
+                // 房间包必须严格命中当前房间。
                 if (packet.RoomId != CurrentRoom.RoomId)
                 {
                     NetLogger.LogWarning("ClientApp",
@@ -101,6 +111,7 @@ namespace StellarNet.Lite.Client.Core
                 return true;
             }
 
+            // 这里显式限制合法跃迁，避免 UI 或模块把状态机推坏。
             bool isValidTransition = false;
             switch (State)
             {
@@ -144,6 +155,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // 先创建房间实例，等装配成功后再正式切状态。
             ClientRoom newRoom = ClientRoom.Create(roomId);
             if (newRoom == null)
             {
@@ -182,6 +194,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // 回放房间与在线房间共用 ClientRoom，但状态严格隔离。
             ClientRoom newRoom = ClientRoom.Create(roomId);
             if (newRoom == null)
             {
@@ -213,6 +226,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // 离房统一销毁房间实例，并抛给 UI 全局事件。
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
@@ -237,6 +251,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // 软挂起会保留恢复上下文，但销毁当前房间实例。
             NetLogger.LogWarning("ClientApp", "触发软清理: 销毁当前房间实例，进入挂起态");
 
             if (CurrentRoom != null)
@@ -260,7 +275,7 @@ namespace StellarNet.Lite.Client.Core
 
             NetLogger.LogWarning("ClientApp", "触发硬清理: 彻底清空会话与房间状态");
 
-            // 核心修复：抛出硬中止事件，确保下载流等资源被安全关闭
+            // 硬中止会彻底清掉会话和房间，不保留恢复上下文。
             GlobalTypeNetEvent.Broadcast(new Local_ConnectionAborted());
 
             if (CurrentRoom != null)
@@ -299,6 +314,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // 发送前先查静态元数据，确保消息方向合法。
             if (!NetMessageMapper.TryGetMeta(typeof(T), out NetMessageMeta meta))
             {
                 return;
@@ -311,12 +327,14 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
+            // 回放态禁止发业务请求。
             if (State == ClientAppState.ReplayRoom)
             {
                 NetLogger.LogWarning("ClientApp", $"发送阻断: 当前处于回放态, MsgId:{meta.Id}, Type:{typeof(T).FullName}");
                 return;
             }
 
+            // 挂起态只允许恢复链相关协议通过。
             if (State == ClientAppState.ConnectionSuspended)
             {
                 if (meta.Id != MsgIdConst.C2S_Login &&
@@ -329,6 +347,7 @@ namespace StellarNet.Lite.Client.Core
             }
 
             string roomId = string.Empty;
+            // Room 协议必须带当前房间上下文。
             if (meta.Scope == NetScope.Room)
             {
                 if (State != ClientAppState.OnlineRoom || CurrentRoom == null)
@@ -347,6 +366,7 @@ namespace StellarNet.Lite.Client.Core
                 }
             }
 
+            // 每个客户端包都会自增 Seq，供服务端做防重放。
             _sendSeq++;
             byte[] buffer = ArrayPool<byte>.Shared.Rent(131072);
             try

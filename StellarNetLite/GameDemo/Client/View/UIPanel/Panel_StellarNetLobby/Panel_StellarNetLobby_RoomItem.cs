@@ -9,9 +9,11 @@ using UnityEngine.UI;
 
 public class Panel_StellarNetLobby_RoomItem : MonoBehaviour
 {
+    // 房间项展示字段。
     [SerializeField] private TMP_Text roomNameText;
     [SerializeField] private TMP_Text roomInfoText;
     [SerializeField] private Button joinRoomBtn;
+    // 房间 Id，点击加入时使用。
     [SerializeField] private string roomId;
 
     public void Init(string roomName, string id, int playerCount, int maxPlayerCount, string roomState)
@@ -22,6 +24,7 @@ public class Panel_StellarNetLobby_RoomItem : MonoBehaviour
 
         joinRoomBtn.onClick.AddListener(OnJoinRoomBtn);
 
+        // 每个列表项自己监听一次加入结果，用于弹提示。
         GlobalTypeNetEvent.Register<S2C_JoinRoomResult>(OnS2C_JoinRoomResult)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
     }
@@ -37,6 +40,7 @@ public class Panel_StellarNetLobby_RoomItem : MonoBehaviour
 
     private void OnJoinRoomBtn()
     {
+        // 点击后向服务端发起加入房间请求。
         var msg = new C2S_JoinRoom
         {
             RoomId = roomId

@@ -4,6 +4,10 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Game.Shared.Protocol
 {
+    /// <summary>
+    /// 社交房业务协议。
+    /// 负责移动、动作和头顶气泡消息。
+    /// </summary>
     // ==========================================
     // 客户端 -> 服务端 (C2S)
     // ==========================================

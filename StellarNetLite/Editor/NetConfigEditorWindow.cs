@@ -14,8 +14,10 @@ namespace StellarNet.Lite.Editor
     /// </summary>
     public sealed class NetConfigEditorWindow : EditorWindow
     {
+        // 当前编辑中的配置对象和目标根目录。
         private NetConfig _currentConfig = new NetConfig();
         private ConfigRootPath _targetRoot = ConfigRootPath.StreamingAssets;
+        // GUI 状态缓存。
         private string _loadedSnapshotJson = string.Empty;
         private string _currentResolvedPath = string.Empty;
         private Vector2 _scrollPos;
@@ -40,6 +42,7 @@ namespace StellarNet.Lite.Editor
 
         private void OnEnable()
         {
+            // 打开窗口时按当前根目录读取一次配置。
             LoadFromCurrentRoot();
         }
 

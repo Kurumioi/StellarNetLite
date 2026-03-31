@@ -2,6 +2,9 @@
 
 namespace StellarNet.Lite.Shared.Protocol
 {
+    // 大厅协议。
+    // 负责房间列表和在线玩家列表同步。
+
     /// <summary>
     /// 房间简要信息数据结构 (DTO)
     /// </summary>
@@ -17,6 +20,7 @@ namespace StellarNet.Lite.Shared.Protocol
 
     public sealed class OnlinePlayerInfo
     {
+        // 在线玩家唯一会话 Id。
         public string SessionId;
         public string Uid;
         public string DisplayName;

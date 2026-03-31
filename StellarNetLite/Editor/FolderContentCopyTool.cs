@@ -7,6 +7,10 @@ using UnityEngine;
 
 namespace StellarNet.Editor
 {
+    /// <summary>
+    /// 文件夹内容复制工具。
+    /// 用于把选中目录中的源码按规则拼接后复制到剪贴板。
+    /// </summary>
     public class FolderContentCopyTool : EditorWindow
     {
         [MenuItem("StellarNetLite/Folder Content Copy Tool")]
@@ -17,12 +21,14 @@ namespace StellarNet.Editor
             wnd.Show();
         }
 
+        // 根目录和滚动状态。
         private string _rootFolder = "";
         private Vector2 _scroll;
+        // 根目录下的一级子目录与选中结果。
         private readonly List<string> _subFolders = new List<string>(128);
         private readonly HashSet<string> _selectedFolders = new HashSet<string>();
 
-        // 文件类型过滤
+        // 文件类型过滤。
         private bool _includeCs = true;
         private bool _includeShader = true;
         private bool _includeTxt = false;
@@ -30,13 +36,14 @@ namespace StellarNet.Editor
         private bool _includeAsmdef = false;
         private bool _includeMeta = false;
 
-        // 优化选项
-        private bool _optimizeForAI = true; // 基础压缩（去空行）
-        private bool _removeComments = false; // 移除注释（大幅减少）
-        private bool _removeIndentation = false; // 移除缩进（代码变平，大幅减少）
+        // 复制前的压缩选项。
+        private bool _optimizeForAI = true;
+        private bool _removeComments = false;
+        private bool _removeIndentation = false;
 
         private void OnGUI()
         {
+            // 工具窗口由四块 UI 组成：目录、过滤器、列表、操作按钮。
             DrawHeader();
             DrawFilters();
             DrawFolderList();
@@ -180,6 +187,7 @@ namespace StellarNet.Editor
             _subFolders.Clear();
             _selectedFolders.Clear();
 
+            // 重新扫描根目录下的一层子目录。
             if (!Directory.Exists(_rootFolder)) return;
 
             var dirs = Directory.GetDirectories(_rootFolder);
@@ -194,6 +202,7 @@ namespace StellarNet.Editor
                 return;
             }
 
+            // 复制前先保存资源，尽量确保读到的是最新磁盘内容。
             AssetDatabase.SaveAssets();
             var exts = BuildExtensions();
 

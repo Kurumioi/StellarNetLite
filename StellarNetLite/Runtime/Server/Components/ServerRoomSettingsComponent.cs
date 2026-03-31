@@ -7,11 +7,14 @@ using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Server.Components
 {
+    // 服务端房间基础设置组件。
     [RoomComponent(1, "RoomSettings", "基础房间设置")]
     public sealed class ServerRoomSettingsComponent : RoomComponent
     {
         private readonly ServerApp _app;
+        // 成员准备状态表，Key 为 SessionId。
         private readonly Dictionary<string, bool> _readyStates = new Dictionary<string, bool>();
+        // 当前房主 SessionId。
         private string _ownerSessionId;
 
         public ServerRoomSettingsComponent(ServerApp app)
@@ -21,10 +24,12 @@ namespace StellarNet.Lite.Server.Components
 
         public override void OnInit()
         {
+            // 每次房间初始化都重置房主和准备态。
             _readyStates.Clear();
             _ownerSessionId = string.Empty;
         }
 
+        // 统一组装下发给客户端的成员展示信息。
         private MemberInfo CreateMemberInfo(Session session, bool isReady, bool isOwner)
         {
             return new MemberInfo
@@ -53,10 +58,12 @@ namespace StellarNet.Lite.Server.Components
 
             if (string.IsNullOrEmpty(_ownerSessionId))
             {
+                // 首个进房玩家默认成为房主。
                 _ownerSessionId = session.SessionId;
             }
 
             _readyStates[session.SessionId] = false;
+            // 先广播增量，再单独给新成员补一份完整快照。
             Room.BroadcastMessage(new S2C_MemberJoined
             {
                 Member = CreateMemberInfo(session, false, session.SessionId == _ownerSessionId)
@@ -84,6 +91,7 @@ namespace StellarNet.Lite.Server.Components
 
             if (_ownerSessionId == session.SessionId)
             {
+                // 房主离开后尝试移交房主。
                 MigrateHost();
             }
         }
@@ -114,6 +122,7 @@ namespace StellarNet.Lite.Server.Components
             _ownerSessionId = string.Empty;
             string fallbackSessionId = string.Empty;
 
+            // 优先移交给在线玩家，没有在线玩家时退化为任意仍在房间的成员。
             foreach (var kvp in _readyStates)
             {
                 Session memberSession = Room.GetMember(kvp.Key);
@@ -141,6 +150,7 @@ namespace StellarNet.Lite.Server.Components
 
             if (!string.IsNullOrEmpty(_ownerSessionId))
             {
+                // 房主变更后用全量快照覆盖客户端本地状态。
                 BroadcastSnapshotToAll();
             }
         }
@@ -159,6 +169,7 @@ namespace StellarNet.Lite.Server.Components
                 return;
             }
 
+            // 快照包含房间配置和当前全部成员态。
             var members = new List<MemberInfo>();
             foreach (var kvp in _readyStates)
             {
@@ -181,6 +192,7 @@ namespace StellarNet.Lite.Server.Components
 
             if (Room.State == RoomState.Playing)
             {
+                // 重连中的玩家进入游戏中房间时，额外补发游戏开始事件。
                 Room.SendMessageTo(session, new S2C_GameStarted
                 {
                     StartUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
@@ -196,6 +208,7 @@ namespace StellarNet.Lite.Server.Components
                 return;
             }
 
+            // 广播版快照构造逻辑与单发版保持一致。
             var members = new List<MemberInfo>();
             foreach (var kvp in _readyStates)
             {
@@ -239,6 +252,7 @@ namespace StellarNet.Lite.Server.Components
             }
 
             _readyStates[session.SessionId] = msg.IsReady;
+            // 准备状态变更后同步给全房间。
             Room.BroadcastMessage(new S2C_MemberReadyChanged
             {
                 SessionId = session.SessionId,
@@ -275,6 +289,7 @@ namespace StellarNet.Lite.Server.Components
 
             foreach (var kvp in _readyStates)
             {
+                // 房主以外所有人都准备后才允许开局。
                 if (kvp.Key != _ownerSessionId && !kvp.Value)
                 {
                     NetLogger.LogWarning("ServerRoomSettingsComponent", $"开始游戏被拦截: 存在未准备成员, MemberSessionId:{kvp.Key}", Room.RoomId, session.SessionId);
@@ -283,6 +298,7 @@ namespace StellarNet.Lite.Server.Components
             }
 
             Room.StartGame();
+            // 开始游戏成功后向所有成员广播开局时间。
             Room.BroadcastMessage(new S2C_GameStarted
             {
                 StartUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
@@ -319,6 +335,7 @@ namespace StellarNet.Lite.Server.Components
             Room.EndGame();
 
             string replayId = Room.LastReplayId ?? string.Empty;
+            // 当前实现里，房主主动结束会把原因直接写进 WinnerSessionId。
             Room.BroadcastMessage(new S2C_GameEnded
             {
                 WinnerSessionId = "房主强制中止",
