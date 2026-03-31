@@ -89,17 +89,23 @@ namespace StellarNet.Lite.Editor
 
         static LiteProtocolScanner()
         {
-            RunScanAndGenerate();
+            RunScanAndGenerate(false);
         }
 
         #endregion
 
         #region 菜单入口
 
-        [MenuItem("StellarNetLite/强制重新生成协议与组件常量表")]
+        [MenuItem("StellarNetLite/重新生成协议与组件常量表")]
         public static void ManualRun()
         {
-            RunScanAndGenerate();
+            RunScanAndGenerate(false);
+        }
+
+        [MenuItem("StellarNetLite/强制重新生成协议与组件常量表")]
+        public static void ForceRun()
+        {
+            RunScanAndGenerate(true);
         }
 
         #endregion
@@ -130,27 +136,34 @@ namespace StellarNet.Lite.Editor
 
         #region 主流程
 
-        private static void RunScanAndGenerate()
+        private static void RunScanAndGenerate(bool forceWrite)
         {
-            ScanResultState protocolResult = ScanAndGenerateProtocols();
-            ScanResultState componentResult = ScanAndGenerateComponentsAndRegistry();
+            ScanResultState protocolResult = ScanAndGenerateProtocols(forceWrite);
+            ScanResultState componentResult = ScanAndGenerateComponentsAndRegistry(forceWrite);
 
             bool hasFailure = protocolResult == ScanResultState.Failed || componentResult == ScanResultState.Failed;
             if (hasFailure)
             {
                 NetLogger.LogError(
                     "LiteProtocolScanner",
-                    $"自动装配代码生成失败。ProtocolResult:{protocolResult}, ComponentResult:{componentResult}");
+                    $"自动装配代码生成失败。ProtocolResult:{protocolResult}, ComponentResult:{componentResult}, ForceWrite:{forceWrite}");
                 return;
             }
 
             bool hasChange = protocolResult == ScanResultState.Changed || componentResult == ScanResultState.Changed;
-            if (!hasChange)
+            if (!hasChange && !forceWrite)
             {
                 return;
             }
 
             AssetDatabase.Refresh();
+
+            if (forceWrite)
+            {
+                NetLogger.LogInfo("LiteProtocolScanner", "分片自动装配代码已强制重新生成并应用。");
+                return;
+            }
+
             NetLogger.LogInfo("LiteProtocolScanner", "分片自动装配代码已重新生成并应用。");
         }
 
@@ -468,7 +481,7 @@ namespace StellarNet.Lite.Editor
 
         #region 协议扫描与生成
 
-        private static ScanResultState ScanAndGenerateProtocols()
+        private static ScanResultState ScanAndGenerateProtocols(bool forceWrite)
         {
             var types = TypeCache.GetTypesWithAttribute<NetMsgAttribute>();
             var protocolList = new List<ProtocolMeta>();
@@ -543,14 +556,16 @@ namespace StellarNet.Lite.Editor
 
             bool shardChanged = WriteGeneratedShardSet(
                 ProtocolIdsFolderPath,
-                protocolFiles.Where(f => f.Path.StartsWith(ProtocolIdsFolderPath, StringComparison.Ordinal)).ToList());
+                protocolFiles.Where(f => f.Path.StartsWith(ProtocolIdsFolderPath, StringComparison.Ordinal)).ToList(),
+                forceWrite);
 
             bool metaShardChanged = WriteGeneratedShardSet(
                 ProtocolMetaFolderPath,
-                protocolFiles.Where(f => f.Path.StartsWith(ProtocolMetaFolderPath, StringComparison.Ordinal)).ToList());
+                protocolFiles.Where(f => f.Path.StartsWith(ProtocolMetaFolderPath, StringComparison.Ordinal)).ToList(),
+                forceWrite);
 
-            bool aggregateMsgChanged = GenerateAggregateMsgIdConstFile(protocolList);
-            bool aggregateMetaChanged = GenerateAggregateMessageMetaRegistryFile(protocolList);
+            bool aggregateMsgChanged = GenerateAggregateMsgIdConstFile(protocolList, forceWrite);
+            bool aggregateMetaChanged = GenerateAggregateMessageMetaRegistryFile(protocolList, forceWrite);
 
             bool anyChanged = shardChanged || metaShardChanged || aggregateMsgChanged || aggregateMetaChanged;
             return anyChanged ? ScanResultState.Changed : ScanResultState.NoChange;
@@ -651,7 +666,7 @@ namespace StellarNet.Lite.Editor
             return result;
         }
 
-        private static bool GenerateAggregateMsgIdConstFile(List<ProtocolMeta> protocolList)
+        private static bool GenerateAggregateMsgIdConstFile(List<ProtocolMeta> protocolList, bool forceWrite)
         {
             if (protocolList == null)
             {
@@ -675,10 +690,10 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
-            return WriteToFileIfChanged(MsgIdAggregateOutputPath, sb.ToString());
+            return WriteToFile(MsgIdAggregateOutputPath, sb.ToString(), forceWrite);
         }
 
-        private static bool GenerateAggregateMessageMetaRegistryFile(List<ProtocolMeta> protocolList)
+        private static bool GenerateAggregateMessageMetaRegistryFile(List<ProtocolMeta> protocolList, bool forceWrite)
         {
             if (protocolList == null)
             {
@@ -733,14 +748,14 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
-            return WriteToFileIfChanged(MessageMetaAggregateOutputPath, sb.ToString());
+            return WriteToFile(MessageMetaAggregateOutputPath, sb.ToString(), forceWrite);
         }
 
         #endregion
 
         #region 组件与注册扫描
 
-        private static ScanResultState ScanAndGenerateComponentsAndRegistry()
+        private static ScanResultState ScanAndGenerateComponentsAndRegistry(bool forceWrite)
         {
             var serverComps = new List<ClassMeta>();
             var clientComps = new List<ClassMeta>();
@@ -909,12 +924,14 @@ namespace StellarNet.Lite.Editor
                 return ScanResultState.Failed;
             }
 
-            bool componentShardChanged = WriteGeneratedShardSet(ComponentConstFolderPath, componentShardFiles);
-            bool roomBinderChanged = WriteGeneratedShardSet(BinderRoomFolderPath, roomBinderShardFiles);
-            bool moduleBinderChanged = WriteGeneratedShardSet(BinderModuleFolderPath, moduleBinderShardFiles);
-            bool componentAggregateChanged = GenerateAggregateComponentConstFile(mergedComps);
-            bool registryAggregateChanged =
-                GenerateAggregateAutoRegistryFile(serverComps, clientComps, serverMods, clientMods, mergedComps);
+            bool componentShardChanged =
+                WriteGeneratedShardSet(ComponentConstFolderPath, componentShardFiles, forceWrite);
+            bool roomBinderChanged = WriteGeneratedShardSet(BinderRoomFolderPath, roomBinderShardFiles, forceWrite);
+            bool moduleBinderChanged =
+                WriteGeneratedShardSet(BinderModuleFolderPath, moduleBinderShardFiles, forceWrite);
+            bool componentAggregateChanged = GenerateAggregateComponentConstFile(mergedComps, forceWrite);
+            bool registryAggregateChanged = GenerateAggregateAutoRegistryFile(serverComps, clientComps, serverMods,
+                clientMods, mergedComps, forceWrite);
 
             bool anyChanged =
                 componentShardChanged ||
@@ -1168,7 +1185,7 @@ namespace StellarNet.Lite.Editor
             return result;
         }
 
-        private static bool GenerateAggregateComponentConstFile(List<ClassMeta> compList)
+        private static bool GenerateAggregateComponentConstFile(List<ClassMeta> compList, bool forceWrite)
         {
             if (compList == null)
             {
@@ -1192,7 +1209,7 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
-            return WriteToFileIfChanged(ComponentAggregateOutputPath, sb.ToString());
+            return WriteToFile(ComponentAggregateOutputPath, sb.ToString(), forceWrite);
         }
 
         #endregion
@@ -1512,7 +1529,8 @@ namespace StellarNet.Lite.Editor
             List<ClassMeta> clientComps,
             List<ClassMeta> serverMods,
             List<ClassMeta> clientMods,
-            List<ClassMeta> mergedComps)
+            List<ClassMeta> mergedComps,
+            bool forceWrite)
         {
             if (serverComps == null || clientComps == null || serverMods == null || clientMods == null ||
                 mergedComps == null)
@@ -1655,14 +1673,15 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
-            return WriteToFileIfChanged(RegistryAggregateOutputPath, sb.ToString());
+            return WriteToFile(RegistryAggregateOutputPath, sb.ToString(), forceWrite);
         }
 
         #endregion
 
         #region 分片写入与清理
 
-        private static bool WriteGeneratedShardSet(string folderPath, List<GeneratedFileRecord> records)
+        private static bool WriteGeneratedShardSet(string folderPath, List<GeneratedFileRecord> records,
+            bool forceWrite)
         {
             if (string.IsNullOrEmpty(folderPath) || records == null)
             {
@@ -1705,7 +1724,7 @@ namespace StellarNet.Lite.Editor
                     continue;
                 }
 
-                bool fileChanged = WriteToFileIfChanged(record.Path, record.Content);
+                bool fileChanged = WriteToFile(record.Path, record.Content, forceWrite);
                 if (fileChanged)
                 {
                     changed = true;
@@ -1743,31 +1762,34 @@ namespace StellarNet.Lite.Editor
 
         #region 文件写入
 
-        private static bool WriteToFileIfChanged(string path, string newContent)
+        private static bool WriteToFile(string path, string newContent, bool forceWrite)
         {
             if (string.IsNullOrEmpty(path) || newContent == null)
             {
-                NetLogger.LogError("LiteProtocolScanner", "WriteToFileIfChanged failed");
+                NetLogger.LogError("LiteProtocolScanner", "WriteToFile failed");
                 return false;
             }
 
             string normalizedPath = NormalizePath(path);
-            string oldContent = File.Exists(normalizedPath) ? File.ReadAllText(normalizedPath) : string.Empty;
-            if (newContent == oldContent)
-            {
-                return false;
-            }
-
             string directory = Path.GetDirectoryName(normalizedPath);
             if (string.IsNullOrEmpty(directory))
             {
-                NetLogger.LogError("LiteProtocolScanner", "WriteToFileIfChanged failed");
+                NetLogger.LogError("LiteProtocolScanner", "WriteToFile failed");
                 return false;
             }
 
             if (!Directory.Exists(directory))
             {
                 Directory.CreateDirectory(directory);
+            }
+
+            if (!forceWrite)
+            {
+                string oldContent = File.Exists(normalizedPath) ? File.ReadAllText(normalizedPath) : string.Empty;
+                if (newContent == oldContent)
+                {
+                    return false;
+                }
             }
 
             File.WriteAllText(normalizedPath, newContent, Encoding.UTF8);
