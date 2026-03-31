@@ -3,19 +3,20 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using StellarNet.Lite.Client.Components.Views;
 using StellarNet.Lite.Shared.Infrastructure;
 using UnityEditor;
+using UnityEngine;
 
 namespace StellarNet.Lite.Editor
 {
-    /// <summary>
-    /// 网络预制体自动化扫描器。
-    /// 职责：扫描 Resources/NetPrefabs 目录下的所有预制体，计算稳定路径 Hash，并自动生成常量表与路径映射表。
-    /// </summary>
     public static class NetPrefabScanner
     {
-        private const string TargetResourceFolder = "Assets/Resources/NetPrefabs";
-        private const string OutputConstFilePath = "Assets/StellarNetLite/Runtime/Shared/Protocol/Const/NetPrefabConsts.cs";
+        /// <summary>
+        /// 我将网络预制体常量表统一输出到生成目录根下，
+        /// 这样客户端通过 prefab hash 反查资源路径时，只依赖这份静态表即可。
+        /// </summary>
+        private const string OutputConstFilePath = "Assets/StellarNetLiteGenerated/NetPrefabConsts.cs";
 
         [MenuItem("StellarNetLite/生成网络预制体常量表 (Net Prefabs)")]
         public static void ManualRun()
@@ -25,14 +26,7 @@ namespace StellarNet.Lite.Editor
 
         private static void RunScanAndGenerate()
         {
-            if (!Directory.Exists(TargetResourceFolder))
-            {
-                Directory.CreateDirectory(TargetResourceFolder);
-                AssetDatabase.Refresh();
-                NetLogger.LogWarning("NetPrefabScanner", $"目标目录不存在，已自动创建: {TargetResourceFolder}");
-            }
-
-            string[] prefabGuids = AssetDatabase.FindAssets("t:Prefab", new[] { TargetResourceFolder });
+            string[] prefabGuids = AssetDatabase.FindAssets("t:Prefab");
             if (prefabGuids == null || prefabGuids.Length == 0)
             {
                 bool emptyChanged = GenerateConstFile(new List<(int Hash, string VarName, string ResPath)>());
@@ -41,13 +35,13 @@ namespace StellarNet.Lite.Editor
                     AssetDatabase.Refresh();
                 }
 
-                NetLogger.LogWarning("NetPrefabScanner", $"目录下未找到任何预制体，已生成空常量表: {TargetResourceFolder}");
+                NetLogger.LogWarning("NetPrefabScanner", "项目内未找到任何 Prefab，已生成空常量表。");
                 return;
             }
 
-            var prefabList = new List<(int Hash, string VarName, string ResPath)>();
-            var hashMap = new Dictionary<int, string>();
-            var varNameMap = new Dictionary<string, string>();
+            var prefabList = new List<(int Hash, string VarName, string ResPath)>(prefabGuids.Length);
+            var hashMap = new Dictionary<int, string>(prefabGuids.Length);
+            var varNameMap = new Dictionary<string, string>(prefabGuids.Length);
             bool hasFatalError = false;
 
             for (int i = 0; i < prefabGuids.Length; i++)
@@ -69,8 +63,21 @@ namespace StellarNet.Lite.Editor
                 string resPath = GetResourcesRelativePath(assetPath);
                 if (string.IsNullOrEmpty(resPath))
                 {
-                    NetLogger.LogError("NetPrefabScanner", $"扫描失败: 资源路径非法, AssetPath:{assetPath}");
+                    continue;
+                }
+
+                GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+                if (prefab == null)
+                {
+                    NetLogger.LogError("NetPrefabScanner",
+                        $"扫描失败: Prefab 加载为空, AssetPath:{assetPath}, ResPath:{resPath}");
                     hasFatalError = true;
+                    continue;
+                }
+
+                NetIdentity netIdentity = prefab.GetComponent<NetIdentity>();
+                if (netIdentity == null)
+                {
                     continue;
                 }
 
@@ -78,21 +85,24 @@ namespace StellarNet.Lite.Editor
                 string varName = GenerateValidVariableName(resPath);
                 if (string.IsNullOrEmpty(varName))
                 {
-                    NetLogger.LogError("NetPrefabScanner", $"扫描失败: 变量名为空, ResPath:{resPath}, AssetPath:{assetPath}");
+                    NetLogger.LogError("NetPrefabScanner",
+                        $"扫描失败: 变量名为空, Prefab:{prefab.name}, ResPath:{resPath}, AssetPath:{assetPath}");
                     hasFatalError = true;
                     continue;
                 }
 
                 if (hashMap.TryGetValue(hash, out string existingPath))
                 {
-                    NetLogger.LogError("NetPrefabScanner", $"Hash 冲突: Hash:{hash}, PathA:{existingPath}, PathB:{resPath}");
+                    NetLogger.LogError("NetPrefabScanner",
+                        $"Hash 冲突: Hash:{hash}, PathA:{existingPath}, PathB:{resPath}, Prefab:{prefab.name}");
                     hasFatalError = true;
                     continue;
                 }
 
                 if (varNameMap.TryGetValue(varName, out string existingVarPath))
                 {
-                    NetLogger.LogError("NetPrefabScanner", $"变量名冲突: VarName:{varName}, PathA:{existingVarPath}, PathB:{resPath}");
+                    NetLogger.LogError("NetPrefabScanner",
+                        $"变量名冲突: VarName:{varName}, PathA:{existingVarPath}, PathB:{resPath}, Prefab:{prefab.name}");
                     hasFatalError = true;
                     continue;
                 }
@@ -108,6 +118,18 @@ namespace StellarNet.Lite.Editor
                 return;
             }
 
+            if (prefabList.Count == 0)
+            {
+                bool emptyChanged = GenerateConstFile(prefabList);
+                if (emptyChanged)
+                {
+                    AssetDatabase.Refresh();
+                }
+
+                NetLogger.LogWarning("NetPrefabScanner", "项目内未找到任何挂载 NetIdentity 的 Resources 预制体，已生成空常量表。");
+                return;
+            }
+
             bool isChanged = GenerateConstFile(prefabList);
             if (!isChanged)
             {
@@ -116,7 +138,8 @@ namespace StellarNet.Lite.Editor
             }
 
             AssetDatabase.Refresh();
-            NetLogger.LogInfo("NetPrefabScanner", $"网络预制体常量表生成完毕，共收录 {prefabList.Count} 个预制体。");
+            NetLogger.LogInfo("NetPrefabScanner",
+                $"网络预制体常量表生成完毕，共收录 {prefabList.Count} 个根节点挂载 NetIdentity 的 Resources 预制体。");
         }
 
         private static string GetResourcesRelativePath(string fullAssetPath)
@@ -126,25 +149,34 @@ namespace StellarNet.Lite.Editor
                 return string.Empty;
             }
 
-            int resIndex = fullAssetPath.IndexOf("Resources/", StringComparison.Ordinal);
+            string normalizedPath = fullAssetPath.Replace("\\", "/");
+            const string resourcesToken = "/Resources/";
+
+            int resIndex = normalizedPath.LastIndexOf(resourcesToken, StringComparison.Ordinal);
             if (resIndex < 0)
             {
                 return string.Empty;
             }
 
-            int startIndex = resIndex + "Resources/".Length;
-            int dotIndex = fullAssetPath.LastIndexOf('.');
-            if (dotIndex < 0)
-            {
-                dotIndex = fullAssetPath.Length;
-            }
-
-            if (dotIndex <= startIndex)
+            int startIndex = resIndex + resourcesToken.Length;
+            if (startIndex >= normalizedPath.Length)
             {
                 return string.Empty;
             }
 
-            return fullAssetPath.Substring(startIndex, dotIndex - startIndex);
+            string relativeWithExtension = normalizedPath.Substring(startIndex);
+            if (string.IsNullOrEmpty(relativeWithExtension))
+            {
+                return string.Empty;
+            }
+
+            string extension = Path.GetExtension(relativeWithExtension);
+            if (string.IsNullOrEmpty(extension))
+            {
+                return relativeWithExtension;
+            }
+
+            return relativeWithExtension.Substring(0, relativeWithExtension.Length - extension.Length);
         }
 
         private static int GetStableHash(string input)
@@ -161,7 +193,7 @@ namespace StellarNet.Lite.Editor
                 hash *= 16777619;
             }
 
-            return (int)hash;
+            return unchecked((int)hash);
         }
 
         private static string GenerateValidVariableName(string resPath)
@@ -173,7 +205,6 @@ namespace StellarNet.Lite.Editor
 
             string varName = resPath.Replace("/", "_").Replace(" ", "_").Replace("-", "_");
             varName = System.Text.RegularExpressions.Regex.Replace(varName, @"[^a-zA-Z0-9_]", "_");
-
             if (string.IsNullOrEmpty(varName))
             {
                 return string.Empty;
@@ -189,13 +220,15 @@ namespace StellarNet.Lite.Editor
 
         private static bool GenerateConstFile(List<(int Hash, string VarName, string ResPath)> prefabList)
         {
+            if (prefabList == null)
+            {
+                NetLogger.LogError("NetPrefabScanner", "生成常量表失败: prefabList 为空");
+                return false;
+            }
+
             prefabList.Sort((a, b) => string.Compare(a.VarName, b.VarName, StringComparison.Ordinal));
 
-            var sb = new StringBuilder();
-            sb.AppendLine("// ========================================================");
-            sb.AppendLine("// 自动生成的网络预制体 Hash 常量表与路径映射。");
-            sb.AppendLine("// 请勿手动修改！请通过菜单 [StellarNet/Lite 生成网络预制体常量表] 驱动此文件更新。");
-            sb.AppendLine("// ========================================================");
+            var sb = new StringBuilder(4096);
             sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine();
             sb.AppendLine("namespace StellarNet.Lite.Shared.Protocol");
@@ -206,16 +239,17 @@ namespace StellarNet.Lite.Editor
             for (int i = 0; i < prefabList.Count; i++)
             {
                 (int Hash, string VarName, string ResPath) prefab = prefabList[i];
-                sb.AppendLine("        /// <summary>");
-                sb.AppendLine($"        /// 映射路径: Resources/{prefab.ResPath}");
-                sb.AppendLine("        /// </summary>");
                 sb.AppendLine($"        public const int {prefab.VarName} = {prefab.Hash};");
+            }
+
+            if (prefabList.Count > 0)
+            {
                 sb.AppendLine();
             }
 
-            sb.AppendLine("        public static readonly Dictionary<int, string> HashToPathMap = new Dictionary<int, string>");
+            sb.AppendLine(
+                "        public static readonly Dictionary<int, string> HashToPathMap = new Dictionary<int, string>");
             sb.AppendLine("        {");
-
             for (int i = 0; i < prefabList.Count; i++)
             {
                 (int Hash, string VarName, string ResPath) prefab = prefabList[i];
@@ -243,16 +277,17 @@ namespace StellarNet.Lite.Editor
                 return false;
             }
 
-            string oldContent = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+            string normalizedPath = path.Replace("\\", "/");
+            string oldContent = File.Exists(normalizedPath) ? File.ReadAllText(normalizedPath) : string.Empty;
             if (newContent == oldContent)
             {
                 return false;
             }
 
-            string directory = Path.GetDirectoryName(path);
+            string directory = Path.GetDirectoryName(normalizedPath);
             if (string.IsNullOrEmpty(directory))
             {
-                NetLogger.LogError("NetPrefabScanner", $"写入失败: 目录为空, Path:{path}");
+                NetLogger.LogError("NetPrefabScanner", $"写入失败: 目录为空, Path:{normalizedPath}");
                 return false;
             }
 
@@ -261,7 +296,7 @@ namespace StellarNet.Lite.Editor
                 Directory.CreateDirectory(directory);
             }
 
-            File.WriteAllText(path, newContent, Encoding.UTF8);
+            File.WriteAllText(normalizedPath, newContent, Encoding.UTF8);
             return true;
         }
     }

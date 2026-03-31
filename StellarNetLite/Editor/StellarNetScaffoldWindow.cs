@@ -20,12 +20,17 @@ namespace StellarNet.Lite.Editor
         private const int DefaultGlobalC2SMsgId = 11000;
         private const int DefaultGlobalS2CMsgId = 11001;
 
-        private const string GeneratedRootPath = "Assets/StellarNetLite/Runtime/Shared/Generated";
-        private const string GeneratedProtocolMsgIdsFolderPath = GeneratedRootPath + "/Protocol/MsgIds";
-        private const string GeneratedProtocolMetaFolderPath = GeneratedRootPath + "/Protocol/Meta";
-        private const string GeneratedComponentIdsFolderPath = GeneratedRootPath + "/Protocol/Components";
-        private const string GeneratedRoomBinderFolderPath = GeneratedRootPath + "/Binders/RoomComponents";
-        private const string GeneratedGlobalModuleBinderFolderPath = GeneratedRootPath + "/Binders/GlobalModules";
+        /// <summary>
+        /// 我只把“扫描器二次产出的 generated 文件”统一收口到这里，
+        /// 而业务脚手架源码仍然留在业务目录，避免把正式源码误当成缓存产物。
+        /// </summary>
+        private const string GeneratedRootPath = "Assets/StellarNetLiteGenerated";
+
+        private const string GeneratedProtocolMsgIdsFolderPath = GeneratedRootPath + "/MsgIds";
+        private const string GeneratedProtocolMetaFolderPath = GeneratedRootPath + "/Meta";
+        private const string GeneratedComponentIdsFolderPath = GeneratedRootPath + "/Components";
+        private const string GeneratedRoomBinderFolderPath = GeneratedRootPath + "/RoomBinders";
+        private const string GeneratedGlobalModuleBinderFolderPath = GeneratedRootPath + "/ModuleBinders";
 
         #endregion
 
@@ -74,10 +79,8 @@ namespace StellarNet.Lite.Editor
         private int _componentId = DefaultRoomComponentId;
         private int _c2sMsgId = DefaultRoomC2SMsgId;
         private int _s2cMsgId = DefaultRoomS2CMsgId;
-
         private Vector2 _createScrollPosition;
         private Vector2 _managedScrollPosition;
-
         private readonly List<ManagedManifestEntry> _managedEntries = new List<ManagedManifestEntry>(64);
         private int _selectedManagedIndex = -1;
 
@@ -141,9 +144,7 @@ namespace StellarNet.Lite.Editor
         private void DrawCreateSection()
         {
             EditorGUILayout.LabelField("业务单元生成", EditorStyles.boldLabel);
-
             _createScrollPosition = EditorGUILayout.BeginScrollView(_createScrollPosition, GUILayout.Height(360f));
-
             DrawBusinessTypeSection();
             DrawNamespaceSection();
             DrawOutputSection();
@@ -151,7 +152,6 @@ namespace StellarNet.Lite.Editor
             DrawIdSection();
             DrawPreviewSection();
             DrawGenerateButtons();
-
             EditorGUILayout.EndScrollView();
         }
 
@@ -173,14 +173,12 @@ namespace StellarNet.Lite.Editor
             }
 
             _managedScrollPosition = EditorGUILayout.BeginScrollView(_managedScrollPosition, GUILayout.Height(280f));
-
             for (int i = 0; i < _managedEntries.Count; i++)
             {
                 DrawManagedEntryItem(i, _managedEntries[i]);
             }
 
             EditorGUILayout.EndScrollView();
-
             DrawManagedEntryActions();
         }
 
@@ -192,6 +190,7 @@ namespace StellarNet.Lite.Editor
             _businessType = (ScaffoldBusinessType)EditorGUILayout.EnumPopup(
                 new GUIContent("脚手架类型"),
                 _businessType);
+
             if (EditorGUI.EndChangeCheck())
             {
                 ResetDefaultsByBusinessType();
@@ -203,55 +202,38 @@ namespace StellarNet.Lite.Editor
         private void DrawNamespaceSection()
         {
             EditorGUILayout.LabelField("命名空间配置", EditorStyles.boldLabel);
-
-            _namespacePrefix = EditorGUILayout.TextField(
-                new GUIContent("前置 Namespace"),
-                _namespacePrefix);
+            _namespacePrefix = EditorGUILayout.TextField(new GUIContent("前置 Namespace"), _namespacePrefix);
 
             using (new EditorGUI.DisabledScope(true))
             {
-                _baseNamespace = EditorGUILayout.TextField(
-                    new GUIContent("业务根 Namespace"),
-                    DefaultBaseNamespace);
+                _baseNamespace = EditorGUILayout.TextField(new GUIContent("业务根 Namespace"), DefaultBaseNamespace);
             }
 
             string fullRootNamespace = ComposeFullRootNamespace();
-            EditorGUILayout.LabelField("最终根 Namespace", string.IsNullOrEmpty(fullRootNamespace) ? "(非法)" : fullRootNamespace);
-
+            EditorGUILayout.LabelField("最终根 Namespace",
+                string.IsNullOrEmpty(fullRootNamespace) ? "(非法)" : fullRootNamespace);
             EditorGUILayout.Space(6f);
         }
 
         private void DrawOutputSection()
         {
             EditorGUILayout.LabelField("输出目录配置", EditorStyles.boldLabel);
-
             EditorGUILayout.BeginHorizontal();
-            _outputRoot = EditorGUILayout.TextField(
-                new GUIContent("输出根目录"),
-                _outputRoot);
-
+            _outputRoot = EditorGUILayout.TextField(new GUIContent("输出根目录"), _outputRoot);
             if (GUILayout.Button("选择目录", GUILayout.Width(100f)))
             {
                 SelectOutputFolder();
             }
 
             EditorGUILayout.EndHorizontal();
-
             EditorGUILayout.Space(6f);
         }
 
         private void DrawBusinessMetaSection()
         {
             EditorGUILayout.LabelField("业务信息", EditorStyles.boldLabel);
-
-            _featureName = EditorGUILayout.TextField(
-                new GUIContent("模块名"),
-                _featureName);
-
-            _displayName = EditorGUILayout.TextField(
-                new GUIContent("显示名"),
-                _displayName);
-
+            _featureName = EditorGUILayout.TextField(new GUIContent("模块名"), _featureName);
+            _displayName = EditorGUILayout.TextField(new GUIContent("显示名"), _displayName);
             EditorGUILayout.Space(6f);
         }
 
@@ -261,9 +243,7 @@ namespace StellarNet.Lite.Editor
 
             if (_businessType == ScaffoldBusinessType.RoomComponent)
             {
-                _componentId = EditorGUILayout.IntField(
-                    new GUIContent("组件 Id"),
-                    _componentId);
+                _componentId = EditorGUILayout.IntField(new GUIContent("组件 Id"), _componentId);
             }
             else
             {
@@ -272,7 +252,6 @@ namespace StellarNet.Lite.Editor
 
             _c2sMsgId = EditorGUILayout.IntField(new GUIContent("C2S MsgId"), _c2sMsgId);
             _s2cMsgId = EditorGUILayout.IntField(new GUIContent("S2C MsgId"), _s2cMsgId);
-
             EditorGUILayout.Space(6f);
         }
 
@@ -312,7 +291,8 @@ namespace StellarNet.Lite.Editor
             }
             else
             {
-                EditorGUILayout.LabelField("生成全局模块 Binder 分片", BuildGeneratedGlobalModuleBinderFileAssetPath(featureToken));
+                EditorGUILayout.LabelField("生成全局模块 Binder 分片",
+                    BuildGeneratedGlobalModuleBinderFileAssetPath(featureToken));
             }
 
             EditorGUILayout.LabelField("Manifest 文件", BuildManifestAssetPath(featureToken));
@@ -388,7 +368,8 @@ namespace StellarNet.Lite.Editor
             }
 
             EditorGUILayout.Space(6f);
-            EditorGUILayout.LabelField("当前选中", $"{selectedEntry.Manifest.FeatureName} [{selectedEntry.Manifest.BusinessType}]");
+            EditorGUILayout.LabelField("当前选中",
+                $"{selectedEntry.Manifest.FeatureName} [{selectedEntry.Manifest.BusinessType}]");
 
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -488,7 +469,6 @@ namespace StellarNet.Lite.Editor
             {
                 string serverContent = BuildServerRoomComponentFileContent(fullRootNamespace, featureToken);
                 string clientContent = BuildClientRoomComponentFileContent(fullRootNamespace, featureToken);
-
                 if (string.IsNullOrEmpty(serverContent) || string.IsNullOrEmpty(clientContent))
                 {
                     Debug.LogError("[StellarNetScaffoldWindow] 房间组件内容无效");
@@ -511,7 +491,6 @@ namespace StellarNet.Lite.Editor
             {
                 string serverContent = BuildServerModuleFileContent(fullRootNamespace, featureToken);
                 string clientContent = BuildClientModuleFileContent(fullRootNamespace, featureToken);
-
                 if (string.IsNullOrEmpty(serverContent) || string.IsNullOrEmpty(clientContent))
                 {
                     Debug.LogError("[StellarNetScaffoldWindow] 全局模块内容无效");
@@ -533,7 +512,8 @@ namespace StellarNet.Lite.Editor
 
             if (writeManifest)
             {
-                ScaffoldManifest manifest = BuildManifest(featureToken, fullRootNamespace, sourceFilePaths, generatedFilePaths);
+                ScaffoldManifest manifest =
+                    BuildManifest(featureToken, fullRootNamespace, sourceFilePaths, generatedFilePaths);
                 if (manifest == null)
                 {
                     Debug.LogError("[StellarNetScaffoldWindow] manifest 无效");
@@ -572,10 +552,6 @@ namespace StellarNet.Lite.Editor
                 "确定");
         }
 
-        /// <summary>
-        /// 我在真正写文件前做同名冲突拦截。
-        /// 这里同时检查已托管 manifest、目标源码路径、目标 manifest 路径，是为了阻止覆盖式生成污染现有模块。
-        /// </summary>
         private bool HasFeatureConflict(string featureToken)
         {
             if (string.IsNullOrEmpty(featureToken))
@@ -747,7 +723,7 @@ namespace StellarNet.Lite.Editor
                     continue;
                 }
 
-                if (!content.Contains("// <auto-generated>") || !content.Contains($"// ScaffoldFeature: {featureName}"))
+                if (!content.Contains("// AUTO-GENERATED-START", StringComparison.Ordinal))
                 {
                     Debug.LogError("[StellarNetScaffoldWindow] 源码已被人工接管，跳过删除");
                     continue;
@@ -880,9 +856,7 @@ namespace StellarNet.Lite.Editor
 
             string protocolNamespace = $"{fullRootNamespace}.Shared.Protocol";
             var sb = new StringBuilder(2048);
-
             AppendAutoGeneratedHeader(sb, featureToken);
-
             sb.AppendLine("using StellarNet.Lite.Shared.Core;");
             sb.AppendLine();
             sb.AppendLine($"namespace {protocolNamespace}");
@@ -897,7 +871,6 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("    {");
             sb.AppendLine("    }");
             sb.AppendLine("}");
-
             return sb.ToString();
         }
 
@@ -914,9 +887,7 @@ namespace StellarNet.Lite.Editor
             string safeDisplayName = EscapeString(_displayName);
 
             var sb = new StringBuilder(4096);
-
             AppendAutoGeneratedHeader(sb, featureToken);
-
             sb.AppendLine("using StellarNet.Lite.Server.Core;");
             sb.AppendLine("using StellarNet.Lite.Shared.Core;");
             sb.AppendLine("using StellarNet.Lite.Shared.Infrastructure;");
@@ -957,7 +928,6 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");
-
             return sb.ToString();
         }
 
@@ -974,9 +944,7 @@ namespace StellarNet.Lite.Editor
             string safeDisplayName = EscapeString(_displayName);
 
             var sb = new StringBuilder(4096);
-
             AppendAutoGeneratedHeader(sb, featureToken);
-
             sb.AppendLine("using StellarNet.Lite.Client.Core;");
             sb.AppendLine("using StellarNet.Lite.Shared.Core;");
             sb.AppendLine("using StellarNet.Lite.Shared.Infrastructure;");
@@ -1016,7 +984,6 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");
-
             return sb.ToString();
         }
 
@@ -1033,9 +1000,7 @@ namespace StellarNet.Lite.Editor
             string safeDisplayName = EscapeString(_displayName);
 
             var sb = new StringBuilder(4096);
-
             AppendAutoGeneratedHeader(sb, featureToken);
-
             sb.AppendLine("using StellarNet.Lite.Server.Core;");
             sb.AppendLine("using StellarNet.Lite.Shared.Core;");
             sb.AppendLine("using StellarNet.Lite.Shared.Infrastructure;");
@@ -1067,7 +1032,6 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");
-
             return sb.ToString();
         }
 
@@ -1084,9 +1048,7 @@ namespace StellarNet.Lite.Editor
             string safeDisplayName = EscapeString(_displayName);
 
             var sb = new StringBuilder(4096);
-
             AppendAutoGeneratedHeader(sb, featureToken);
-
             sb.AppendLine("using StellarNet.Lite.Client.Core;");
             sb.AppendLine("using StellarNet.Lite.Client.Core.Events;");
             sb.AppendLine("using StellarNet.Lite.Shared.Core;");
@@ -1118,7 +1080,6 @@ namespace StellarNet.Lite.Editor
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");
-
             return sb.ToString();
         }
 
@@ -1126,7 +1087,8 @@ namespace StellarNet.Lite.Editor
 
         #region Manifest 构建
 
-        private ScaffoldManifest BuildManifest(string featureToken, string fullRootNamespace, List<string> sourceFiles, List<string> generatedFiles)
+        private ScaffoldManifest BuildManifest(string featureToken, string fullRootNamespace, List<string> sourceFiles,
+            List<string> generatedFiles)
         {
             if (string.IsNullOrEmpty(featureToken) || string.IsNullOrEmpty(fullRootNamespace))
             {
@@ -1166,7 +1128,9 @@ namespace StellarNet.Lite.Editor
                 return;
             }
 
-            if ((manifest.SourceFiles == null || manifest.SourceFiles.Length == 0) && manifest.Files != null && manifest.Files.Length > 0)
+            if ((manifest.SourceFiles == null || manifest.SourceFiles.Length == 0) &&
+                manifest.Files != null &&
+                manifest.Files.Length > 0)
             {
                 manifest.SourceFiles = manifest.Files;
             }
@@ -1176,7 +1140,8 @@ namespace StellarNet.Lite.Editor
                 string featureToken = manifest.FeatureName ?? string.Empty;
                 if (!string.IsNullOrEmpty(featureToken))
                 {
-                    manifest.GeneratedFiles = BuildManagedGeneratedFilePaths(featureToken).ToArray();
+                    ScaffoldBusinessType businessType = ParseBusinessType(manifest.BusinessType);
+                    manifest.GeneratedFiles = BuildManagedGeneratedFilePaths(featureToken, businessType).ToArray();
                 }
                 else
                 {
@@ -1228,7 +1193,23 @@ namespace StellarNet.Lite.Editor
                 return Array.Empty<string>();
             }
 
-            return BuildManagedGeneratedFilePaths(featureToken).ToArray();
+            ScaffoldBusinessType businessType = ParseBusinessType(manifest.BusinessType);
+            return BuildManagedGeneratedFilePaths(featureToken, businessType).ToArray();
+        }
+
+        private ScaffoldBusinessType ParseBusinessType(string rawBusinessType)
+        {
+            if (string.IsNullOrEmpty(rawBusinessType))
+            {
+                return ScaffoldBusinessType.RoomComponent;
+            }
+
+            if (Enum.TryParse(rawBusinessType, out ScaffoldBusinessType result))
+            {
+                return result;
+            }
+
+            return ScaffoldBusinessType.RoomComponent;
         }
 
         #endregion
@@ -1242,12 +1223,14 @@ namespace StellarNet.Lite.Editor
 
         private string BuildServerRoomComponentFileAssetPath(string featureToken)
         {
-            return NormalizeAssetPath(PathCombineSafe(_outputRoot, "Server/Components", $"Server{featureToken}Component.cs"));
+            return NormalizeAssetPath(PathCombineSafe(_outputRoot, "Server/Components",
+                $"Server{featureToken}Component.cs"));
         }
 
         private string BuildClientRoomComponentFileAssetPath(string featureToken)
         {
-            return NormalizeAssetPath(PathCombineSafe(_outputRoot, "Client/Components", $"Client{featureToken}Component.cs"));
+            return NormalizeAssetPath(PathCombineSafe(_outputRoot, "Client/Components",
+                $"Client{featureToken}Component.cs"));
         }
 
         private string BuildServerModuleFileAssetPath(string featureToken)
@@ -1272,27 +1255,32 @@ namespace StellarNet.Lite.Editor
 
         private string BuildGeneratedProtocolMsgIdsFileAssetPath(string featureToken)
         {
-            return NormalizeAssetPath(PathCombineSafe(GeneratedProtocolMsgIdsFolderPath, $"Generated_{featureToken}_MsgIds.cs"));
+            return NormalizeAssetPath(PathCombineSafe(GeneratedProtocolMsgIdsFolderPath,
+                $"Generated_{featureToken}_MsgIds.cs"));
         }
 
         private string BuildGeneratedProtocolMetaFileAssetPath(string featureToken)
         {
-            return NormalizeAssetPath(PathCombineSafe(GeneratedProtocolMetaFolderPath, $"Generated_{featureToken}_MessageMeta.cs"));
+            return NormalizeAssetPath(PathCombineSafe(GeneratedProtocolMetaFolderPath,
+                $"Generated_{featureToken}_MessageMeta.cs"));
         }
 
         private string BuildGeneratedComponentIdsFileAssetPath(string featureToken)
         {
-            return NormalizeAssetPath(PathCombineSafe(GeneratedComponentIdsFolderPath, $"Generated_{featureToken}_ComponentIds.cs"));
+            return NormalizeAssetPath(PathCombineSafe(GeneratedComponentIdsFolderPath,
+                $"Generated_{featureToken}_ComponentIds.cs"));
         }
 
         private string BuildGeneratedRoomBinderFileAssetPath(string featureToken)
         {
-            return NormalizeAssetPath(PathCombineSafe(GeneratedRoomBinderFolderPath, $"Generated_{featureToken}_RoomBinder.cs"));
+            return NormalizeAssetPath(PathCombineSafe(GeneratedRoomBinderFolderPath,
+                $"Generated_{featureToken}_RoomBinder.cs"));
         }
 
         private string BuildGeneratedGlobalModuleBinderFileAssetPath(string featureToken)
         {
-            return NormalizeAssetPath(PathCombineSafe(GeneratedGlobalModuleBinderFolderPath, $"Generated_{featureToken}_ModuleBinder.cs"));
+            return NormalizeAssetPath(PathCombineSafe(GeneratedGlobalModuleBinderFolderPath,
+                $"Generated_{featureToken}_ModuleBinder.cs"));
         }
 
         private List<string> BuildManagedSourceFilePaths(string featureToken)
@@ -1318,13 +1306,18 @@ namespace StellarNet.Lite.Editor
 
         private List<string> BuildManagedGeneratedFilePaths(string featureToken)
         {
+            return BuildManagedGeneratedFilePaths(featureToken, _businessType);
+        }
+
+        private List<string> BuildManagedGeneratedFilePaths(string featureToken, ScaffoldBusinessType businessType)
+        {
             var result = new List<string>(4)
             {
                 BuildGeneratedProtocolMsgIdsFileAssetPath(featureToken),
                 BuildGeneratedProtocolMetaFileAssetPath(featureToken)
             };
 
-            if (_businessType == ScaffoldBusinessType.RoomComponent)
+            if (businessType == ScaffoldBusinessType.RoomComponent)
             {
                 result.Add(BuildGeneratedComponentIdsFileAssetPath(featureToken));
                 result.Add(BuildGeneratedRoomBinderFileAssetPath(featureToken));
@@ -1401,12 +1394,12 @@ namespace StellarNet.Lite.Editor
                 return;
             }
 
-            sb.AppendLine("// <auto-generated>");
-            sb.AppendLine("// 由 StellarNetScaffoldWindow 自动生成。");
-            sb.AppendLine($"// ScaffoldFeature: {featureToken}");
-            sb.AppendLine($"// ScaffoldType: {_businessType}");
-            sb.AppendLine("// 若你准备把该文件转为正式业务实现，请先在脚手架窗口执行“取消托管”。");
-            sb.AppendLine("// </auto-generated>");
+            sb.AppendLine("// AUTO-GENERATED-START");
+            sb.AppendLine("// 该文件由 StellarNetScaffoldWindow 自动生成。");
+            sb.AppendLine($"// AUTO-GENERATED-FEATURE: {featureToken}");
+            sb.AppendLine($"// AUTO-GENERATED-TYPE: {_businessType}");
+            sb.AppendLine("// 如果你准备长期人工维护该文件，请先通过脚手架工具执行“取消托管”。");
+            sb.AppendLine("// AUTO-GENERATED-END");
             sb.AppendLine();
         }
 
@@ -1417,12 +1410,11 @@ namespace StellarNet.Lite.Editor
                 return string.Empty;
             }
 
-            const string startTag = "// <auto-generated>";
-            const string endTag = "// </auto-generated>";
+            const string startTag = "// AUTO-GENERATED-START";
+            const string endTag = "// AUTO-GENERATED-END";
 
             int startIndex = content.IndexOf(startTag, StringComparison.Ordinal);
             int endIndex = content.IndexOf(endTag, StringComparison.Ordinal);
-
             if (startIndex < 0 || endIndex < 0 || endIndex < startIndex)
             {
                 return content;
@@ -1462,7 +1454,8 @@ namespace StellarNet.Lite.Editor
             }
 
             string normalizedOutput = NormalizeAssetPath(_outputRoot);
-            if (string.IsNullOrEmpty(normalizedOutput) || !normalizedOutput.StartsWith("Assets", StringComparison.Ordinal))
+            if (string.IsNullOrEmpty(normalizedOutput) ||
+                !normalizedOutput.StartsWith("Assets", StringComparison.Ordinal))
             {
                 return false;
             }
@@ -1518,7 +1511,6 @@ namespace StellarNet.Lite.Editor
 
             string projectRootPath = projectRoot.FullName.Replace("\\", "/");
             string selectedPath = selected.Replace("\\", "/");
-
             if (!selectedPath.StartsWith(projectRootPath, StringComparison.Ordinal))
             {
                 Debug.LogError("[StellarNetScaffoldWindow] 目录不在项目内");
@@ -1636,7 +1628,6 @@ namespace StellarNet.Lite.Editor
         {
             string prefix = NormalizeNamespace(_namespacePrefix);
             string root = DefaultBaseNamespace;
-
             if (string.IsNullOrEmpty(prefix))
             {
                 return root;
@@ -1653,7 +1644,6 @@ namespace StellarNet.Lite.Editor
             }
 
             string normalized = rawNamespace.Trim();
-
             while (normalized.Contains("..", StringComparison.Ordinal))
             {
                 normalized = normalized.Replace("..", ".", StringComparison.Ordinal);
