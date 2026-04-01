@@ -86,7 +86,8 @@ namespace StellarNet.Lite.Client.Modules
 
             if (_app == null)
             {
-                NetLogger.LogError("ClientUserModule", $"处理重连结果失败: _app 为空, Success:{msg.Success}, RoomId:{msg.RoomId}");
+                NetLogger.LogError("ClientUserModule",
+                    $"处理重连结果失败: _app 为空, Success:{msg.Success}, RoomId:{msg.RoomId}");
                 return;
             }
 
