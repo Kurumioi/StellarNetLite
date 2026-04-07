@@ -1,0 +1,31 @@
+﻿using StellarNet.Lite.Server.Core;
+using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Infrastructure;
+using #NAMESPACE#.Shared.Protocol;
+
+namespace #NAMESPACE#.Server.Components
+{
+    [RoomComponent(#COMPONENT_ID#, "#FEATURE_NAME#", "#DISPLAY_NAME#")]
+    public sealed class Server#FEATURE_NAME#Component : RoomComponent
+    {
+        private readonly ServerApp _app;
+
+        public Server#FEATURE_NAME#Component(ServerApp app)
+        {
+            _app = app;
+        }
+
+        public override void OnInit()
+        {
+        }
+
+        [NetHandler]
+        public void OnC2S_#FEATURE_NAME#Req(Session session, C2S_#FEATURE_NAME#Req msg)
+        {
+            if (session == null || msg == null || Room == null) return;
+
+            var syncMsg = new S2C_#FEATURE_NAME#Sync();
+            Room.BroadcastMessage(syncMsg);
+        }
+    }
+}

@@ -3,33 +3,36 @@ using StellarNet.Lite.Client.Components;
 
 namespace StellarNet.Lite.Client.Components.Views
 {
-    // 网络实体位姿表现层。
     [RequireComponent(typeof(NetIdentity))]
     public class NetTransformView : MonoBehaviour
     {
-        // 位置平滑时间。
-        [Header("空间同步配置")] public float PosSmoothTime = 0.1f;
-        // 旋转平滑速度。
+        [Header("远端平滑配置 (Dead Reckoning)")] public float PosSmoothTime = 0.1f;
         public float RotSmoothSpeed = 15f;
-        // 超过该距离直接瞬移。
         public float SnapThreshold = 3.0f;
-        // 追赶阈值，超过后加快收敛。
         public float CatchUpThreshold = 1.5f;
-        // 静止阈值，避免临近目标点抖动。
         public float StopThreshold = 0.05f;
+
+        [Header("本地柔性和解配置 (Soft Reconciliation)")]
+        public float LocalSnapThreshold = 2.0f;
+
+        public float LocalSoftCorrectionSpeed = 5f;
+        public float LocalIgnoreThreshold = 0.05f;
+
+        public bool IsLocalPlayer { get; set; }
 
         private NetIdentity _identity;
         private Vector3 _currentVelocity;
+        private CharacterController _characterController;
 
         private void Awake()
         {
             _identity = GetComponent<NetIdentity>();
+            _characterController = GetComponent<CharacterController>();
         }
 
-        // 生成或重建时直接写入一份初始状态。
         public void HardSetInitialState(Vector3 pos, Quaternion rot, Vector3 scale)
         {
-            transform.position = pos;
+            ApplyPosition(pos);
             transform.rotation = rot;
             transform.localScale = scale;
             _currentVelocity = Vector3.zero;
@@ -38,44 +41,74 @@ namespace StellarNet.Lite.Client.Components.Views
         private void Update()
         {
             if (_identity == null || _identity.SyncService == null) return;
+
             if (!_identity.SyncService.TryGetTransformData(_identity.NetId, out var syncData)) return;
 
-            // 每帧从同步服务读取预测结果并驱动表现层。
-            ProcessTransformSync(ref syncData);
+            if (IsLocalPlayer)
+            {
+                ProcessLocalReconciliation(ref syncData);
+            }
+            else
+            {
+                ProcessRemoteTransformSync(ref syncData);
+            }
         }
 
-        private void ProcessTransformSync(ref PredictedTransformData syncData)
+        private void ProcessLocalReconciliation(ref PredictedTransformData syncData)
+        {
+            Vector3 currentPos = transform.position;
+            float distanceToServer = Vector3.Distance(currentPos, syncData.Position);
+
+            // 误差极小，完全信任本地输入，静默忽略服务端坐标
+            if (distanceToServer <= LocalIgnoreThreshold) return;
+
+            // 误差极大（如撞墙预测失败、被服务端技能强制位移），执行硬拉扯
+            if (distanceToServer > LocalSnapThreshold)
+            {
+                ApplyPosition(syncData.Position);
+                return;
+            }
+
+            // 柔性和解：在后台静默将本地坐标平滑纠正到服务端坐标
+            // 肉眼表现为轻微的滑步，而不是卡顿闪烁
+            Vector3 targetPos = Vector3.Lerp(currentPos, syncData.Position, Time.deltaTime * LocalSoftCorrectionSpeed);
+            ApplyPosition(targetPos);
+        }
+
+        private void ProcessRemoteTransformSync(ref PredictedTransformData syncData)
         {
             Vector3 currentPos = transform.position;
             float distanceToTarget = Vector3.Distance(currentPos, syncData.Position);
 
+            // 距离过大或处于快进回放状态，直接硬切
             if (syncData.PlaybackSpeed > 5f || distanceToTarget > SnapThreshold)
             {
-                // 回放快进或误差过大时直接硬校正。
-                transform.position = syncData.Position;
+                ApplyPosition(syncData.Position);
                 _currentVelocity = Vector3.zero;
             }
+            // 目标已停止且距离极近，直接对齐防止微小抖动
             else if (syncData.Velocity.sqrMagnitude < 0.01f && distanceToTarget < StopThreshold)
             {
-                // 已基本停稳时直接收敛到目标点。
-                transform.position = syncData.Position;
+                ApplyPosition(syncData.Position);
                 _currentVelocity = Vector3.zero;
             }
+            // 正常平滑追赶（结合航位推测）
             else if (syncData.PlaybackSpeed > 0f)
             {
                 float effectiveSmoothTime = PosSmoothTime;
                 if (distanceToTarget > CatchUpThreshold) effectiveSmoothTime *= 0.5f;
                 effectiveSmoothTime /= syncData.PlaybackSpeed;
 
-                // 核心优化 P1-2：确保 SmoothDamp 内部正确使用 Time.deltaTime
-                transform.position = Vector3.SmoothDamp(currentPos, syncData.Position, ref _currentVelocity, effectiveSmoothTime, Mathf.Infinity, Time.deltaTime);
+                Vector3 newPos = Vector3.SmoothDamp(currentPos, syncData.Position, ref _currentVelocity, effectiveSmoothTime, Mathf.Infinity,
+                    Time.deltaTime);
+                ApplyPosition(newPos);
             }
 
+            // 旋转与缩放同步
             if (syncData.PlaybackSpeed > 0f)
             {
                 if (syncData.PlaybackSpeed > 5f)
                 {
-                    // 极高速播放时直接应用目标旋转和缩放。
                     transform.rotation = Quaternion.Euler(syncData.Rotation);
                     transform.localScale = syncData.Scale;
                 }
@@ -83,13 +116,26 @@ namespace StellarNet.Lite.Client.Components.Views
                 {
                     Quaternion targetRot = Quaternion.Euler(syncData.Rotation);
                     float rotSpeed = RotSmoothSpeed * syncData.PlaybackSpeed;
-
-                    // 核心优化 P1-2：确保 Slerp 使用 Time.deltaTime
                     transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * rotSpeed);
 
                     float scaleSpeed = 10f * syncData.PlaybackSpeed;
                     transform.localScale = Vector3.Lerp(transform.localScale, syncData.Scale, Time.deltaTime * scaleSpeed);
                 }
+            }
+        }
+
+        private void ApplyPosition(Vector3 pos)
+        {
+            // 如果挂载了 CharacterController，直接修改 transform.position 会被物理引擎覆盖，必须先禁用
+            if (_characterController != null)
+            {
+                _characterController.enabled = false;
+                transform.position = pos;
+                _characterController.enabled = true;
+            }
+            else
+            {
+                transform.position = pos;
             }
         }
     }

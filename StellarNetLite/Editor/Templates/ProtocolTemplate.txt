@@ -1,0 +1,14 @@
+﻿using StellarNet.Lite.Shared.Core;
+
+namespace #NAMESPACE#.Shared.Protocol
+{
+    [NetMsg(#C2S_MSG_ID#, #SCOPE#, NetDir.C2S)]
+    public sealed class C2S_#FEATURE_NAME#Req
+    {
+    }
+
+    [NetMsg(#S2C_MSG_ID#, #SCOPE#, NetDir.S2C)]
+    public sealed class S2C_#FEATURE_NAME#Sync
+    {
+    }
+}

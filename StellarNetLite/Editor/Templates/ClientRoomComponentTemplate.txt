@@ -1,0 +1,30 @@
+﻿using StellarNet.Lite.Client.Core;
+using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Infrastructure;
+using #NAMESPACE#.Shared.Protocol;
+
+namespace #NAMESPACE#.Client.Components
+{
+    [RoomComponent(#COMPONENT_ID#, "#FEATURE_NAME#", "#DISPLAY_NAME#")]
+    public sealed class Client#FEATURE_NAME#Component : ClientRoomComponent
+    {
+        private readonly ClientApp _app;
+
+        public Client#FEATURE_NAME#Component(ClientApp app)
+        {
+            _app = app;
+        }
+
+        public override void OnInit()
+        {
+        }
+
+        [NetHandler]
+        public void OnS2C_#FEATURE_NAME#Sync(S2C_#FEATURE_NAME#Sync msg)
+        {
+            if (msg == null || Room == null) return;
+
+            Room.NetEventSystem.Broadcast(msg);
+        }
+    }
+}

@@ -8,10 +8,6 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Client.Components.Views
 {
-    /// <summary>
-    /// 全局网络实体生成视图。
-    /// 我把初始化结果改成显式返回值，是为了让业务组件能够准确判断对象表现层是否真正可用，而不是只靠日志猜测初始化是否成功。
-    /// </summary>
     public class ObjectSpawnerView : MonoBehaviour
     {
         private ClientRoom _room;
@@ -43,6 +39,7 @@ namespace StellarNet.Lite.Client.Components.Views
 
             _room = room;
             _syncService = _room.GetComponent<ClientObjectSyncComponent>();
+
             if (_syncService == null)
             {
                 NetLogger.LogError("ObjectSpawnerView", $"初始化失败: 缺失 ClientObjectSyncComponent, RoomId:{room.RoomId}, Object:{name}");
@@ -54,8 +51,8 @@ namespace StellarNet.Lite.Client.Components.Views
 
             _room.NetEventSystem.Register<Local_ObjectSpawned>(OnLocalObjectSpawned);
             _room.NetEventSystem.Register<Local_ObjectDestroyed>(OnLocalObjectDestroyed);
-            _isInitialized = true;
 
+            _isInitialized = true;
             NetLogger.LogInfo("ObjectSpawnerView", $"初始化完成，开始监听实体生命周期。RoomId:{room.RoomId}, Object:{name}");
             return true;
         }
@@ -180,6 +177,9 @@ namespace StellarNet.Lite.Client.Components.Views
                 }
 
                 transView.HardSetInitialState(spawnPos, spawnRot, spawnScale);
+
+                // 核心修改：标记是否为本地玩家
+                transView.IsLocalPlayer = (NetClient.Session != null && state.OwnerSessionId == NetClient.Session.SessionId);
             }
 
             if ((state.Mask & (byte)EntitySyncMask.Animator) != 0)

@@ -4,7 +4,6 @@ using StellarNet.Lite.Client.Components;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Game.Shared.Protocol;
-using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.ObjectSync;
 using StellarNet.Lite.Shared.Protocol;
 using TMPro;
@@ -13,72 +12,60 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using UGUIFollow;
 
-/// <summary>
-/// 交友房间 UGUI 表现层。
-/// 我只负责聊天气泡展示与交互输入，不接管房间生命周期，避免 UI 与业务状态机互相污染。
-/// </summary>
 public class Panel_SocialRoomView : UIPanelBase
 {
-    // 社交房面板引用。
     [Header("UI 引用")] [SerializeField] private TMP_InputField chatInput;
     [SerializeField] private Button sendBtn;
     [SerializeField] private Button endGameBtn;
     [SerializeField] private RectTransform bubbleContainer;
     [SerializeField] private GameObject bubblePrefab;
 
-    // 表现层依赖的对象生成器和输入控制器。
     private StellarNet.Lite.Client.Components.Views.ObjectSpawnerView _spawnerView;
     private StellarNet.Lite.Game.Client.Views.SocialRoomInputController _inputController;
-    // 本地玩家对应的 NetId。
     private int _localNetId = -1;
-
-    // 当前正在显示的头顶气泡。
     private readonly Dictionary<int, SocialRoomBubbleItem> _activeBubbles = new Dictionary<int, SocialRoomBubbleItem>();
 
     public override void OnInit()
     {
         base.OnInit();
-
-        if (sendBtn == null || endGameBtn == null || chatInput == null || bubbleContainer == null ||
-            bubblePrefab == null)
-        {
-            NetLogger.LogError("Panel_SocialRoomView", $"初始化失败: 存在未绑定的 UI 引用, Object:{name}");
-            return;
-        }
-
-        // 只负责聊天气泡和结算按钮，不接管房间生命周期。
         sendBtn.onClick.AddListener(OnSendBtnClick);
         endGameBtn.onClick.AddListener(OnEndGameBtnClick);
         chatInput.onSubmit.AddListener(OnChatInputSubmit);
-
-        if (bubbleContainer.GetComponent<LayoutGroup>() != null)
-        {
-            NetLogger.LogError("Panel_SocialRoomView",
-                $"初始化失败: bubbleContainer {bubbleContainer.name} 挂载了 LayoutGroup，当前状态会破坏气泡跟随坐标，Object:{name}");
-            return;
-        }
     }
 
     public override void OnOpen(object uiData = null)
     {
         base.OnOpen(uiData);
-
-        // 面板打开时重新绑定当前房间和表现层依赖。
-        _spawnerView = FindObjectOfType<StellarNet.Lite.Client.Components.Views.ObjectSpawnerView>();
-        _inputController = FindObjectOfType<StellarNet.Lite.Game.Client.Views.SocialRoomInputController>();
         _localNetId = -1;
-
         ClearAllBubbles();
 
         if (NetClient.CurrentRoom != null)
         {
-            NetClient.CurrentRoom.NetEventSystem.Register<S2C_SocialBubbleSync>(HandleBubbleSync)
-                .UnRegisterWhenMonoDisable(this);
-            NetClient.CurrentRoom.NetEventSystem.Register<Local_ObjectSpawned>(HandleObjectSpawned)
-                .UnRegisterWhenMonoDisable(this);
+            _spawnerView = FindObjectOfType<StellarNet.Lite.Client.Components.Views.ObjectSpawnerView>();
 
-            ClientRoomSettingsComponent
-                settingsComp = NetClient.CurrentRoom.GetComponent<ClientRoomSettingsComponent>();
+            _inputController = gameObject.GetComponent<StellarNet.Lite.Game.Client.Views.SocialRoomInputController>();
+            if (_inputController == null) _inputController = gameObject.AddComponent<StellarNet.Lite.Game.Client.Views.SocialRoomInputController>();
+            _inputController.Init(NetClient.CurrentRoom);
+
+            NetClient.CurrentRoom.NetEventSystem.Register<S2C_SocialBubbleSync>(HandleBubbleSync).UnRegisterWhenMonoDisable(this);
+            NetClient.CurrentRoom.NetEventSystem.Register<Local_ObjectSpawned>(HandleObjectSpawned).UnRegisterWhenMonoDisable(this);
+
+            // [修复2]：UI 打开时，实体可能已经生成，主动向底层组件查询状态，补偿 _localNetId
+            var syncComp = NetClient.CurrentRoom.GetComponent<ClientObjectSyncComponent>();
+            if (syncComp != null && NetClient.Session != null)
+            {
+                var states = syncComp.GetAllSpawnStates();
+                for (int i = 0; i < states.Count; i++)
+                {
+                    if (states[i].OwnerSessionId == NetClient.Session.SessionId)
+                    {
+                        _localNetId = states[i].NetId;
+                        break;
+                    }
+                }
+            }
+
+            var settingsComp = NetClient.CurrentRoom.GetComponent<ClientRoomSettingsComponent>();
             if (settingsComp != null && NetClient.Session != null &&
                 settingsComp.Members.TryGetValue(NetClient.Session.SessionId, out MemberInfo myInfo))
             {
@@ -90,15 +77,19 @@ public class Panel_SocialRoomView : UIPanelBase
             }
         }
 
-        // 回放态关闭输入，只保留只读表现。
         bool isReplay = NetClient.State == ClientAppState.ReplayRoom;
         chatInput.gameObject.SetActive(!isReplay);
         sendBtn.gameObject.SetActive(!isReplay);
+        if (isReplay) endGameBtn.gameObject.SetActive(false);
+    }
 
-        if (isReplay)
-        {
-            endGameBtn.gameObject.SetActive(false);
-        }
+    public override void OnClose()
+    {
+        base.OnClose();
+        // 注意：这里不再调用 _spawnerView.Clear()，因为它不属于当前 UI 面板管理
+        _spawnerView = null;
+        _inputController?.Clear();
+        ClearAllBubbles();
     }
 
     private void OnDestroy()
@@ -106,43 +97,25 @@ public class Panel_SocialRoomView : UIPanelBase
         sendBtn?.onClick.RemoveListener(OnSendBtnClick);
         endGameBtn?.onClick.RemoveListener(OnEndGameBtnClick);
         chatInput?.onSubmit.RemoveListener(OnChatInputSubmit);
-        ClearAllBubbles();
     }
 
     private void HandleObjectSpawned(Local_ObjectSpawned evt)
     {
-        if (NetClient.Session == null)
+        if (NetClient.Session != null && evt.State.OwnerSessionId == NetClient.Session.SessionId)
         {
-            NetLogger.LogError("Panel_SocialRoomView", $"处理本地对象生成失败: NetClient.Session 为空, Object:{name}");
-            return;
-        }
-
-        ObjectSpawnState state = evt.State;
-        if (state.NetId <= 0)
-        {
-            NetLogger.LogError("Panel_SocialRoomView", $"处理本地对象生成失败: NetId 非法, NetId:{state.NetId}");
-            return;
-        }
-
-        // 记录本地玩家的 NetId，便于本地立即显示自己的气泡。
-        if (state.OwnerSessionId == NetClient.Session.SessionId)
-        {
-            _localNetId = state.NetId;
+            _localNetId = evt.State.NetId;
         }
     }
 
     private void HandleBubbleSync(S2C_SocialBubbleSync evt)
     {
-        // 气泡同步到达时，根据 NetId 更新或创建 UI 气泡。
-        if (evt == null) return;
-        CreateOrUpdateBubble(evt.NetId, evt.Content);
+        if (evt != null) CreateOrUpdateBubble(evt.NetId, evt.Content);
     }
 
     private void CreateOrUpdateBubble(int netId, string content)
     {
         if (netId <= 0) return;
 
-        // 同一对象复用已有气泡，只刷新内容和寿命。
         if (_activeBubbles.TryGetValue(netId, out SocialRoomBubbleItem existingBubble))
         {
             if (existingBubble != null)
@@ -154,13 +127,7 @@ public class Panel_SocialRoomView : UIPanelBase
             _activeBubbles.Remove(netId);
         }
 
-        if (_spawnerView == null)
-        {
-            _spawnerView = FindObjectOfType<StellarNet.Lite.Client.Components.Views.ObjectSpawnerView>();
-        }
-
         if (_spawnerView == null) return;
-
         GameObject targetObj = _spawnerView.GetSpawnedObject(netId);
         if (targetObj == null) return;
 
@@ -170,7 +137,6 @@ public class Panel_SocialRoomView : UIPanelBase
         SocialRoomBubbleItem bubbleItem = uiObj.GetComponent<SocialRoomBubbleItem>();
         if (bubbleItem == null) bubbleItem = uiObj.AddComponent<SocialRoomBubbleItem>();
 
-        // 用跟随组件把气泡挂到 3D 对象头顶。
         UGUIFollowTarget followTarget = uiObj.GetComponent<UGUIFollowTarget>();
         if (followTarget == null) followTarget = uiObj.AddComponent<UGUIFollowTarget>();
 
@@ -194,15 +160,11 @@ public class Panel_SocialRoomView : UIPanelBase
         _activeBubbles.Clear();
     }
 
-    private void OnSendBtnClick()
-    {
-        SendChat();
-    }
+    private void OnSendBtnClick() => SendChat();
 
     private void OnChatInputSubmit(string text)
     {
         SendChat();
-
         if (EventSystem.current != null)
         {
             EventSystem.current.SetSelectedGameObject(chatInput.gameObject);
@@ -213,20 +175,12 @@ public class Panel_SocialRoomView : UIPanelBase
     private void SendChat()
     {
         if (chatInput == null) return;
-
         string safeText = chatInput.text.Trim();
         if (string.IsNullOrEmpty(safeText)) return;
 
-        if (_inputController != null)
-        {
-            _inputController.SendChatBubble(safeText);
-        }
-        else
-        {
-            NetClient.Send(new C2S_SocialBubbleReq { Content = safeText });
-        }
+        if (_inputController != null) _inputController.SendChatBubble(safeText);
+        else NetClient.Send(new C2S_SocialBubbleReq { Content = safeText });
 
-        // 发送聊天后，本地也先乐观显示一次自己的气泡。
         if (_localNetId != -1)
         {
             string displayContent = safeText.Length > 30 ? safeText.Substring(0, 30) + "..." : safeText;
@@ -238,12 +192,7 @@ public class Panel_SocialRoomView : UIPanelBase
 
     private void OnEndGameBtnClick()
     {
-        if (_inputController != null)
-        {
-            _inputController.RequestEndGame();
-            return;
-        }
-
-        NetClient.Send(new C2S_EndGame());
+        if (_inputController != null) _inputController.RequestEndGame();
+        else NetClient.Send(new C2S_EndGame());
     }
 }

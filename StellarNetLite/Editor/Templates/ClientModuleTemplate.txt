@@ -1,0 +1,27 @@
+﻿using StellarNet.Lite.Client.Core;
+using StellarNet.Lite.Client.Core.Events;
+using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Infrastructure;
+using #NAMESPACE#.Shared.Protocol;
+
+namespace #NAMESPACE#.Client.Modules
+{
+    [ClientModule("Client#FEATURE_NAME#Module", "#DISPLAY_NAME#")]
+    public sealed class Client#FEATURE_NAME#Module
+    {
+        private readonly ClientApp _app;
+
+        public Client#FEATURE_NAME#Module(ClientApp app)
+        {
+            _app = app;
+        }
+
+        [NetHandler]
+        public void OnS2C_#FEATURE_NAME#Sync(S2C_#FEATURE_NAME#Sync msg)
+        {
+            if (msg == null || _app == null) return;
+
+            GlobalTypeNetEvent.Broadcast(msg);
+        }
+    }
+}

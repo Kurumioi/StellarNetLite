@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using StellarNet.UI;
 using StellarNet.Lite.Client.Core;
@@ -29,8 +30,20 @@ public class Panel_StellarNetLobby : UIPanelBase
     [SerializeField] private Transform replayListContent;
     [SerializeField] private GameObject replayItemPrefab;
 
-    // 面板数据模型。
+    [Header("在线玩家列表 (新增)")] [SerializeField]
+    private Transform playerListContent;
+
+    [SerializeField] private GameObject playerItemPrefab;
+
+    [Header("大厅聊天 (新增)")] [SerializeField] private Transform chatContent;
+    [SerializeField] private GameObject chatItemPrefab;
+    [SerializeField] private TMP_InputField chatInput;
+    [SerializeField] private Button sendChatBtn;
+
     [SerializeField] private Panel_StellarNetLobbyData dataModel;
+
+    // 用于增量更新的 UI 节点缓存
+    private readonly Dictionary<string, Panel_StellarNetLobby_PlayerItem> _playerItems = new Dictionary<string, Panel_StellarNetLobby_PlayerItem>();
 
     public override void OnInit()
     {
@@ -40,13 +53,18 @@ public class Panel_StellarNetLobby : UIPanelBase
         createRoomBtn.onClick.AddListener(OnCreateRoomBtn);
         if (refreshReplayBtn != null) refreshReplayBtn.onClick.AddListener(OnRefreshReplayBtn);
 
-        // 大厅只监听房间列表、录像列表和录像下载结果。
-        GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse)
+        if (sendChatBtn != null) sendChatBtn.onClick.AddListener(OnSendChatBtn);
+        if (chatInput != null) chatInput.onSubmit.AddListener(OnChatInputSubmit);
+
+        GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse).UnRegisterWhenGameObjectDestroyed(gameObject);
+        GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList).UnRegisterWhenGameObjectDestroyed(gameObject);
+        GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnS2C_DownloadReplayResult).UnRegisterWhenGameObjectDestroyed(gameObject);
+
+        // 注册新增的全局状态与聊天协议
+        GlobalTypeNetEvent.Register<S2C_OnlinePlayerListSync>(OnS2C_OnlinePlayerListSync).UnRegisterWhenGameObjectDestroyed(gameObject);
+        GlobalTypeNetEvent.Register<S2C_GlobalPlayerStateIncrementalSync>(OnS2C_GlobalPlayerStateIncrementalSync)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
-        GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList)
-            .UnRegisterWhenGameObjectDestroyed(gameObject);
-        GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnS2C_DownloadReplayResult)
-            .UnRegisterWhenGameObjectDestroyed(gameObject);
+        GlobalTypeNetEvent.Register<S2C_GlobalChatSync>(OnS2C_GlobalChatSync).UnRegisterWhenGameObjectDestroyed(gameObject);
     }
 
     private void OnDestroy()
@@ -55,6 +73,8 @@ public class Panel_StellarNetLobby : UIPanelBase
         refreshRoomListBtn.onClick.RemoveAllListeners();
         createRoomBtn.onClick.RemoveAllListeners();
         if (refreshReplayBtn != null) refreshReplayBtn.onClick.RemoveAllListeners();
+        if (sendChatBtn != null) sendChatBtn.onClick.RemoveAllListeners();
+        if (chatInput != null) chatInput.onSubmit.RemoveAllListeners();
     }
 
     public override void OnOpen(object uiData = null)
@@ -65,7 +85,6 @@ public class Panel_StellarNetLobby : UIPanelBase
             dataModel = data;
         }
 
-        // 打开大厅时刷新本地显示用 uid。
         uidText.text = dataModel.uid;
     }
 
@@ -76,29 +95,25 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     private void OnRefreshRoomListBtn()
     {
-        // 主动拉取大厅房间列表。
         NetClient.Send(new C2S_GetRoomList());
     }
 
     private void OnCreateRoomBtn()
     {
-        // 建房走单独的配置面板。
         UIKit.OpenPanel<Panel_SetRoomConfig>();
     }
 
     private void OnRefreshReplayBtn()
     {
-        // 主动拉取录像列表。
         NetClient.Send(new C2S_GetReplayList());
     }
 
+    #region 房间与录像列表处理
+
     private void OnS2C_RoomListResponse(S2C_RoomListResponse msg)
     {
-        // 收到最新列表后重建大厅房间项。
-        foreach (Transform child in roomListContent)
-        {
-            Destroy(child.gameObject);
-        }
+        if (roomListContent == null || roomItemPrefab == null) return;
+        foreach (Transform child in roomListContent) Destroy(child.gameObject);
 
         for (int i = 0; i < msg.Rooms.Length; i++)
         {
@@ -124,12 +139,7 @@ public class Panel_StellarNetLobby : UIPanelBase
     private void OnS2C_ReplayList(S2C_ReplayList msg)
     {
         if (replayListContent == null || replayItemPrefab == null) return;
-
-        // 收到录像列表后重建录像项。
-        foreach (Transform child in replayListContent)
-        {
-            Destroy(child.gameObject);
-        }
+        foreach (Transform child in replayListContent) Destroy(child.gameObject);
 
         if (msg.Replays == null || msg.Replays.Length == 0) return;
 
@@ -138,12 +148,8 @@ public class Panel_StellarNetLobby : UIPanelBase
             var replay = msg.Replays[i];
             var item = Instantiate(replayItemPrefab, replayListContent);
             item.SetActive(true);
-
             var itemCom = item.GetComponent<Panel_StellarNetLobby_ReplayItem>();
-            if (itemCom == null)
-            {
-                itemCom = item.AddComponent<Panel_StellarNetLobby_ReplayItem>();
-            }
+            if (itemCom == null) itemCom = item.AddComponent<Panel_StellarNetLobby_ReplayItem>();
 
             string finalPath = Path.Combine(StellarNet.Lite.Client.Modules.ClientReplayModule.CacheFolderPath,
                 $"{replay.ReplayId}.replay").Replace("\\", "/");
@@ -161,4 +167,103 @@ public class Panel_StellarNetLobby : UIPanelBase
             GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"录像下载失败: {msg.Reason}" });
         }
     }
+
+    #endregion
+
+    #region 在线玩家列表处理 (全量与增量)
+
+    private void OnS2C_OnlinePlayerListSync(S2C_OnlinePlayerListSync msg)
+    {
+        if (playerListContent == null || playerItemPrefab == null) return;
+
+        foreach (Transform child in playerListContent) Destroy(child.gameObject);
+        _playerItems.Clear();
+
+        if (msg.Players == null) return;
+
+        for (int i = 0; i < msg.Players.Length; i++)
+        {
+            AddOrUpdatePlayerItem(msg.Players[i]);
+        }
+    }
+
+    private void OnS2C_GlobalPlayerStateIncrementalSync(S2C_GlobalPlayerStateIncrementalSync msg)
+    {
+        if (msg.Player == null) return;
+
+        if (msg.IsRemoved)
+        {
+            if (_playerItems.TryGetValue(msg.Player.SessionId, out var item))
+            {
+                if (item != null) Destroy(item.gameObject);
+                _playerItems.Remove(msg.Player.SessionId);
+            }
+        }
+        else
+        {
+            AddOrUpdatePlayerItem(msg.Player);
+        }
+    }
+
+    private void AddOrUpdatePlayerItem(OnlinePlayerInfo player)
+    {
+        if (playerListContent == null || playerItemPrefab == null) return;
+
+        if (_playerItems.TryGetValue(player.SessionId, out var item) && item != null)
+        {
+            item.Init(player);
+        }
+        else
+        {
+            var go = Instantiate(playerItemPrefab, playerListContent);
+            go.SetActive(true);
+            var newItem = go.GetComponent<Panel_StellarNetLobby_PlayerItem>();
+            if (newItem == null) newItem = go.AddComponent<Panel_StellarNetLobby_PlayerItem>();
+
+            newItem.Init(player);
+            _playerItems[player.SessionId] = newItem;
+        }
+    }
+
+    #endregion
+
+    #region 大厅聊天处理
+
+    private void OnSendChatBtn()
+    {
+        SendChat();
+    }
+
+    private void OnChatInputSubmit(string text)
+    {
+        SendChat();
+        if (chatInput != null)
+        {
+            chatInput.ActivateInputField();
+        }
+    }
+
+    private void SendChat()
+    {
+        if (chatInput == null) return;
+        string content = chatInput.text.Trim();
+        if (string.IsNullOrEmpty(content)) return;
+
+        NetClient.Send(new C2S_GlobalChat { Content = content });
+        chatInput.text = string.Empty;
+    }
+
+    private void OnS2C_GlobalChatSync(S2C_GlobalChatSync msg)
+    {
+        if (chatContent == null || chatItemPrefab == null) return;
+
+        var go = Instantiate(chatItemPrefab, chatContent);
+        go.SetActive(true);
+        var item = go.GetComponent<Panel_StellarNetLobby_ChatItem>();
+        if (item == null) item = go.AddComponent<Panel_StellarNetLobby_ChatItem>();
+
+        item.Init(msg);
+    }
+
+    #endregion
 }

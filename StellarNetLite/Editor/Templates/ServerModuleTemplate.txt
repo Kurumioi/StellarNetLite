@@ -1,0 +1,27 @@
+﻿using StellarNet.Lite.Server.Core;
+using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Infrastructure;
+using #NAMESPACE#.Shared.Protocol;
+
+namespace #NAMESPACE#.Server.Modules
+{
+    [ServerModule("Server#FEATURE_NAME#Module", "#DISPLAY_NAME#")]
+    public sealed class Server#FEATURE_NAME#Module
+    {
+        private readonly ServerApp _app;
+
+        public Server#FEATURE_NAME#Module(ServerApp app)
+        {
+            _app = app;
+        }
+
+        [NetHandler]
+        public void OnC2S_#FEATURE_NAME#Req(Session session, C2S_#FEATURE_NAME#Req msg)
+        {
+            if (session == null || msg == null || _app == null) return;
+
+            var syncMsg = new S2C_#FEATURE_NAME#Sync();
+            _app.SendMessageToSession(session, syncMsg);
+        }
+    }
+}
