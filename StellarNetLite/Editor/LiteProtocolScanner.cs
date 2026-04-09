@@ -427,7 +427,7 @@ namespace StellarNet.Lite.Shared.Protocol
                     Id = attr.Id, Name = attr.Name, SafeVarName = SanitizeIdentifier(GetCSharpTypeName(type)), FullName = GetCSharpTypeName(type),
                     DisplayName = attr.DisplayName, FeatureKey = GetFeatureKeyByType(type)
                 };
-                bool isServer = type.IsSubclassOf(typeof(StellarNet.Lite.Server.Core.RoomComponent));
+                bool isServer = type.IsSubclassOf(typeof(StellarNet.Lite.Server.Core.ServerRoomComponent));
                 bool isClient = type.IsSubclassOf(typeof(StellarNet.Lite.Client.Core.ClientRoomComponent));
 
                 if (!isServer && !isClient)

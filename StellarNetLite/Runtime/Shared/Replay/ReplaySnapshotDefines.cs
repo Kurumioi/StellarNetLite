@@ -1,27 +1,16 @@
 ﻿using System;
 using System.IO;
 using StellarNet.Lite.Shared.Infrastructure;
-using StellarNet.Lite.Shared.ObjectSync;
 
 namespace StellarNet.Lite.Shared.Replay
 {
-    /// <summary>
-    /// 回放 Raw 帧类型。
-    /// 我把录像内部数据拆成普通消息帧和对象关键帧两种，
-    /// 是为了让 Seek 时既能继续复用已有消息补播链路，又能在任意中段先恢复一份完整对象世界。
-    /// </summary>
     public enum ReplayFrameKind : byte
     {
         None = 0,
         Message = 1,
-        ObjectSnapshot = 2
+        ObjectSnapshot = 2 // 现已升级为通用组件快照帧
     }
 
-    /// <summary>
-    /// 回放文件格式常量定义。
-    /// 我通过版本号显式区分是否支持对象关键帧，
-    /// 是为了避免老录像按新格式读取时发生帧头错位，导致回放器把整个 Raw 数据流解析崩掉。
-    /// </summary>
     public static class ReplayFormatDefines
     {
         public const uint MagicBytes = 0x50455253;
@@ -30,74 +19,110 @@ namespace StellarNet.Lite.Shared.Replay
         public const int DefaultTotalTicksFallback = 108000;
     }
 
-    /// <summary>
-    /// 回放对象关键帧。
-    /// 我只在这里保存某个 Tick 的完整对象生成态集合，
-    /// 因为关键帧的职责是提供世界恢复基线，不应该和在线消息语义混在同一套协议事件里。
-    /// </summary>
+    // 核心解耦：服务端快照提供者接口
+    public interface IReplaySnapshotProvider
+    {
+        int SnapshotComponentId { get; }
+        byte[] ExportSnapshot();
+    }
+
+    // 核心解耦：客户端快照消费者接口
+    public interface IReplaySnapshotConsumer
+    {
+        int SnapshotComponentId { get; }
+        void ApplySnapshot(byte[] payload);
+    }
+
+    // 通用组件快照数据块
+    public struct ComponentSnapshotData
+    {
+        public int ComponentId;
+        public byte[] Payload;
+
+        public void Serialize(BinaryWriter writer)
+        {
+            writer.Write(ComponentId);
+            if (Payload == null || Payload.Length == 0)
+            {
+                writer.Write(0);
+            }
+            else
+            {
+                writer.Write(Payload.Length);
+                writer.Write(Payload);
+            }
+        }
+
+        public void Deserialize(BinaryReader reader)
+        {
+            ComponentId = reader.ReadInt32();
+            int len = reader.ReadInt32();
+            if (len > 0)
+            {
+                Payload = reader.ReadBytes(len);
+            }
+            else
+            {
+                Payload = Array.Empty<byte>();
+            }
+        }
+    }
+
+    // 升级后的通用快照帧，支持容纳多个业务组件的快照数据
     [Serializable]
-    public sealed class ReplayObjectSnapshotFrame : ILiteNetSerializable
+    public sealed class ReplaySnapshotFrame : ILiteNetSerializable
     {
         public int Tick;
-        public ObjectSpawnState[] States = Array.Empty<ObjectSpawnState>();
+        public ComponentSnapshotData[] ComponentSnapshots = Array.Empty<ComponentSnapshotData>();
 
-        /// <summary>
-        /// 我显式写入 Tick 和数组长度，是为了让录像层可以在不依赖运行时反射的前提下稳定恢复对象完整态。
-        /// </summary>
         public void Serialize(BinaryWriter writer)
         {
             if (writer == null)
             {
-                NetLogger.LogError("ReplayObjectSnapshotFrame", "序列化失败: writer 为空");
+                NetLogger.LogError("ReplaySnapshotFrame", "序列化失败: writer 为空");
                 return;
             }
 
             writer.Write(Tick);
-
-            int count = States != null ? States.Length : 0;
+            int count = ComponentSnapshots != null ? ComponentSnapshots.Length : 0;
             writer.Write(count);
-
             for (int i = 0; i < count; i++)
             {
-                States[i].Serialize(writer);
+                ComponentSnapshots[i].Serialize(writer);
             }
         }
 
-        /// <summary>
-        /// 我按共享结构顺序恢复关键帧内容，
-        /// 这样后续对象完整态扩展字段时，回放层不需要再维护另一套重复实体定义。
-        /// </summary>
         public void Deserialize(BinaryReader reader)
         {
             if (reader == null)
             {
-                NetLogger.LogError("ReplayObjectSnapshotFrame", "反序列化失败: reader 为空");
+                NetLogger.LogError("ReplaySnapshotFrame", "反序列化失败: reader 为空");
                 Tick = 0;
-                States = Array.Empty<ObjectSpawnState>();
+                ComponentSnapshots = Array.Empty<ComponentSnapshotData>();
                 return;
             }
 
             Tick = reader.ReadInt32();
-
             int count = reader.ReadInt32();
             if (count < 0)
             {
-                NetLogger.LogError("ReplayObjectSnapshotFrame", $"反序列化失败: count 非法, Tick:{Tick}, Count:{count}");
+                NetLogger.LogError("ReplaySnapshotFrame", $"反序列化失败: count 非法, Tick:{Tick}, Count:{count}");
                 Tick = 0;
-                States = Array.Empty<ObjectSpawnState>();
+                ComponentSnapshots = Array.Empty<ComponentSnapshotData>();
                 return;
             }
 
             if (count == 0)
             {
-                States = Array.Empty<ObjectSpawnState>();
+                ComponentSnapshots = Array.Empty<ComponentSnapshotData>();
                 return;
             }
 
-            States = new ObjectSpawnState[count];
+            ComponentSnapshots = new ComponentSnapshotData[count];
             for (int i = 0; i < count; i++)
             {
-                States[i].Deserialize(reader);
+                ComponentSnapshots[i] = new ComponentSnapshotData();
+                ComponentSnapshots[i].Deserialize(reader);
             }
         }
     }

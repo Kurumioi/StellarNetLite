@@ -20,8 +20,9 @@ namespace StellarNet.Lite.Client.Modules
         {
             if (msg.Success)
             {
-                string safeUid = !string.IsNullOrEmpty(_app.Session.AccountId) ? _app.Session.AccountId : msg.SessionId;
-                _app.Session.OnLoginSuccess(msg.SessionId, safeUid);
+                // 统一使用 AccountId 作为唯一业务标识
+                string safeAccountId = !string.IsNullOrEmpty(_app.Session.AccountId) ? _app.Session.AccountId : msg.SessionId;
+                _app.Session.OnLoginSuccess(msg.SessionId, safeAccountId);
 
                 if (msg.HasReconnectRoom)
                 {

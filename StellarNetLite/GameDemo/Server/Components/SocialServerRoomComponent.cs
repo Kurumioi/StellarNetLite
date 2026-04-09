@@ -10,7 +10,7 @@ using UnityEngine;
 namespace StellarNet.Lite.Game.Server.Components
 {
     [RoomComponent(102, "SocialRoom", "简易交友房间")]
-    public sealed class ServerSocialRoomComponent : RoomComponent, ITickableComponent
+    public sealed class SocialServerRoomComponent : ServerRoomComponent, ITickableComponent
     {
         private readonly ServerApp _app;
         private ServerObjectSyncComponent _syncService;
@@ -25,7 +25,7 @@ namespace StellarNet.Lite.Game.Server.Components
 
         private const float PlayerMoveSpeed = 4.0f;
 
-        public ServerSocialRoomComponent(ServerApp app)
+        public SocialServerRoomComponent(ServerApp app)
         {
             _app = app;
         }

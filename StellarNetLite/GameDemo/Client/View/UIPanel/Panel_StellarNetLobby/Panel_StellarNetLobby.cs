@@ -13,12 +13,13 @@ using UnityEngine.UI;
 [Serializable]
 public class Panel_StellarNetLobbyData
 {
-    public string uid;
+    public string accountId;
 }
 
 public class Panel_StellarNetLobby : UIPanelBase
 {
-    [Header("基础信息")] [SerializeField] private TMP_Text uidText;
+    [Header("基础信息")] [SerializeField] private TMP_Text accountIdText;
+
     [SerializeField] private Button logoutBtn;
 
     [Header("房间列表")] [SerializeField] private Button createRoomBtn;
@@ -42,7 +43,6 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     [SerializeField] private Panel_StellarNetLobbyData dataModel;
 
-    // 用于增量更新的 UI 节点缓存
     private readonly Dictionary<string, Panel_StellarNetLobby_PlayerItem> _playerItems = new Dictionary<string, Panel_StellarNetLobby_PlayerItem>();
 
     public override void OnInit()
@@ -51,16 +51,14 @@ public class Panel_StellarNetLobby : UIPanelBase
         logoutBtn.onClick.AddListener(OnLogoutBtn);
         refreshRoomListBtn.onClick.AddListener(OnRefreshRoomListBtn);
         createRoomBtn.onClick.AddListener(OnCreateRoomBtn);
-        if (refreshReplayBtn != null) refreshReplayBtn.onClick.AddListener(OnRefreshReplayBtn);
 
+        if (refreshReplayBtn != null) refreshReplayBtn.onClick.AddListener(OnRefreshReplayBtn);
         if (sendChatBtn != null) sendChatBtn.onClick.AddListener(OnSendChatBtn);
         if (chatInput != null) chatInput.onSubmit.AddListener(OnChatInputSubmit);
 
         GlobalTypeNetEvent.Register<S2C_RoomListResponse>(OnS2C_RoomListResponse).UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<S2C_ReplayList>(OnS2C_ReplayList).UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<S2C_DownloadReplayResult>(OnS2C_DownloadReplayResult).UnRegisterWhenGameObjectDestroyed(gameObject);
-
-        // 注册新增的全局状态与聊天协议
         GlobalTypeNetEvent.Register<S2C_OnlinePlayerListSync>(OnS2C_OnlinePlayerListSync).UnRegisterWhenGameObjectDestroyed(gameObject);
         GlobalTypeNetEvent.Register<S2C_GlobalPlayerStateIncrementalSync>(OnS2C_GlobalPlayerStateIncrementalSync)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
@@ -85,7 +83,7 @@ public class Panel_StellarNetLobby : UIPanelBase
             dataModel = data;
         }
 
-        uidText.text = dataModel.uid;
+        accountIdText.text = dataModel.accountId;
     }
 
     private void OnLogoutBtn()
@@ -113,6 +111,7 @@ public class Panel_StellarNetLobby : UIPanelBase
     private void OnS2C_RoomListResponse(S2C_RoomListResponse msg)
     {
         if (roomListContent == null || roomItemPrefab == null) return;
+
         foreach (Transform child in roomListContent) Destroy(child.gameObject);
 
         for (int i = 0; i < msg.Rooms.Length; i++)
@@ -139,6 +138,7 @@ public class Panel_StellarNetLobby : UIPanelBase
     private void OnS2C_ReplayList(S2C_ReplayList msg)
     {
         if (replayListContent == null || replayItemPrefab == null) return;
+
         foreach (Transform child in replayListContent) Destroy(child.gameObject);
 
         if (msg.Replays == null || msg.Replays.Length == 0) return;
@@ -148,6 +148,7 @@ public class Panel_StellarNetLobby : UIPanelBase
             var replay = msg.Replays[i];
             var item = Instantiate(replayItemPrefab, replayListContent);
             item.SetActive(true);
+
             var itemCom = item.GetComponent<Panel_StellarNetLobby_ReplayItem>();
             if (itemCom == null) itemCom = item.AddComponent<Panel_StellarNetLobby_ReplayItem>();
 
@@ -219,7 +220,6 @@ public class Panel_StellarNetLobby : UIPanelBase
             go.SetActive(true);
             var newItem = go.GetComponent<Panel_StellarNetLobby_PlayerItem>();
             if (newItem == null) newItem = go.AddComponent<Panel_StellarNetLobby_PlayerItem>();
-
             newItem.Init(player);
             _playerItems[player.SessionId] = newItem;
         }
@@ -261,7 +261,6 @@ public class Panel_StellarNetLobby : UIPanelBase
         go.SetActive(true);
         var item = go.GetComponent<Panel_StellarNetLobby_ChatItem>();
         if (item == null) item = go.AddComponent<Panel_StellarNetLobby_ChatItem>();
-
         item.Init(msg);
     }
 

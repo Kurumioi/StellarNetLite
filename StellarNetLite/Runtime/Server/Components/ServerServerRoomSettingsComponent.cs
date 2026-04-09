@@ -7,13 +7,13 @@ using StellarNet.Lite.Shared.Protocol;
 namespace StellarNet.Lite.Server.Components
 {
     [RoomComponent(1, "RoomSettings", "基础房间设置")]
-    public sealed class ServerRoomSettingsComponent : RoomComponent
+    public sealed class ServerServerRoomSettingsComponent : ServerRoomComponent
     {
         private readonly ServerApp _app;
         private readonly Dictionary<string, bool> _readyStates = new Dictionary<string, bool>();
         private string _ownerSessionId;
 
-        public ServerRoomSettingsComponent(ServerApp app)
+        public ServerServerRoomSettingsComponent(ServerApp app)
         {
             _app = app;
         }
@@ -29,8 +29,8 @@ namespace StellarNet.Lite.Server.Components
             return new MemberInfo
             {
                 SessionId = session.SessionId,
-                Uid = session.Uid,
-                DisplayName = string.IsNullOrEmpty(session.Uid) ? "Unknown" : session.Uid,
+                AccountId = session.AccountId,
+                DisplayName = string.IsNullOrEmpty(session.AccountId) ? "Unknown" : session.AccountId,
                 IsReady = isReady,
                 IsOwner = isOwner
             };
@@ -49,6 +49,7 @@ namespace StellarNet.Lite.Server.Components
         {
             _readyStates.Remove(session.SessionId);
             Room.BroadcastMessage(new S2C_MemberLeft { SessionId = session.SessionId });
+
             if (_ownerSessionId == session.SessionId) MigrateHost();
         }
 
@@ -68,6 +69,7 @@ namespace StellarNet.Lite.Server.Components
                 if (memberSession == null) continue;
 
                 if (string.IsNullOrEmpty(fallbackSessionId)) fallbackSessionId = kvp.Key;
+
                 if (memberSession.IsOnline)
                 {
                     _ownerSessionId = kvp.Key;
@@ -76,6 +78,7 @@ namespace StellarNet.Lite.Server.Components
             }
 
             if (string.IsNullOrEmpty(_ownerSessionId)) _ownerSessionId = fallbackSessionId;
+
             if (!string.IsNullOrEmpty(_ownerSessionId)) BroadcastSnapshotToAll();
         }
 
@@ -124,6 +127,7 @@ namespace StellarNet.Lite.Server.Components
         public void OnC2S_SetReady(Session session, C2S_SetReady msg)
         {
             if (!_readyStates.ContainsKey(session.SessionId)) return;
+
             _readyStates[session.SessionId] = msg.IsReady;
             Room.BroadcastMessage(new S2C_MemberReadyChanged { SessionId = session.SessionId, IsReady = msg.IsReady });
         }
@@ -135,7 +139,7 @@ namespace StellarNet.Lite.Server.Components
 
             foreach (var kvp in _readyStates)
             {
-                if (kvp.Key != _ownerSessionId && !kvp.Value) return; // 有人未准备
+                if (kvp.Key != _ownerSessionId && !kvp.Value) return;
             }
 
             Room.StartGame();

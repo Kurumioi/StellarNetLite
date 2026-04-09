@@ -6,7 +6,7 @@ using #NAMESPACE#.Shared.Protocol;
 namespace #NAMESPACE#.Server.Components
 {
     [RoomComponent(#COMPONENT_ID#, "#FEATURE_NAME#", "#DISPLAY_NAME#")]
-    public sealed class Server#FEATURE_NAME#Component : RoomComponent
+    public sealed class Server#FEATURE_NAME#Component : ServerRoomComponent
     {
         private readonly ServerApp _app;
 

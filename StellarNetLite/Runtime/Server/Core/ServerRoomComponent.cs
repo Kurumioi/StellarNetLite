@@ -4,7 +4,7 @@ namespace StellarNet.Lite.Server.Core
     /// 服务端房间组件基类。
     /// 所有房间业务都通过覆写这些生命周期钩子接入。
     /// </summary>
-    public abstract class RoomComponent
+    public abstract class ServerRoomComponent
     {
         // 当前组件所属房间，由工厂装配时注入。
         public Room Room { get; internal set; }

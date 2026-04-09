@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using StellarNet.Lite.Server.Core;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
@@ -11,7 +10,6 @@ namespace StellarNet.Lite.Server.Modules
     public sealed class ServerUserModule
     {
         private readonly ServerApp _app;
-        private readonly Dictionary<string, Session> _accountToSession = new Dictionary<string, Session>();
 
         public ServerUserModule(ServerApp app)
         {
@@ -29,14 +27,14 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            CleanupInvalidAccountMappings();
             string accountId = msg.AccountId.Trim();
 
             if (Version.TryParse(msg.ClientVersion, out Version clientVer) && Version.TryParse(_app.Config.MinClientVersion, out Version minVer))
             {
                 if (clientVer < minVer)
                 {
-                    _app.SendMessageToSession(session, new S2C_LoginResult { Success = false, Reason = $"客户端版本过旧，请更新至 {_app.Config.MinClientVersion} 或以上" });
+                    _app.SendMessageToSession(session,
+                        new S2C_LoginResult { Success = false, Reason = $"客户端版本过旧，请更新至 {_app.Config.MinClientVersion} 或以上" });
                     return;
                 }
             }
@@ -46,12 +44,14 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            if (_accountToSession.TryGetValue(accountId, out Session oldSession) && oldSession != null)
+            Session oldSession = _app.GetSessionByAccountId(accountId);
+            if (oldSession != null)
             {
                 if (oldSession == session)
                 {
                     bool hasRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) && _app.GetRoom(oldSession.CurrentRoomId) != null;
-                    _app.SendMessageToSession(oldSession, new S2C_LoginResult { Success = true, SessionId = oldSession.SessionId, HasReconnectRoom = hasRoom });
+                    _app.SendMessageToSession(oldSession,
+                        new S2C_LoginResult { Success = true, SessionId = oldSession.SessionId, HasReconnectRoom = hasRoom });
                     return;
                 }
 
@@ -66,18 +66,22 @@ namespace StellarNet.Lite.Server.Modules
                 oldSession.ResetSeq(session.LastReceivedSeq);
 
                 bool hasReconnectRoom = !string.IsNullOrEmpty(oldSession.CurrentRoomId) && _app.GetRoom(oldSession.CurrentRoomId) != null;
-                _app.SendMessageToSession(oldSession, new S2C_LoginResult { Success = true, SessionId = oldSession.SessionId, HasReconnectRoom = hasReconnectRoom });
+                _app.SendMessageToSession(oldSession,
+                    new S2C_LoginResult { Success = true, SessionId = oldSession.SessionId, HasReconnectRoom = hasReconnectRoom });
+
                 ServerLobbyModule.BroadcastOnlinePlayerList(_app);
                 return;
             }
 
             _app.RemoveSession(session.SessionId);
+
             var authSession = new Session(session.SessionId, accountId, session.ConnectionId);
             authSession.ResetSeq(session.LastReceivedSeq);
-            _accountToSession[accountId] = authSession;
             _app.RegisterSession(authSession);
 
-            _app.SendMessageToSession(authSession, new S2C_LoginResult { Success = true, SessionId = authSession.SessionId, HasReconnectRoom = false });
+            _app.SendMessageToSession(authSession,
+                new S2C_LoginResult { Success = true, SessionId = authSession.SessionId, HasReconnectRoom = false });
+
             ServerLobbyModule.BroadcastOnlinePlayerList(_app);
         }
 
@@ -116,19 +120,6 @@ namespace StellarNet.Lite.Server.Modules
 
             session.SetRoomReady(true);
             room.TriggerReconnectSnapshot(session);
-        }
-
-        private void CleanupInvalidAccountMappings()
-        {
-            var invalidAccounts = new List<string>();
-            foreach (var kvp in _accountToSession)
-            {
-                if (kvp.Value == null || !_app.Sessions.ContainsKey(kvp.Value.SessionId))
-                {
-                    invalidAccounts.Add(kvp.Key);
-                }
-            }
-            for (int i = 0; i < invalidAccounts.Count; i++) _accountToSession.Remove(invalidAccounts[i]);
         }
     }
 }

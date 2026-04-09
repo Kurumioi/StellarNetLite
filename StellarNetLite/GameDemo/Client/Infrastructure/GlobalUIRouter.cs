@@ -10,7 +10,6 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 {
     public class GlobalUIRouter : MonoSingleton<GlobalUIRouter>
     {
-        // 用于侦测状态跌落，做兜底 UI 回退。
         private ClientAppState _lastClientState = ClientAppState.InLobby;
         private bool _isInitialized;
 
@@ -21,7 +20,6 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
                 return;
             }
 
-            // 只监听跨房间、跨状态的全局导航事件。
             GlobalTypeNetEvent.Register<Local_RoomEntered>(OnRoomEntered).UnRegisterWhenGameObjectDestroyed(gameObject);
             GlobalTypeNetEvent.Register<Local_RoomLeft>(OnRoomLeft).UnRegisterWhenGameObjectDestroyed(gameObject);
             GlobalTypeNetEvent.Register<S2C_LoginResult>(OnLoginResult).UnRegisterWhenGameObjectDestroyed(gameObject);
@@ -51,7 +49,6 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
             ClientAppState currentState = NetClient.State;
 
-            // 在线态跌落回大厅时，做一层兜底面板清理。
             bool isDroppedFromRoom =
                 (_lastClientState == ClientAppState.OnlineRoom ||
                  _lastClientState == ClientAppState.ConnectionSuspended) &&
@@ -60,8 +57,6 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             if (isDroppedFromRoom)
             {
                 NetLogger.LogWarning("GlobalUIRouter", "检测到状态跌落，执行 UI 回退");
-
-                // 核心修复：状态跌落时，强制清理所有可能残留的通用房间 UI
                 UIKit.ClosePanel<Panel_SetRoomConfig>();
                 UIKit.ClosePanel<Panel_StellarNetRoom>();
                 UIKit.ClosePanel<Panel_StellarNetGameOver>();
@@ -69,7 +64,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
                 if (NetClient.Session != null && NetClient.Session.IsLoggedIn)
                 {
                     UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData
-                        { uid = NetClient.Session.SessionId });
+                        { accountId = NetClient.Session.AccountId });
                 }
                 else
                 {
@@ -83,7 +78,6 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
         public void HandlePhysicalDisconnect()
         {
-            // 物理断线时先清屏，再回登录入口。
             UIKit.CloseAllPanels();
             UIKit.OpenPanel<Panel_GlobalNetMonitor>();
             UIKit.OpenPanel<Panel_StellarNetLogin>();
@@ -110,7 +104,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             UIKit.ClosePanel<Panel_StellarNetLogin>();
             UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData
             {
-                uid = NetClient.Session != null ? NetClient.Session.SessionId : string.Empty
+                accountId = NetClient.Session != null ? NetClient.Session.AccountId : string.Empty
             });
         }
 
@@ -130,7 +124,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             UIKit.ClosePanel<Panel_StellarNetLogin>();
             UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData
             {
-                uid = NetClient.Session != null ? NetClient.Session.SessionId : string.Empty
+                accountId = NetClient.Session != null ? NetClient.Session.AccountId : string.Empty
             });
         }
 
@@ -149,7 +143,6 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
         private void OnRoomEntered(Local_RoomEntered evt)
         {
-            // 进房后关闭大厅链路面板。
             UIKit.ClosePanel<Panel_StellarNetLogin>();
             UIKit.ClosePanel<Panel_StellarNetLobby>();
             UIKit.ClosePanel<Panel_SetRoomConfig>();
@@ -157,7 +150,6 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
         private void OnRoomLeft(Local_RoomLeft evt)
         {
-            // 静默离房和挂起离房不做大厅回退。
             if (evt.IsSilent)
             {
                 return;
@@ -169,10 +161,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             }
 
             NetLogger.LogInfo("GlobalUIRouter", "离开房间，回退至大厅");
-
             UIKit.ClosePanel<Panel_StellarNetReplay>();
-
-            // 核心修复：增加对通用房间 UI 的兜底清理，防止 Router 异常导致 UI 残留卡死
             UIKit.ClosePanel<Panel_StellarNetRoom>();
             UIKit.ClosePanel<Panel_StellarNetGameOver>();
             UIKit.ClosePanel<Panel_SetRoomConfig>();
@@ -180,7 +169,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             if (NetClient.Session != null && NetClient.Session.IsLoggedIn)
             {
                 UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData
-                    { uid = NetClient.Session.SessionId });
+                    { accountId = NetClient.Session.AccountId });
             }
             else
             {
@@ -201,7 +190,6 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
                 return;
             }
 
-            // 录像下载成功后，直接从大厅切进回放面板。
             UIKit.ClosePanel<Panel_StellarNetLobby>();
             UIKit.OpenPanel<Panel_StellarNetReplay>(msg.ReplayFileData);
         }

@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.ObjectSync;
 using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Server.Core;
+using StellarNet.Lite.Shared.Replay;
 
 namespace StellarNet.Lite.Server.Components
 {
@@ -26,7 +28,7 @@ namespace StellarNet.Lite.Server.Components
     }
 
     [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
-    public sealed class ServerObjectSyncComponent : RoomComponent, ITickableComponent
+    public sealed class ServerObjectSyncComponent : ServerRoomComponent, ITickableComponent, IReplaySnapshotProvider
     {
         private readonly ServerApp _app;
         private readonly Dictionary<int, ServerSyncEntity> _entities = new Dictionary<int, ServerSyncEntity>();
@@ -35,6 +37,9 @@ namespace StellarNet.Lite.Server.Components
         private const int RecordIntervalTicks = 3;
         private ObjectSyncState[] _syncStateBuffer = new ObjectSyncState[64];
         private readonly S2C_ObjectSync _reusableSyncMsg = new S2C_ObjectSync();
+
+        // 核心解耦：声明自己负责处理 ObjectSync 相关的快照
+        public int SnapshotComponentId => 200;
 
         public ServerObjectSyncComponent(ServerApp app)
         {
@@ -61,7 +66,6 @@ namespace StellarNet.Lite.Server.Components
         public void OnTick()
         {
             if (Room.State != RoomState.Playing || _entities.Count == 0) return;
-
             bool shouldSyncOnline = Room.CurrentTick % SyncIntervalTicks == 0;
             bool shouldRecord = Room.CurrentTick % RecordIntervalTicks == 0;
             if (!shouldSyncOnline && !shouldRecord) return;
@@ -74,7 +78,6 @@ namespace StellarNet.Lite.Server.Components
 
             int index = 0;
             float currentServerTime = Time.realtimeSinceStartup;
-
             foreach (var kvp in _entities)
             {
                 ServerSyncEntity entity = kvp.Value;
@@ -107,7 +110,6 @@ namespace StellarNet.Lite.Server.Components
             string ownerSessionId = "")
         {
             if (prefabHash == 0) return null;
-
             _netIdCounter++;
             var entity = new ServerSyncEntity
             {
@@ -120,7 +122,6 @@ namespace StellarNet.Lite.Server.Components
                 Scale = Vector3.one,
                 OwnerSessionId = ownerSessionId ?? string.Empty
             };
-
             _entities.Add(entity.NetId, entity);
             Room.BroadcastMessage(new S2C_ObjectSpawn { State = BuildSpawnState(entity) }, true);
             return entity;
@@ -143,11 +144,29 @@ namespace StellarNet.Lite.Server.Components
         public ObjectSpawnState[] ExportSpawnStates()
         {
             if (_entities.Count == 0) return Array.Empty<ObjectSpawnState>();
-
             var result = new ObjectSpawnState[_entities.Count];
             int index = 0;
             foreach (var kvp in _entities) result[index++] = BuildSpawnState(kvp.Value);
             return result;
+        }
+
+        // 核心解耦：实现 IReplaySnapshotProvider，将当前所有实体的状态打包为 byte[]
+        public byte[] ExportSnapshot()
+        {
+            ObjectSpawnState[] states = ExportSpawnStates();
+            if (states == null || states.Length == 0) return Array.Empty<byte>();
+
+            using (MemoryStream ms = new MemoryStream())
+            using (BinaryWriter writer = new BinaryWriter(ms))
+            {
+                writer.Write(states.Length);
+                for (int i = 0; i < states.Length; i++)
+                {
+                    states[i].Serialize(writer);
+                }
+
+                return ms.ToArray();
+            }
         }
 
         private ObjectSpawnState BuildSpawnState(ServerSyncEntity entity)

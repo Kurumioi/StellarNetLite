@@ -11,13 +11,13 @@ namespace StellarNet.Lite.Server.Core
     public static class ServerRoomFactory
     {
         // 自动生成的 Handler 绑定器。
-        public static Action<RoomComponent, RoomDispatcher> ComponentBinder;
+        public static Action<ServerRoomComponent, RoomDispatcher> ComponentBinder;
 
         // ComponentId -> 构造函数。
-        private static readonly Dictionary<int, Func<RoomComponent>> Registry =
-            new Dictionary<int, Func<RoomComponent>>();
+        private static readonly Dictionary<int, Func<ServerRoomComponent>> Registry =
+            new Dictionary<int, Func<ServerRoomComponent>>();
 
-        public static void Register(int componentId, Func<RoomComponent> componentBuilder)
+        public static void Register(int componentId, Func<ServerRoomComponent> componentBuilder)
         {
             if (componentBuilder == null)
             {
@@ -54,19 +54,19 @@ namespace StellarNet.Lite.Server.Core
             }
 
             // 先批量创建组件，确保中途失败时可以整体回滚。
-            var pendingComponents = new List<RoomComponent>(componentIds.Length);
+            var pendingComponents = new List<ServerRoomComponent>(componentIds.Length);
 
             for (int i = 0; i < componentIds.Length; i++)
             {
                 int id = componentIds[i];
 
-                if (!Registry.TryGetValue(id, out Func<RoomComponent> builder) || builder == null)
+                if (!Registry.TryGetValue(id, out Func<ServerRoomComponent> builder) || builder == null)
                 {
                     NetLogger.LogError("ServerRoomFactory", $"装配失败: 未注册的 ComponentId, RoomId:{room.RoomId}, ComponentId:{id}");
                     return false;
                 }
 
-                RoomComponent component = builder.Invoke();
+                ServerRoomComponent component = builder.Invoke();
                 if (component == null)
                 {
                     NetLogger.LogError("ServerRoomFactory", $"装配失败: builder 返回 null, RoomId:{room.RoomId}, ComponentId:{id}");
@@ -78,7 +78,7 @@ namespace StellarNet.Lite.Server.Core
 
             for (int i = 0; i < pendingComponents.Count; i++)
             {
-                RoomComponent component = pendingComponents[i];
+                ServerRoomComponent component = pendingComponents[i];
                 if (component == null)
                 {
                     NetLogger.LogError("ServerRoomFactory", $"装配失败: pendingComponents 中存在空组件, RoomId:{room.RoomId}, Index:{i}");

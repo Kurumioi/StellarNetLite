@@ -44,9 +44,8 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            // 防御性截断，防止恶意超长文本攻击
             string safeContent = msg.Content.Length > 100 ? msg.Content.Substring(0, 100) + "..." : msg.Content;
-            string displayName = string.IsNullOrEmpty(session.Uid) ? "Unknown" : session.Uid;
+            string displayName = string.IsNullOrEmpty(session.AccountId) ? "Unknown" : session.AccountId;
 
             var syncMsg = new S2C_GlobalChatSync
             {
@@ -56,7 +55,6 @@ namespace StellarNet.Lite.Server.Modules
                 SendUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
 
-            // 广播给所有在线玩家
             foreach (var kvp in _app.Sessions)
             {
                 Session targetSession = kvp.Value;
@@ -123,9 +121,6 @@ namespace StellarNet.Lite.Server.Modules
             return new S2C_OnlinePlayerListSync { Players = playerList.ToArray() };
         }
 
-        /// <summary>
-        /// 全量广播在线玩家列表（开销较大，仅建议在必要时调用）
-        /// </summary>
         public static void BroadcastOnlinePlayerList(ServerApp app)
         {
             if (app == null)
@@ -151,9 +146,6 @@ namespace StellarNet.Lite.Server.Modules
             }
         }
 
-        /// <summary>
-        /// 增量广播单点玩家状态变化（推荐使用此方法降低带宽与 GC）
-        /// </summary>
         public static void BroadcastPlayerStateChange(ServerApp app, Session targetSession, bool isRemoved)
         {
             if (app == null || targetSession == null)
@@ -178,9 +170,6 @@ namespace StellarNet.Lite.Server.Modules
             }
         }
 
-        /// <summary>
-        /// 广播全局系统公告
-        /// </summary>
         public static void BroadcastAnnouncement(ServerApp app, string title, string content)
         {
             if (app == null || string.IsNullOrWhiteSpace(content))
@@ -209,13 +198,13 @@ namespace StellarNet.Lite.Server.Modules
         {
             bool isInRoom = !string.IsNullOrEmpty(session.CurrentRoomId);
             string roomId = isInRoom ? session.CurrentRoomId : string.Empty;
-            string uid = string.IsNullOrEmpty(session.Uid) ? string.Empty : session.Uid;
-            string displayName = string.IsNullOrEmpty(uid) ? "Unknown" : uid;
+            string accountId = string.IsNullOrEmpty(session.AccountId) ? string.Empty : session.AccountId;
+            string displayName = string.IsNullOrEmpty(accountId) ? "Unknown" : accountId;
 
             return new OnlinePlayerInfo
             {
                 SessionId = session.SessionId ?? string.Empty,
-                Uid = uid,
+                AccountId = accountId,
                 DisplayName = displayName,
                 IsOnline = session.IsOnline,
                 IsInRoom = isInRoom,

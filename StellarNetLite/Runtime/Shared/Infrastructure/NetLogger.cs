@@ -32,10 +32,20 @@ namespace StellarNet.Lite.Shared.Infrastructure
         // 统一拼装结构化日志文本。
         private static string FormatMessage(string level, string module, string message, string roomId, string sessionId, string extraContext)
         {
+            int fontSize = 14;
+            string colorTag;
+            switch (level)
+            {
+                case "Error": colorTag = "#FF0000"; break; // 红色
+                case "Warning": colorTag = "#FFFF00"; break; // 黄色
+                default: colorTag = "#FFFFFF"; break; // 白色
+            }
+
             string roomStr = string.IsNullOrEmpty(roomId) ? "-" : roomId;
             string sessionStr = string.IsNullOrEmpty(sessionId) ? "-" : sessionId;
             string contextStr = string.IsNullOrEmpty(extraContext) ? "" : $" | Context: {extraContext}";
-            return $"[{level}][{module}][Room:{roomStr}][Session:{sessionStr}] {message}{contextStr}";
+            return
+                $"<color={colorTag}><size={fontSize}><b>[{level}][{module}]</b></size></color> [Room:{roomStr}][Session:{sessionStr}] {message}{contextStr}";
         }
     }
 }

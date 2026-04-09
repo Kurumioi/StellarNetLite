@@ -1,9 +1,12 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.ObjectSync;
 using StellarNet.Lite.Shared.Protocol;
+using StellarNet.Lite.Shared.Replay;
 using UnityEngine;
 
 namespace StellarNet.Lite.Client.Components
@@ -30,7 +33,7 @@ namespace StellarNet.Lite.Client.Components
     }
 
     [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
-    public sealed class ClientObjectSyncComponent : ClientRoomComponent
+    public sealed class ClientObjectSyncComponent : ClientRoomComponent, IReplaySnapshotConsumer
     {
         private readonly ClientApp _app;
 
@@ -55,6 +58,11 @@ namespace StellarNet.Lite.Client.Components
         private readonly Dictionary<int, SyncEntityData> _entities = new Dictionary<int, SyncEntityData>();
         private float _replayTimeScale = 1f;
         private IUnRegister _timeScaleEventToken;
+        private float _replayBaseLocalTime = -1f;
+        private float _replayBaseServerTime = -1f;
+
+        // 核心解耦：声明自己负责消费 ObjectSync 相关的快照
+        public int SnapshotComponentId => 200;
 
         public ClientObjectSyncComponent(ClientApp app)
         {
@@ -65,8 +73,10 @@ namespace StellarNet.Lite.Client.Components
         {
             _entities.Clear();
             _replayTimeScale = 1f;
+            _replayBaseLocalTime = -1f;
+            _replayBaseServerTime = -1f;
             _timeScaleEventToken?.UnRegister();
-            _timeScaleEventToken = GlobalTypeNetEvent.Register<Local_ReplayTimeScaleChanged>(evt => _replayTimeScale = evt.TimeScale);
+            _timeScaleEventToken = GlobalTypeNetEvent.Register<Local_ReplayTimeScaleChanged>(OnReplayTimeScaleChanged);
         }
 
         public override void OnDestroy()
@@ -74,6 +84,18 @@ namespace StellarNet.Lite.Client.Components
             ClearAllEntities(false);
             _timeScaleEventToken?.UnRegister();
             _timeScaleEventToken = null;
+        }
+
+        private void OnReplayTimeScaleChanged(Local_ReplayTimeScaleChanged evt)
+        {
+            if (_replayBaseLocalTime >= 0f)
+            {
+                float currentEstimated = _replayBaseServerTime + (Time.realtimeSinceStartup - _replayBaseLocalTime) * _replayTimeScale;
+                _replayBaseServerTime = currentEstimated;
+                _replayBaseLocalTime = Time.realtimeSinceStartup;
+            }
+
+            _replayTimeScale = evt.TimeScale;
         }
 
         [NetHandler]
@@ -89,10 +111,19 @@ namespace StellarNet.Lite.Client.Components
         public void OnS2C_ObjectSync(S2C_ObjectSync msg)
         {
             if (msg.States == null) return;
-
             float currentLocalTime = Time.realtimeSinceStartup;
-            int count = Mathf.Min(msg.ValidCount, msg.States.Length);
 
+            if (_app.State == ClientAppState.ReplayRoom && msg.ValidCount > 0)
+            {
+                float packetServerTime = msg.States[0].ServerTime;
+                if (_replayBaseLocalTime < 0f || packetServerTime < _replayBaseServerTime || packetServerTime > _replayBaseServerTime + 5f)
+                {
+                    _replayBaseLocalTime = currentLocalTime;
+                    _replayBaseServerTime = packetServerTime;
+                }
+            }
+
+            int count = Mathf.Min(msg.ValidCount, msg.States.Length);
             for (int i = 0; i < count; i++)
             {
                 ObjectSyncState state = msg.States[i];
@@ -128,11 +159,60 @@ namespace StellarNet.Lite.Client.Components
             }
         }
 
+        // 核心解耦：实现 IReplaySnapshotConsumer，将底层的 byte[] 反序列化为业务数据
+        public void ApplySnapshot(byte[] payload)
+        {
+            if (payload == null || payload.Length == 0)
+            {
+                ApplyReplaySnapshot(Array.Empty<ObjectSpawnState>());
+                return;
+            }
+
+            using (MemoryStream ms = new MemoryStream(payload))
+            using (BinaryReader reader = new BinaryReader(ms))
+            {
+                int count = reader.ReadInt32();
+                ObjectSpawnState[] states = new ObjectSpawnState[count];
+                for (int i = 0; i < count; i++)
+                {
+                    states[i] = new ObjectSpawnState();
+                    states[i].Deserialize(reader);
+                }
+
+                ApplyReplaySnapshot(states);
+            }
+        }
+
         public void ApplyReplaySnapshot(ObjectSpawnState[] states)
         {
-            ClearAllEntities(true);
-            if (states == null) return;
-            for (int i = 0; i < states.Length; i++) ApplySpawnState(states[i], true);
+            if (states == null)
+            {
+                ClearAllEntities(true);
+                return;
+            }
+
+            var snapshotNetIds = new HashSet<int>();
+            for (int i = 0; i < states.Length; i++) snapshotNetIds.Add(states[i].NetId);
+
+            var toDestroy = new List<int>();
+            foreach (var netId in _entities.Keys)
+            {
+                if (!snapshotNetIds.Contains(netId)) toDestroy.Add(netId);
+            }
+
+            foreach (var netId in toDestroy)
+            {
+                _entities.Remove(netId);
+                Room.NetEventSystem.Broadcast(new Local_ObjectDestroyed { NetId = netId });
+            }
+
+            for (int i = 0; i < states.Length; i++)
+            {
+                if (!_entities.ContainsKey(states[i].NetId))
+                {
+                    ApplySpawnState(states[i], true);
+                }
+            }
         }
 
         public void ClearAllEntities(bool broadcastDestroyEvent)
@@ -144,9 +224,10 @@ namespace StellarNet.Lite.Client.Components
             }
 
             _entities.Clear();
+            _replayBaseLocalTime = -1f;
+            _replayBaseServerTime = -1f;
         }
 
-        // 获取当前所有实体状态（用于 UI 延迟打开时的补发）
         public List<ObjectSpawnState> GetAllSpawnStates()
         {
             var list = new List<ObjectSpawnState>(_entities.Count);
@@ -180,21 +261,39 @@ namespace StellarNet.Lite.Client.Components
                 return false;
             }
 
-            float timeSinceLastPacket = Time.realtimeSinceStartup - data.LocalReceiveTime;
             if (_app.State == ClientAppState.ReplayRoom)
             {
+                float replayDelta = 0f;
+                if (_replayBaseLocalTime >= 0f)
+                {
+                    float estimatedServerTime = _replayBaseServerTime + (Time.realtimeSinceStartup - _replayBaseLocalTime) * _replayTimeScale;
+                    replayDelta = estimatedServerTime - data.ServerTime;
+                }
+
+                if (replayDelta < 0f) replayDelta = 0f;
+                if (replayDelta > 0.15f) replayDelta = 0.15f;
+
                 result = new PredictedTransformData
                 {
-                    Position = data.RawPos, Rotation = data.RawRot, Velocity = data.RawVel, Scale = data.RawScale, TimeSinceLastSync = 0f,
+                    Position = data.RawPos + (data.RawVel * replayDelta),
+                    Rotation = data.RawRot,
+                    Velocity = data.RawVel,
+                    Scale = data.RawScale,
+                    TimeSinceLastSync = replayDelta,
                     PlaybackSpeed = _replayTimeScale
                 };
                 return true;
             }
 
+            float timeSinceLastPacket = Time.realtimeSinceStartup - data.LocalReceiveTime;
             result = new PredictedTransformData
             {
-                Position = data.RawPos + (data.RawVel * timeSinceLastPacket), Rotation = data.RawRot, Velocity = data.RawVel, Scale = data.RawScale,
-                TimeSinceLastSync = timeSinceLastPacket, PlaybackSpeed = 1f
+                Position = data.RawPos + (data.RawVel * timeSinceLastPacket),
+                Rotation = data.RawRot,
+                Velocity = data.RawVel,
+                Scale = data.RawScale,
+                TimeSinceLastSync = timeSinceLastPacket,
+                PlaybackSpeed = 1f
             };
             return true;
         }
@@ -207,21 +306,41 @@ namespace StellarNet.Lite.Client.Components
                 return false;
             }
 
-            float timeSinceLastPacket = Time.realtimeSinceStartup - data.LocalReceiveTime;
             if (_app.State == ClientAppState.ReplayRoom)
             {
+                float replayDelta = 0f;
+                if (_replayBaseLocalTime >= 0f)
+                {
+                    float estimatedServerTime = _replayBaseServerTime + (Time.realtimeSinceStartup - _replayBaseLocalTime) * _replayTimeScale;
+                    replayDelta = estimatedServerTime - data.ServerTime;
+                }
+
+                if (replayDelta < 0f) replayDelta = 0f;
+                if (replayDelta > 0.15f) replayDelta = 0.15f;
+
                 result = new PredictedAnimatorData
                 {
-                    AnimStateHash = data.AnimStateHash, AnimNormalizedTime = data.AnimNormalizedTime, FloatParam1 = data.FloatParam1,
-                    FloatParam2 = data.FloatParam2, FloatParam3 = data.FloatParam3, PlaybackSpeed = _replayTimeScale, ServerTimeDelta = 0f
+                    AnimStateHash = data.AnimStateHash,
+                    AnimNormalizedTime = data.AnimNormalizedTime,
+                    FloatParam1 = data.FloatParam1,
+                    FloatParam2 = data.FloatParam2,
+                    FloatParam3 = data.FloatParam3,
+                    PlaybackSpeed = _replayTimeScale,
+                    ServerTimeDelta = replayDelta
                 };
                 return true;
             }
 
+            float timeSinceLastPacket = Time.realtimeSinceStartup - data.LocalReceiveTime;
             result = new PredictedAnimatorData
             {
-                AnimStateHash = data.AnimStateHash, AnimNormalizedTime = data.AnimNormalizedTime, FloatParam1 = data.FloatParam1,
-                FloatParam2 = data.FloatParam2, FloatParam3 = data.FloatParam3, PlaybackSpeed = 1f, ServerTimeDelta = timeSinceLastPacket
+                AnimStateHash = data.AnimStateHash,
+                AnimNormalizedTime = data.AnimNormalizedTime,
+                FloatParam1 = data.FloatParam1,
+                FloatParam2 = data.FloatParam2,
+                FloatParam3 = data.FloatParam3,
+                PlaybackSpeed = 1f,
+                ServerTimeDelta = timeSinceLastPacket
             };
             return true;
         }

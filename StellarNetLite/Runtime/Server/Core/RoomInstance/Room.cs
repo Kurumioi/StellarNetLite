@@ -16,19 +16,15 @@ namespace StellarNet.Lite.Server.Core
         Finished
     }
 
-    /// <summary>
-    /// 服务端单个房间实例。
-    /// 负责成员、组件、状态机、录制和房间级广播。
-    /// </summary>
     public sealed class Room
     {
-        // 对象关键帧采样间隔。
         private const int ReplaySnapshotIntervalTicks = 150;
 
         public string RoomId { get; }
         public RoomConfigModel Config { get; } = new RoomConfigModel();
         public string RoomName => Config.RoomName;
         public RoomDispatcher Dispatcher { get; }
+
         public bool IsRecording { get; private set; }
         public int CurrentTick { get; private set; }
         public DateTime CreateTime { get; }
@@ -38,13 +34,12 @@ namespace StellarNet.Lite.Server.Core
         public RoomState State { get; private set; } = RoomState.Waiting;
         public string LastReplayId { get; private set; }
 
-        // 房间内在线成员。
         private readonly Dictionary<string, Session> _members = new Dictionary<string, Session>();
         public IReadOnlyDictionary<string, Session> Members => _members;
 
-        // 横向扩展组件和可 Tick 组件。
-        private readonly List<RoomComponent> _components = new List<RoomComponent>();
+        private readonly List<ServerRoomComponent> _components = new List<ServerRoomComponent>();
         private readonly List<ITickableComponent> _tickableComponents = new List<ITickableComponent>();
+
         private readonly INetworkTransport _transport;
         private readonly INetSerializer _serializer;
         private readonly NetConfig _netConfig;
@@ -84,7 +79,7 @@ namespace StellarNet.Lite.Server.Core
             ComponentIds = ids;
         }
 
-        public void AddComponent(RoomComponent component)
+        public void AddComponent(ServerRoomComponent component)
         {
             if (_isDestroyed)
             {
@@ -98,17 +93,15 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            // 组件加入房间时会自动挂上 Room 上下文。
             component.Room = this;
             _components.Add(component);
-
             if (component is ITickableComponent tickable)
             {
                 _tickableComponents.Add(tickable);
             }
         }
 
-        public T GetComponent<T>() where T : RoomComponent
+        public T GetComponent<T>() where T : ServerRoomComponent
         {
             for (int i = 0; i < _components.Count; i++)
             {
@@ -129,7 +122,6 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            // 装配完成后统一调用 OnInit，保证组件看到的是完整房间。
             for (int i = 0; i < _components.Count; i++)
             {
                 if (_components[i] == null)
@@ -162,18 +154,15 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            // Finished 房间不再接受新成员。
             if (State == RoomState.Finished)
             {
                 NetLogger.LogWarning("Room", "拦截加入: 房间已结束", RoomId, session.SessionId);
                 return;
             }
 
-            // 成员正式加入后交给所有组件感知。
             _members.Add(session.SessionId, session);
             session.BindRoom(RoomId);
             EmptySince = DateTime.MaxValue;
-
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnMemberJoined(session);
@@ -198,7 +187,6 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            // 离房顺序是：组件通知 -> 成员字典移除 -> Session 解绑。
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnMemberLeft(session);
@@ -206,7 +194,6 @@ namespace StellarNet.Lite.Server.Core
 
             _members.Remove(session.SessionId);
             session.UnbindRoom();
-
             if (_members.Count == 0)
             {
                 EmptySince = DateTime.UtcNow;
@@ -279,7 +266,6 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            // 重连恢复由每个组件自己决定如何给该成员补快照。
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnSendSnapshot(session);
@@ -300,13 +286,10 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            // 进入 Playing 后立刻开启录制并通知组件。
             State = RoomState.Playing;
             LastReplayId = string.Empty;
             _hasWrittenInitialReplaySnapshot = false;
-
             StartRecord();
-
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnGameStart();
@@ -328,12 +311,9 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            // 结束对局前先补一次终局关键帧，保证 Seek 到结尾可恢复。
             TryRecordFinalReplaySnapshot();
-
             State = RoomState.Finished;
             _finishedTickCount = 0;
-
             if (IsRecording)
             {
                 string finalName = string.IsNullOrEmpty(replayDisplayName) ? Config.RoomName : replayDisplayName;
@@ -372,7 +352,6 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            // 房间广播是服务端推给所有在线且已 ready 的成员。
             if (!NetMessageMapper.TryGetMeta(typeof(T), out NetMessageMeta meta))
             {
                 NetLogger.LogError("Room", $"广播失败: 未找到静态网络元数据, Type:{typeof(T).FullName}", RoomId);
@@ -396,8 +375,6 @@ namespace StellarNet.Lite.Server.Core
                 }
 
                 Packet packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, 0, length);
-
-                // 回放只记录房间内真实广播过的消息。
                 if (recordToReplay && IsRecording)
                 {
                     int relativeTick = CurrentTick - _recordStartTick;
@@ -412,7 +389,6 @@ namespace StellarNet.Lite.Server.Core
                         continue;
                     }
 
-                    // 只有在线且已完成房间装配的成员才能收到房间包。
                     if (!session.IsOnline || !session.IsRoomReady)
                     {
                         continue;
@@ -483,12 +459,12 @@ namespace StellarNet.Lite.Server.Core
                 int length = _serializer.Serialize(msg, buffer);
                 if (length <= 0)
                 {
-                    NetLogger.LogError("Room", $"发送失败: 序列化结果长度非法, MsgId:{meta.Id}, Type:{typeof(T).FullName}, Length:{length}", RoomId, session.SessionId);
+                    NetLogger.LogError("Room", $"发送失败: 序列化结果长度非法, MsgId:{meta.Id}, Type:{typeof(T).FullName}, Length:{length}", RoomId,
+                        session.SessionId);
                     return;
                 }
 
                 Packet packet = new Packet(0, meta.Id, meta.Scope, RoomId, buffer, 0, length);
-
                 if (recordToReplay && IsRecording)
                 {
                     int relativeTick = CurrentTick - _recordStartTick;
@@ -532,17 +508,13 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
-            // 每帧先推进逻辑时钟，再采样关键帧，再驱动组件 Tick。
             CurrentTick++;
-
             TryRecordPeriodicReplaySnapshot();
-
             for (int i = 0; i < _tickableComponents.Count; i++)
             {
                 _tickableComponents[i].OnTick();
             }
 
-            // Finished 房间会在较长延迟后清理残留成员，防止僵尸房间。
             if (State != RoomState.Finished)
             {
                 return;
@@ -564,7 +536,8 @@ namespace StellarNet.Lite.Server.Core
                     continue;
                 }
 
-                StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult kickMsg = new StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult { Success = true };
+                StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult kickMsg = new StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult
+                    { Success = true };
                 SendMessageTo(session, kickMsg);
                 RemoveMember(session);
             }
@@ -578,8 +551,6 @@ namespace StellarNet.Lite.Server.Core
             }
 
             _isDestroyed = true;
-
-            // Playing 状态销毁时会先走一遍正常 EndGame 收尾。
             if (State == RoomState.Playing)
             {
                 EndGame();
@@ -593,7 +564,7 @@ namespace StellarNet.Lite.Server.Core
 
             for (int i = 0; i < _components.Count; i++)
             {
-                RoomComponent component = _components[i];
+                ServerRoomComponent component = _components[i];
                 if (component == null)
                 {
                     continue;
@@ -604,8 +575,6 @@ namespace StellarNet.Lite.Server.Core
 
             _components.Clear();
             _tickableComponents.Clear();
-
-            // 最后统一解除成员和分发器引用。
             foreach (KeyValuePair<string, Session> kvp in _members)
             {
                 Session session = kvp.Value;
@@ -621,30 +590,11 @@ namespace StellarNet.Lite.Server.Core
             Dispatcher.Clear();
         }
 
-        #region ================= 回放关键帧录制 =================
+        #region ================= 回放关键帧录制 (核心解耦) =================
 
-        /// <summary>
-        /// 开局关键帧。
-        /// 我只在当前房间存在对象同步组件时才写对象关键帧，
-        /// 是为了明确“对象关键帧是增强能力而不是基础能力”，避免聊天室这类房间被误判成录制异常。
-        /// </summary>
         private void TryRecordInitialReplaySnapshot()
         {
-            if (!IsRecording)
-            {
-                return;
-            }
-
-            if (_hasWrittenInitialReplaySnapshot)
-            {
-                return;
-            }
-
-            if (!HasReplaySnapshotSupport())
-            {
-                return;
-            }
-
+            if (!IsRecording || _hasWrittenInitialReplaySnapshot || !HasReplaySnapshotSupport()) return;
             bool recorded = RecordReplaySnapshotAtCurrentTick();
             if (!recorded)
             {
@@ -655,43 +605,13 @@ namespace StellarNet.Lite.Server.Core
             _hasWrittenInitialReplaySnapshot = true;
         }
 
-        /// <summary>
-        /// 周期关键帧。
-        /// 我先做组件能力判定再决定是否采样，是为了让房间层只对“支持对象世界恢复”的房间启用关键帧策略。
-        /// </summary>
         private void TryRecordPeriodicReplaySnapshot()
         {
-            if (!IsRecording)
-            {
-                return;
-            }
-
-            if (State != RoomState.Playing)
-            {
-                return;
-            }
-
-            if (!HasReplaySnapshotSupport())
-            {
-                return;
-            }
-
-            if (ReplaySnapshotIntervalTicks <= 0)
-            {
-                NetLogger.LogError("Room", $"记录周期关键帧失败: ReplaySnapshotIntervalTicks 非法, RoomId:{RoomId}, Interval:{ReplaySnapshotIntervalTicks}");
-                return;
-            }
+            if (!IsRecording || State != RoomState.Playing || !HasReplaySnapshotSupport()) return;
+            if (ReplaySnapshotIntervalTicks <= 0) return;
 
             int relativeTick = CurrentTick - _recordStartTick;
-            if (relativeTick <= 0)
-            {
-                return;
-            }
-
-            if (relativeTick % ReplaySnapshotIntervalTicks != 0)
-            {
-                return;
-            }
+            if (relativeTick <= 0 || relativeTick % ReplaySnapshotIntervalTicks != 0) return;
 
             bool recorded = RecordReplaySnapshotAtCurrentTick();
             if (!recorded)
@@ -700,22 +620,9 @@ namespace StellarNet.Lite.Server.Core
             }
         }
 
-        /// <summary>
-        /// 终局关键帧。
-        /// 我只对支持对象世界的房间补终局恢复点，避免无对象房间在结算阶段产生无意义错误日志。
-        /// </summary>
         private void TryRecordFinalReplaySnapshot()
         {
-            if (!IsRecording)
-            {
-                return;
-            }
-
-            if (!HasReplaySnapshotSupport())
-            {
-                return;
-            }
-
+            if (!IsRecording || !HasReplaySnapshotSupport()) return;
             bool recorded = RecordReplaySnapshotAtCurrentTick();
             if (!recorded)
             {
@@ -723,47 +630,49 @@ namespace StellarNet.Lite.Server.Core
             }
         }
 
-        /// <summary>
-        /// 判断当前房间是否具备对象关键帧录制能力。
-        /// 我把这层判定抽出来，是为了把“缺少 ObjectSync 组件”明确表达成合法能力缺省，而不是错误状态。
-        /// </summary>
         private bool HasReplaySnapshotSupport()
         {
-            ServerObjectSyncComponent objectSyncComponent = GetComponent<ServerObjectSyncComponent>();
-            return objectSyncComponent != null;
+            for (int i = 0; i < _components.Count; i++)
+            {
+                if (_components[i] is IReplaySnapshotProvider) return true;
+            }
+
+            return false;
         }
 
-        /// <summary>
-        /// 记录当前 Tick 的对象关键帧。
-        /// 我在这里保留真正的异常校验，但对“房间不支持对象快照”直接静默跳过，避免把可选能力缺失误报成故障。
-        /// </summary>
         private bool RecordReplaySnapshotAtCurrentTick()
         {
-            if (!IsRecording)
-            {
-                return false;
-            }
-
-            ServerObjectSyncComponent objectSyncComponent = GetComponent<ServerObjectSyncComponent>();
-            if (objectSyncComponent == null)
-            {
-                return false;
-            }
+            if (!IsRecording) return false;
 
             int relativeTick = CurrentTick - _recordStartTick;
-            if (relativeTick < 0)
+            if (relativeTick < 0) return false;
+
+            var snapshots = new List<ComponentSnapshotData>();
+            for (int i = 0; i < _components.Count; i++)
             {
-                NetLogger.LogError("Room", $"记录对象关键帧失败: relativeTick 非法, RoomId:{RoomId}, CurrentTick:{CurrentTick}, RecordStartTick:{_recordStartTick}");
-                return false;
+                if (_components[i] is IReplaySnapshotProvider provider)
+                {
+                    byte[] payload = provider.ExportSnapshot();
+                    if (payload != null)
+                    {
+                        snapshots.Add(new ComponentSnapshotData
+                        {
+                            ComponentId = provider.SnapshotComponentId,
+                            Payload = payload
+                        });
+                    }
+                }
             }
 
-            ReplayObjectSnapshotFrame snapshotFrame = new ReplayObjectSnapshotFrame
+            if (snapshots.Count == 0) return false;
+
+            ReplaySnapshotFrame snapshotFrame = new ReplaySnapshotFrame
             {
                 Tick = relativeTick,
-                States = objectSyncComponent.ExportSpawnStates()
+                ComponentSnapshots = snapshots.ToArray()
             };
 
-            ServerReplayStorage.RecordObjectSnapshotFrame(RoomId, snapshotFrame);
+            ServerReplayStorage.RecordSnapshotFrame(RoomId, snapshotFrame);
             return true;
         }
 

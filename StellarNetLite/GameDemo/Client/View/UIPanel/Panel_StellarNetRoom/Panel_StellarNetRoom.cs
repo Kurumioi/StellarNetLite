@@ -11,23 +11,22 @@ using UnityEngine.UI;
 
 public class Panel_StellarNetRoom : UIPanelBase
 {
-    // 房间成员列表 UI。
-    [SerializeField] private TMP_Text uidText;
+    [SerializeField] private TMP_Text accountIdText;
+
     [SerializeField] private TMP_Text roomNameText;
     [SerializeField] private Transform playerListContent;
     [SerializeField] private GameObject playerListItemPrefab;
+
     [SerializeField] private Button readyBtn;
     [SerializeField] private Button startGameBtn;
     [SerializeField] private Button leaveBtn;
 
-    // SessionId -> 成员条目控件。
     private Dictionary<string, Panel_StellarNetRoom_MemberInfoItem> _memberInfoDict =
         new Dictionary<string, Panel_StellarNetRoom_MemberInfoItem>();
 
     public override void OnInit()
     {
         base.OnInit();
-
         readyBtn.onClick.AddListener(OnReadyBtn);
         startGameBtn.onClick.AddListener(OnStartGameBtn);
         leaveBtn.onClick.AddListener(OnLeaveBtn);
@@ -44,7 +43,6 @@ public class Panel_StellarNetRoom : UIPanelBase
     {
         base.OnOpen(uiData);
 
-        // 面板打开后只监听当前房间的房间域事件。
         if (NetClient.CurrentRoom != null)
         {
             NetClient.CurrentRoom.NetEventSystem.Register<S2C_MemberJoined>(OnS2C_MemberJoined)
@@ -59,14 +57,13 @@ public class Panel_StellarNetRoom : UIPanelBase
                 .UnRegisterWhenMonoDisable(this);
         }
 
-        uidText.text = NetClient.Session?.Uid ?? "Unknown";
+        accountIdText.text = NetClient.Session?.AccountId ?? "Unknown";
 
         var settingCom = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
         if (settingCom == null) return;
 
         roomNameText.text = settingCom.RoomName;
 
-        // 用当前快照重建一次成员列表。
         foreach (Transform child in playerListContent)
         {
             Destroy(child.gameObject);
@@ -78,18 +75,15 @@ public class Panel_StellarNetRoom : UIPanelBase
         {
             var item = Instantiate(playerListItemPrefab, playerListContent);
             item.SetActive(true);
-
             var itemCom = item.GetComponent<Panel_StellarNetRoom_MemberInfoItem>();
-            itemCom.Init(member.Value.Uid, member.Value.DisplayName);
+            itemCom.Init(member.Value.AccountId, member.Value.DisplayName);
             itemCom.SetReady(member.Value.IsReady);
-
             _memberInfoDict.Add(member.Value.SessionId, itemCom);
         }
     }
 
     private void OnS2C_GameStarted(S2C_GameStarted msg)
     {
-        // 游戏开始后，准备大厅 UI 要主动关闭。
         NetLogger.LogInfo("Panel_StellarNetRoom", "游戏已开始，关闭房间 UI");
         CloseSelf();
     }
@@ -98,7 +92,6 @@ public class Panel_StellarNetRoom : UIPanelBase
     {
         roomNameText.text = msg.RoomName;
 
-        // 快照到达时，整表重建最稳妥。
         foreach (Transform child in playerListContent)
         {
             Destroy(child.gameObject);
@@ -109,14 +102,11 @@ public class Panel_StellarNetRoom : UIPanelBase
         foreach (var member in msg.Members)
         {
             if (member == null) continue;
-
             var item = Instantiate(playerListItemPrefab, playerListContent);
             item.SetActive(true);
-
             var itemCom = item.GetComponent<Panel_StellarNetRoom_MemberInfoItem>();
-            itemCom.Init(member.Uid, member.DisplayName);
+            itemCom.Init(member.AccountId, member.DisplayName);
             itemCom.SetReady(member.IsReady);
-
             _memberInfoDict.Add(member.SessionId, itemCom);
         }
     }
@@ -128,13 +118,11 @@ public class Panel_StellarNetRoom : UIPanelBase
 
         string mySessionId = NetClient.Session.SessionId;
         bool isReady = false;
-
         if (settingsComp.Members.TryGetValue(mySessionId, out var myInfo))
         {
             isReady = myInfo.IsReady;
         }
 
-        // 准备按钮本质是 ready 状态切换请求。
         NetClient.Send(new C2S_SetReady() { IsReady = !isReady });
     }
 
@@ -145,13 +133,11 @@ public class Panel_StellarNetRoom : UIPanelBase
 
         string mySessionId = NetClient.Session.SessionId;
         bool isMeOwner = false;
-
         if (settingsComp.Members.TryGetValue(mySessionId, out var myInfo))
         {
             isMeOwner = myInfo.IsOwner;
         }
 
-        // 开始游戏只允许房主触发。
         if (!isMeOwner)
         {
             NetLogger.LogError("Panel_StellarNetRoom", "只有房主才能开始游戏");
@@ -165,7 +151,6 @@ public class Panel_StellarNetRoom : UIPanelBase
 
     private void OnLeaveBtn()
     {
-        // 离房统一走全局离房协议。
         NetClient.Send(new C2S_LeaveRoom { });
     }
 
@@ -192,11 +177,9 @@ public class Panel_StellarNetRoom : UIPanelBase
 
         var item = Instantiate(playerListItemPrefab, playerListContent);
         item.SetActive(true);
-
         var itemCom = item.GetComponent<Panel_StellarNetRoom_MemberInfoItem>();
-        itemCom.Init(msg.Member.Uid, msg.Member.DisplayName);
+        itemCom.Init(msg.Member.AccountId, msg.Member.DisplayName);
         itemCom.SetReady(msg.Member.IsReady);
-
         _memberInfoDict.Add(msg.Member.SessionId, itemCom);
     }
 }

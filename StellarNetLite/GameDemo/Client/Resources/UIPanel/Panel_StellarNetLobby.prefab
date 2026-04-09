@@ -3258,7 +3258,7 @@ GameObject:
   - component: {fileID: 1348635423184867253}
   - component: {fileID: 5350393162073746787}
   m_Layer: 0
-  m_Name: uidText
+  m_Name: accountText
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -3485,7 +3485,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   layer: 1
   destroyOnClose: 0
-  uidText: {fileID: 5350393162073746787}
+  accountIdText: {fileID: 5350393162073746787}
   logoutBtn: {fileID: 2498133867234411214}
   createRoomBtn: {fileID: 2971532210810051437}
   refreshRoomListBtn: {fileID: 4293188355522401396}
@@ -3501,7 +3501,7 @@ MonoBehaviour:
   chatInput: {fileID: 6496425344760083281}
   sendChatBtn: {fileID: 6348184279901914363}
   dataModel:
-    uid: 
+    accountId: 
 --- !u!1 &4600707818627539491
 GameObject:
   m_ObjectHideFlags: 0

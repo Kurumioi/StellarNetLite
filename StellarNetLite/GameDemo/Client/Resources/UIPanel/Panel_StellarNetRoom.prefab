@@ -1385,7 +1385,7 @@ GameObject:
   - component: {fileID: 47835977258673153}
   - component: {fileID: 8844825386373131090}
   m_Layer: 0
-  m_Name: uidTxt
+  m_Name: accountIdTxt
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1824,7 +1824,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   layer: 1
   destroyOnClose: 0
-  uidText: {fileID: 8844825386373131090}
+  accountIdText: {fileID: 8844825386373131090}
   roomNameText: {fileID: 6380211726053375868}
   playerListContent: {fileID: 1968491908653747025}
   playerListItemPrefab: {fileID: 5953593338898845602}
@@ -1923,7 +1923,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   nameText: {fileID: 1795910090215885673}
   readyText: {fileID: 6259221498079910279}
-  uidStr: 
+  accountIdStr: 
 --- !u!1 &6202519045345980024
 GameObject:
   m_ObjectHideFlags: 0
