@@ -7,13 +7,13 @@ using StellarNet.Lite.Shared.Protocol;
 namespace StellarNet.Lite.Server.Components
 {
     [RoomComponent(1, "RoomSettings", "基础房间设置")]
-    public sealed class ServerServerRoomSettingsComponent : ServerRoomComponent
+    public sealed class ServerRoomSettingsComponent : ServerRoomComponent
     {
         private readonly ServerApp _app;
         private readonly Dictionary<string, bool> _readyStates = new Dictionary<string, bool>();
         private string _ownerSessionId;
 
-        public ServerServerRoomSettingsComponent(ServerApp app)
+        public ServerRoomSettingsComponent(ServerApp app)
         {
             _app = app;
         }
