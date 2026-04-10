@@ -1,21 +1,28 @@
-﻿using StellarNet.Lite.Shared.Core;
+﻿using System.Collections.Generic;
+using StellarNet.Lite.Shared.Core;
 
 namespace StellarNet.Lite.Shared.Protocol
 {
-    // 房间调度协议。
-    // 负责建房、加房、离房和房间装配握手。
+    /// <summary>
+    /// 房间配置数据传输对象。
+    /// 将零散的建房参数高内聚，并提供 CustomProperties 字典供业务层透传拓展参数。
+    /// </summary>
+    public sealed class RoomDTO
+    {
+        public string RoomName;
+        public int[] ComponentIds;
+        public int MaxMembers;
+        public string Password;
+        public Dictionary<string, string> CustomProperties;
+    }
 
     [NetMsg(200, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_CreateRoom
     {
-        // 房间展示名。
-        public string RoomName;
-        // 客户端选中的组件模板。
-        public int[] ComponentIds;
-        public int MaxMembers; // 客户端请求的配置字段
-
-        public string Password; // 客户端请求的密码
-        // 架构说明：底层网络已实现基于 Seq 的防重放机制，业务层不再需要手动传递 Token 保证幂等性。
+        /// <summary>
+        /// 统一使用 RoomDTO 承载建房参数，支持业务字段透传。
+        /// </summary>
+        public RoomDTO RoomConfig;
     }
 
     [NetMsg(201, NetScope.Global, NetDir.S2C)]
@@ -31,7 +38,7 @@ namespace StellarNet.Lite.Shared.Protocol
     public sealed class C2S_JoinRoom
     {
         public string RoomId;
-        public string Password; // 加入时携带密码进行校验
+        public string Password;
     }
 
     [NetMsg(203, NetScope.Global, NetDir.S2C)]
@@ -57,7 +64,20 @@ namespace StellarNet.Lite.Shared.Protocol
     [NetMsg(206, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_RoomSetupReady
     {
-        // 客户端本地装配完成的目标房间。
         public string RoomId;
+    }
+
+    [NetMsg(207, NetScope.Global, NetDir.C2S)]
+    public sealed class C2S_JoinOrCreateRoom
+    {
+        /// <summary>
+        /// 底层物理寻址凭据。必须由客户端显式传入。
+        /// </summary>
+        public string RoomId;
+
+        /// <summary>
+        /// 降级建房配置。仅在房间不存在、触发创建逻辑时使用。
+        /// </summary>
+        public RoomDTO RoomConfig;
     }
 }

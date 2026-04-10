@@ -14,7 +14,7 @@ namespace StellarNet.Lite.Editor
         }
 
         private const string DefaultOutputRoot = "Assets/Scripts/Game";
-        private const string DefaultBaseNamespace = "MineGame";
+        private const string DefaultBaseNamespace = "StellarNetLite";
         private const string TemplatesPath = "Assets/StellarNetLite/Editor/Templates/";
 
         private ScaffoldBusinessType _businessType = ScaffoldBusinessType.RoomComponent;

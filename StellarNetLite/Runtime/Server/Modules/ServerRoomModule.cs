@@ -26,7 +26,13 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            int[] uniqueComponentIds = DeduplicateComponentIds(msg.ComponentIds);
+            if (msg.RoomConfig == null)
+            {
+                _app.SendMessageToSession(session, new S2C_CreateRoomResult { Success = false, Reason = "缺少建房配置" });
+                return;
+            }
+
+            int[] uniqueComponentIds = DeduplicateComponentIds(msg.RoomConfig.ComponentIds);
             if (uniqueComponentIds.Length == 0)
             {
                 _app.SendMessageToSession(session, new S2C_CreateRoomResult { Success = false, Reason = "房间组件清单不能为空" });
@@ -41,9 +47,14 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            room.Config.RoomName = string.IsNullOrWhiteSpace(msg.RoomName) ? $"房间_{roomId}" : msg.RoomName.Trim();
-            room.Config.MaxMembers = msg.MaxMembers <= 0 ? 4 : msg.MaxMembers;
-            room.Config.Password = msg.Password ?? string.Empty;
+            room.Config.RoomName = string.IsNullOrWhiteSpace(msg.RoomConfig.RoomName) ? $"房间_{roomId}" : msg.RoomConfig.RoomName.Trim();
+            room.Config.MaxMembers = msg.RoomConfig.MaxMembers <= 0 ? 4 : msg.RoomConfig.MaxMembers;
+            room.Config.Password = msg.RoomConfig.Password ?? string.Empty;
+
+            if (msg.RoomConfig.CustomProperties != null)
+            {
+                room.Config.CustomProperties = new Dictionary<string, string>(msg.RoomConfig.CustomProperties);
+            }
 
             if (!ServerRoomFactory.BuildComponents(room, uniqueComponentIds))
             {
@@ -54,9 +65,90 @@ namespace StellarNet.Lite.Server.Modules
 
             room.SetComponentIds(uniqueComponentIds);
             session.AuthorizeRoom(roomId);
-            
+
             _app.SendMessageToSession(session, new S2C_CreateRoomResult { Success = true, RoomId = roomId, ComponentIds = uniqueComponentIds });
             BroadcastRoomListToLobby();
+        }
+
+        [NetHandler]
+        public void OnC2S_JoinOrCreateRoom(Session session, C2S_JoinOrCreateRoom msg)
+        {
+            if (!string.IsNullOrEmpty(session.CurrentRoomId))
+            {
+                _app.SendMessageToSession(session, new S2C_JoinRoomResult { Success = false, Reason = "已在房间中" });
+                return;
+            }
+
+            if (string.IsNullOrEmpty(msg.RoomId))
+            {
+                _app.SendMessageToSession(session, new S2C_JoinRoomResult { Success = false, Reason = "必须指定有效的 RoomId" });
+                return;
+            }
+
+            Room room = _app.GetRoom(msg.RoomId);
+            if (room != null)
+            {
+                if (room.MemberCount >= room.Config.MaxMembers)
+                {
+                    _app.SendMessageToSession(session, new S2C_JoinRoomResult { Success = false, Reason = "房间人数已满" });
+                    return;
+                }
+
+                string pwd = msg.RoomConfig != null ? (msg.RoomConfig.Password ?? string.Empty) : string.Empty;
+                if (room.Config.IsPrivate && room.Config.Password != pwd)
+                {
+                    _app.SendMessageToSession(session, new S2C_JoinRoomResult { Success = false, Reason = "房间密码错误" });
+                    return;
+                }
+
+                session.AuthorizeRoom(room.RoomId);
+                _app.SendMessageToSession(session, new S2C_JoinRoomResult { Success = true, RoomId = room.RoomId, ComponentIds = room.ComponentIds });
+            }
+            else
+            {
+                if (msg.RoomConfig == null)
+                {
+                    _app.SendMessageToSession(session, new S2C_CreateRoomResult { Success = false, Reason = "房间不存在且未提供降级建房配置" });
+                    return;
+                }
+
+                int[] uniqueComponentIds = DeduplicateComponentIds(msg.RoomConfig.ComponentIds);
+                if (uniqueComponentIds.Length == 0)
+                {
+                    _app.SendMessageToSession(session, new S2C_CreateRoomResult { Success = false, Reason = "房间组件清单不能为空" });
+                    return;
+                }
+
+                Room newRoom = _app.CreateRoom(msg.RoomId);
+                if (newRoom == null)
+                {
+                    _app.SendMessageToSession(session, new S2C_CreateRoomResult { Success = false, Reason = "服务器内部错误" });
+                    return;
+                }
+
+                newRoom.Config.RoomName = string.IsNullOrWhiteSpace(msg.RoomConfig.RoomName) ? $"房间_{msg.RoomId}" : msg.RoomConfig.RoomName.Trim();
+                newRoom.Config.MaxMembers = msg.RoomConfig.MaxMembers <= 0 ? 4 : msg.RoomConfig.MaxMembers;
+                newRoom.Config.Password = msg.RoomConfig.Password ?? string.Empty;
+
+                if (msg.RoomConfig.CustomProperties != null)
+                {
+                    newRoom.Config.CustomProperties = new Dictionary<string, string>(msg.RoomConfig.CustomProperties);
+                }
+
+                if (!ServerRoomFactory.BuildComponents(newRoom, uniqueComponentIds))
+                {
+                    _app.DestroyRoom(msg.RoomId);
+                    _app.SendMessageToSession(session, new S2C_CreateRoomResult { Success = false, Reason = "房间组件装配失败" });
+                    return;
+                }
+
+                newRoom.SetComponentIds(uniqueComponentIds);
+                session.AuthorizeRoom(msg.RoomId);
+
+                _app.SendMessageToSession(session,
+                    new S2C_CreateRoomResult { Success = true, RoomId = msg.RoomId, ComponentIds = uniqueComponentIds });
+                BroadcastRoomListToLobby();
+            }
         }
 
         [NetHandler]
@@ -103,7 +195,7 @@ namespace StellarNet.Lite.Server.Modules
 
             room.AddMember(session);
             session.ClearAuthorizedRoom();
-            
+
             BroadcastRoomListToLobby();
             ServerLobbyModule.BroadcastOnlinePlayerList(_app);
         }
@@ -130,12 +222,14 @@ namespace StellarNet.Lite.Server.Modules
         private int[] DeduplicateComponentIds(int[] rawIds)
         {
             if (rawIds == null || rawIds.Length == 0) return Array.Empty<int>();
+
             var set = new HashSet<int>();
             var list = new List<int>(rawIds.Length);
             for (int i = 0; i < rawIds.Length; i++)
             {
                 if (set.Add(rawIds[i])) list.Add(rawIds[i]);
             }
+
             return list.ToArray();
         }
 

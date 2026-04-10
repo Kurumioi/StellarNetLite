@@ -11,25 +11,24 @@ using UnityEngine.UI;
 
 public class Panel_SetRoomConfig : UIPanelBase
 {
-    // 建房基础配置。
-    [SerializeField] private TMP_InputField roomNameIpt;
+    [Header("基础配置")] [SerializeField] private TMP_InputField roomNameIpt;
     [SerializeField] private Slider memberCountSlider;
     [SerializeField] private TMP_Text memberCountText;
-    [SerializeField] private Transform roomComContent;
+
+    [Header("高级配置 (可选)")] [SerializeField] private TMP_InputField customRoomIdIpt;
+
+    [Header("组件模板")] [SerializeField] private Transform roomComContent;
     [SerializeField] private GameObject roomComPrefab;
-    [SerializeField] private Button cancelBtn;
+
+    [Header("操作按钮")] [SerializeField] private Button cancelBtn;
     [SerializeField] private Button createBtn;
 
-    // 房型模板缓存和对应 UI 项。
     private readonly List<RoomTypeTemplateRegistry.RoomTypeTemplate> _roomTypeTemplates =
         new List<RoomTypeTemplateRegistry.RoomTypeTemplate>();
 
     private readonly List<Panel_SetRoomConfig_RoomComItem> _roomTypeItems = new List<Panel_SetRoomConfig_RoomComItem>();
 
-    // 当前选中的模板索引。
     private int _selectedTemplateIndex = -1;
-
-    // 防止重复点击的本地请求锁。
     private bool _isRequesting;
     private float _requestStartTime;
     private const float RequestTimeoutSeconds = 5f;
@@ -49,8 +48,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         createBtn.onClick.AddListener(OnCreateBtn);
         memberCountSlider.onValueChanged.AddListener(OnMemberCountSlider);
 
-        // 建房配置页只监听建房结果。
         GlobalTypeNetEvent.Register<S2C_CreateRoomResult>(OnS2C_CreateRoomResult)
+            .UnRegisterWhenGameObjectDestroyed(gameObject);
+        GlobalTypeNetEvent.Register<S2C_JoinRoomResult>(OnS2C_JoinRoomResult)
             .UnRegisterWhenGameObjectDestroyed(gameObject);
 
         GenerateRoomTypeItems();
@@ -67,13 +67,15 @@ public class Panel_SetRoomConfig : UIPanelBase
     public override void OnOpen(object uiData = null)
     {
         base.OnOpen(uiData);
-
-        // 打开时解锁创建按钮，并恢复默认选中项。
         _isRequesting = false;
-
         if (createBtn != null)
         {
             createBtn.interactable = true;
+        }
+
+        if (customRoomIdIpt != null)
+        {
+            customRoomIdIpt.text = string.IsNullOrEmpty(uiData as string) ? string.Empty : (string)uiData;
         }
 
         ApplyDefaultSelectionIfNeeded();
@@ -81,16 +83,14 @@ public class Panel_SetRoomConfig : UIPanelBase
 
     private void Update()
     {
-        // 请求超时后自动解锁按钮，防止 UI 卡死。
         if (_isRequesting)
         {
             if (Time.realtimeSinceStartup - _requestStartTime > RequestTimeoutSeconds)
             {
                 _isRequesting = false;
                 if (createBtn != null) createBtn.interactable = true;
-
-                NetLogger.LogWarning("Panel_SetRoomConfig", "创建房间请求超时，已恢复 UI 交互");
-                GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = "创建房间超时，请重试" });
+                NetLogger.LogWarning("Panel_SetRoomConfig", "创建/加入房间请求超时，已恢复 UI 交互");
+                GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = "请求超时，请重试" });
             }
         }
     }
@@ -108,17 +108,16 @@ public class Panel_SetRoomConfig : UIPanelBase
         string roomName = roomNameIpt != null ? roomNameIpt.text : string.Empty;
         if (string.IsNullOrEmpty(roomName))
         {
-            NetLogger.LogError("Panel_SetRoomConfig", "创建房间失败: 请输入房间名称");
+            NetLogger.LogError("Panel_SetRoomConfig", "操作失败: 请输入房间名称");
             GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = "请输入房间名称" });
             return;
         }
 
-        // 建房前必须先选中一个合法模板。
         List<int> roomComIds = GetSelectedRoomTypeComponentIds();
         if (roomComIds.Count == 0)
         {
             NetLogger.LogError("Panel_SetRoomConfig",
-                $"创建房间失败: 未选择有效房间类型模板, SelectedTemplateIndex:{_selectedTemplateIndex}");
+                $"操作失败: 未选择有效房间类型模板, SelectedTemplateIndex:{_selectedTemplateIndex}");
             return;
         }
 
@@ -127,16 +126,27 @@ public class Panel_SetRoomConfig : UIPanelBase
         createBtn.interactable = false;
 
         int memberCount = (int)memberCountSlider.value;
-        NetLogger.LogInfo("Panel_SetRoomConfig", $"请求创建房间 {roomName} {memberCount} {roomComIds}");
+        string customRoomId = customRoomIdIpt != null ? customRoomIdIpt.text.Trim() : string.Empty;
 
-        // 创建房间时最终发给服务端的是模板映射后的组件 Id 列表。
-        C2S_CreateRoom msg = new C2S_CreateRoom
+        RoomDTO roomDto = new RoomDTO
         {
             RoomName = roomName,
             ComponentIds = roomComIds.ToArray(),
-            MaxMembers = memberCount
+            MaxMembers = memberCount,
+            Password = string.Empty,
+            CustomProperties = null
         };
-        NetClient.Send(msg);
+
+        if (string.IsNullOrEmpty(customRoomId))
+        {
+            NetLogger.LogInfo("Panel_SetRoomConfig", $"请求常规创建房间 {roomName} {memberCount}人");
+            NetClient.Send(new C2S_CreateRoom { RoomConfig = roomDto });
+        }
+        else
+        {
+            NetLogger.LogInfo("Panel_SetRoomConfig", $"请求指定ID加入或创建房间 ID:{customRoomId}");
+            NetClient.Send(new C2S_JoinOrCreateRoom { RoomId = customRoomId, RoomConfig = roomDto });
+        }
     }
 
     private void OnCancelBtn()
@@ -147,7 +157,6 @@ public class Panel_SetRoomConfig : UIPanelBase
     private void OnS2C_CreateRoomResult(S2C_CreateRoomResult msg)
     {
         _isRequesting = false;
-
         if (msg == null) return;
 
         if (!msg.Success)
@@ -155,6 +164,29 @@ public class Panel_SetRoomConfig : UIPanelBase
             if (createBtn != null) createBtn.interactable = true;
             NetLogger.LogError("Panel_SetRoomConfig", $"创建房间失败: {msg.Reason}");
             GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"创建房间失败: {msg.Reason}" });
+        }
+        else
+        {
+            NetLogger.LogInfo("Panel_SetRoomConfig", $"成功创建并进入房间: {msg.RoomId}");
+            GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"成功创建房间 [{msg.RoomId}]" });
+        }
+    }
+
+    private void OnS2C_JoinRoomResult(S2C_JoinRoomResult msg)
+    {
+        _isRequesting = false;
+        if (msg == null) return;
+
+        if (!msg.Success)
+        {
+            if (createBtn != null) createBtn.interactable = true;
+            NetLogger.LogError("Panel_SetRoomConfig", $"加入房间失败: {msg.Reason}");
+            GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"加入房间失败: {msg.Reason}" });
+        }
+        else
+        {
+            NetLogger.LogInfo("Panel_SetRoomConfig", $"成功加入已有房间: {msg.RoomId}");
+            GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"成功加入已有房间 [{msg.RoomId}]" });
         }
     }
 
@@ -167,7 +199,6 @@ public class Panel_SetRoomConfig : UIPanelBase
             Destroy(child.gameObject);
         }
 
-        // 重新根据模板表生成选项 UI。
         _roomTypeTemplates.Clear();
         _roomTypeItems.Clear();
         _selectedTemplateIndex = -1;
@@ -214,7 +245,6 @@ public class Panel_SetRoomConfig : UIPanelBase
 
     private void OnRoomTypeToggleChanged(int templateIndex, bool isOn)
     {
-        // 只允许单选模板。
         if (!isOn)
         {
             if (_selectedTemplateIndex == templateIndex) _selectedTemplateIndex = -1;
@@ -242,7 +272,6 @@ public class Panel_SetRoomConfig : UIPanelBase
             (_selectedTemplateIndex >= 0 && _selectedTemplateIndex < _roomTypeTemplates.Count))
             return;
 
-        // 第一次打开时默认选中第一个模板。
         var firstItem = _roomTypeItems[0];
         if (firstItem != null)
         {

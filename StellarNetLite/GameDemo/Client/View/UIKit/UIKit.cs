@@ -79,17 +79,17 @@ namespace StellarNet.UI
 
         public static void OpenPanel<T>(object uiData = null) where T : UIPanelBase
         {
-            Instance.OpenPanelInternal(typeof(T), uiData);
+            Instance?.OpenPanelInternal(typeof(T), uiData);
         }
 
         public static void ClosePanel<T>() where T : UIPanelBase
         {
-            Instance.ClosePanelInternal(typeof(T));
+            Instance?.ClosePanelInternal(typeof(T));
         }
 
         public static void ClosePanel(Type type)
         {
-            Instance.ClosePanelInternal(type);
+            Instance?.ClosePanelInternal(type);
         }
 
         public static T GetPanel<T>() where T : UIPanelBase
@@ -104,7 +104,7 @@ namespace StellarNet.UI
             List<Type> keys = new List<Type>(Instance._panelCache.Keys);
             foreach (var type in keys)
             {
-                Instance.ClosePanelInternal(type);
+                Instance?.ClosePanelInternal(type);
             }
         }
 

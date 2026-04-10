@@ -10,7 +10,8 @@ using UnityEngine;
 namespace StellarNet.Lite.Game.Server.Components
 {
     [RoomComponent(102, "SocialRoom", "简易交友房间")]
-    public sealed class ServerSocialRoomComponent : ServerRoomComponent, ITickableComponent
+    public sealed class ServerSocialRoomComponent
+        : ServerRoomComponent, ITickableComponent
     {
         private readonly ServerApp _app;
         private ServerObjectSyncComponent _syncService;
