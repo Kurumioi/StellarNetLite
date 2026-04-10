@@ -118,6 +118,7 @@ public class Panel_GlobalNetMonitor : UIPanelBase
 
     private void HandleSystemPrompt(Local_SystemPrompt evt)
     {
+        transform.SetSiblingIndex(transform.childCount - 1);
         // 系统提示统一走一层轻提示弹窗。
         promptText.text = evt.Message;
         promptGroup.SetActive(true);
