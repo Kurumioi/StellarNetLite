@@ -608,7 +608,6 @@ namespace StellarNet.Lite.Server.Core
         private void TryRecordPeriodicReplaySnapshot()
         {
             if (!IsRecording || State != RoomState.Playing || !HasReplaySnapshotSupport()) return;
-            if (ReplaySnapshotIntervalTicks <= 0) return;
 
             int relativeTick = CurrentTick - _recordStartTick;
             if (relativeTick <= 0 || relativeTick % ReplaySnapshotIntervalTicks != 0) return;

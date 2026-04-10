@@ -127,7 +127,7 @@ public class Panel_GlobalNetMonitor : UIPanelBase
     private void OnContinueBtnClick()
     {
         timeoutGroup.SetActive(false);
-        GameLauncher.NetManager.RestartReconnectionRoutine();
+        GameLauncher.AppManager.RestartReconnectionRoutine();
     }
 
     private void OnExitBtnClick()

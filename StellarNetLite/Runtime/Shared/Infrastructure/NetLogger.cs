@@ -10,7 +10,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
     public static class NetLogger
     {
         // 普通信息日志，可被宏关闭。
-        [Conditional("ENABLE_LOG")]
+            [Conditional("ENABLE_LOG")]
         public static void LogInfo(string module, string message, string roomId = "-", string sessionId = "-", string extraContext = "")
         {
             Debug.Log(FormatMessage("INFO", module, message, roomId, sessionId, extraContext));

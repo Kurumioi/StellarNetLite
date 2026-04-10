@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
+using UnityEngine;
 
 namespace StellarNet.Lite.Server.Core
 {
@@ -18,12 +19,10 @@ namespace StellarNet.Lite.Server.Core
         private readonly INetSerializer _serializer;
 
         #region 核心状态字典 (路由索引)
-
         private readonly Dictionary<string, Session> _sessions = new Dictionary<string, Session>();
         private readonly Dictionary<int, Session> _connectionToSession = new Dictionary<int, Session>();
         private readonly Dictionary<string, Session> _accountToSession = new Dictionary<string, Session>();
         private readonly Dictionary<string, Room> _rooms = new Dictionary<string, Room>();
-
         #endregion
 
         private readonly List<string> _gcRoomCache = new List<string>();
@@ -43,14 +42,11 @@ namespace StellarNet.Lite.Server.Core
         {
             if (_isDisposed) return;
             _isDisposed = true;
-
             NetLogger.LogWarning("ServerApp", "执行 ServerApp 深度销毁与资源回收");
-
             foreach (KeyValuePair<string, Room> kvp in _rooms)
             {
                 kvp.Value.Destroy();
             }
-
             _rooms.Clear();
             _sessions.Clear();
             _connectionToSession.Clear();
@@ -61,7 +57,6 @@ namespace StellarNet.Lite.Server.Core
         public void Tick()
         {
             if (_isDisposed) return;
-
             if (Config == null)
             {
                 NetLogger.LogError("ServerApp", "Tick 失败: Config 为空");
@@ -76,7 +71,6 @@ namespace StellarNet.Lite.Server.Core
             {
                 Room room = kvp.Value;
                 if (room == null) continue;
-
                 room.Tick();
 
                 if ((now - room.CreateTime).TotalHours >= Config.MaxRoomLifetimeHours)
@@ -122,7 +116,6 @@ namespace StellarNet.Lite.Server.Core
                     Room room = GetRoom(session.CurrentRoomId);
                     room?.RemoveMember(session);
                 }
-
                 RemoveSession(sessionId);
                 NetLogger.LogWarning("ServerApp", $"触发 Session GC: SessionId:{sessionId}");
             }
@@ -144,6 +137,8 @@ namespace StellarNet.Lite.Server.Core
                 NetLogger.LogInfo("ServerApp", "接收到新连接，已分配匿名会话", "-", session.SessionId);
             }
 
+            session.MarkActive(Time.realtimeSinceStartup);
+
             if (packet.Seq > 0 && !session.TryConsumeSeq(packet.Seq))
             {
                 NetLogger.LogWarning("ServerApp", $"防重放拦截: MsgId:{packet.MsgId}, Seq:{packet.Seq}", "-", session.SessionId);
@@ -158,6 +153,9 @@ namespace StellarNet.Lite.Server.Core
 
             if (packet.Scope == NetScope.Room)
             {
+                // 核心修复：只有收到房间业务包时，才刷新房间活跃度
+                session.MarkRoomActive(Time.realtimeSinceStartup);
+
                 if (string.IsNullOrEmpty(packet.RoomId) || packet.RoomId != session.CurrentRoomId)
                 {
                     NetLogger.LogError("ServerApp",
@@ -179,7 +177,6 @@ namespace StellarNet.Lite.Server.Core
         public void SendMessageToSession<T>(Session session, T msg) where T : class
         {
             if (_isDisposed) return;
-
             if (session == null || msg == null)
             {
                 NetLogger.LogError("ServerApp", $"发送失败: session 或 msg 为空, Type:{typeof(T).FullName}", "-", session?.SessionId);
@@ -216,7 +213,6 @@ namespace StellarNet.Lite.Server.Core
 
                 string roomId = meta.Scope == NetScope.Room ? session.CurrentRoomId : string.Empty;
                 var packet = new Packet(0, meta.Id, meta.Scope, roomId, buffer, 0, length);
-
                 _transport.SendToClient(session.ConnectionId, packet);
             }
             finally
@@ -258,7 +254,6 @@ namespace StellarNet.Lite.Server.Core
         public Room GetRoom(string roomId)
         {
             if (_isDisposed || string.IsNullOrEmpty(roomId)) return null;
-
             _rooms.TryGetValue(roomId, out Room room);
             return room;
         }
@@ -270,7 +265,6 @@ namespace StellarNet.Lite.Server.Core
         public Session GetSessionByAccountId(string accountId)
         {
             if (_isDisposed || string.IsNullOrEmpty(accountId)) return null;
-
             _accountToSession.TryGetValue(accountId, out Session session);
             return session;
         }
@@ -280,7 +274,6 @@ namespace StellarNet.Lite.Server.Core
             if (_isDisposed || session == null) return;
 
             _sessions[session.SessionId] = session;
-
             if (session.IsOnline)
             {
                 _connectionToSession[session.ConnectionId] = session;
@@ -350,7 +343,6 @@ namespace StellarNet.Lite.Server.Core
         internal Session TryGetSessionByConnectionId(int connectionId)
         {
             if (_isDisposed) return null;
-
             _connectionToSession.TryGetValue(connectionId, out Session session);
             return session;
         }

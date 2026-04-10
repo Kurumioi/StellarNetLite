@@ -3,6 +3,7 @@ using StellarNet.UI;
 using StellarNet.View;
 using StellarNet.Lite.Game.Client.Infrastructure;
 using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Runtime;
 using UnityEngine;
 
 public enum ENetMode
@@ -15,10 +16,11 @@ public enum ENetMode
 
 public class GameLauncher : MonoSingleton<GameLauncher>
 {
-    [SerializeField] private StellarNetMirrorManager netManager;
-    public static StellarNetMirrorManager NetManager => Instance != null ? Instance.netManager : null;
+    [SerializeField] private StellarNetAppManager appManager;
+    public static StellarNetAppManager AppManager => Instance != null ? Instance.appManager : null;
 
     public ENetMode netMode = ENetMode.None;
+
     public bool IsClientConnectedServer { get; private set; }
 
     protected override void Awake()
@@ -29,47 +31,63 @@ public class GameLauncher : MonoSingleton<GameLauncher>
             UIKit.Instance.Init();
         }
 
-        if (netManager == null) NetLogger.LogError("GameLauncher", "Awake 初始化失败: netManager 未绑定");
+        if (appManager == null)
+        {
+            NetLogger.LogError("GameLauncher", "Awake 初始化失败: appManager 未绑定");
+        }
     }
 
     private void Start()
     {
-        StellarNetMirrorManager.OnClientConnectedEvent += OnClientConnected;
-        StellarNetMirrorManager.OnClientDisconnectedEvent += OnClientDisconnected;
+        // 核心修改：监听 AppManager 抛出的物理连接事件
+        StellarNetAppManager.OnClientConnectedEvent += OnClientConnected;
+        StellarNetAppManager.OnClientDisconnectedEvent += OnClientDisconnected;
+
         LauncherNetAsync(netMode);
     }
 
     protected override void OnDestroy()
     {
         base.OnDestroy();
-        StellarNetMirrorManager.OnClientConnectedEvent -= OnClientConnected;
-        StellarNetMirrorManager.OnClientDisconnectedEvent -= OnClientDisconnected;
+        StellarNetAppManager.OnClientConnectedEvent -= OnClientConnected;
+        StellarNetAppManager.OnClientDisconnectedEvent -= OnClientDisconnected;
     }
 
     private void OnClientConnected()
     {
-        GlobalUIRouter.Instance.Init();
-        RoomViewManager.Instance.Init(); // 修正：使用新的表现层管理器
+        // 核心修复：必须先修改状态事实，再通知 UI 刷新！
+        IsClientConnectedServer = true;
 
+        GlobalUIRouter.Instance.Init();
+        RoomViewManager.Instance.Init();
         UIKit.OpenPanel<Panel_GlobalNetMonitor>();
         UIKit.OpenPanel<Panel_StellarNetLogin>();
-        IsClientConnectedServer = true;
+
         NetLogger.LogInfo("GameLauncher", "客户端已连接服务端");
     }
 
     private void OnClientDisconnected()
     {
-        if (GlobalUIRouter.Instance != null) GlobalUIRouter.Instance.HandlePhysicalDisconnect();
+        // 核心修复：先修改状态事实，再通知 UI 刷新！
         IsClientConnectedServer = false;
+
+        if (GlobalUIRouter.Instance != null)
+        {
+            GlobalUIRouter.Instance.HandlePhysicalDisconnect();
+        }
+
         NetLogger.LogError("GameLauncher", "客户端已断开服务端");
     }
 
     private async void LauncherNetAsync(ENetMode eNetMode)
     {
-        if (eNetMode == ENetMode.None || netManager == null) return;
+        if (eNetMode == ENetMode.None || appManager == null) return;
+
         NetConfig config = await NetConfigLoader.LoadAsync(ConfigRootPath.StreamingAssets);
         if (config == null) return;
-        netManager.ApplyConfig(config);
+
+        appManager.ApplyConfig(config);
+
         switch (eNetMode)
         {
             case ENetMode.Client: StartClient(); break;
@@ -81,16 +99,25 @@ public class GameLauncher : MonoSingleton<GameLauncher>
     [ContextMenu("启动客户端")]
     public void StartClient()
     {
-        if (netManager != null) netManager.StartClient();
+        if (appManager != null && appManager.Transport != null)
+        {
+            appManager.Transport.StartClient();
+        }
     }
 
     private void StartServer()
     {
-        if (netManager != null) netManager.StartServer();
+        if (appManager != null && appManager.Transport != null)
+        {
+            appManager.Transport.StartServer();
+        }
     }
 
     private void StartHost()
     {
-        if (netManager != null) netManager.StartHost();
+        if (appManager != null && appManager.Transport != null)
+        {
+            appManager.Transport.StartHost();
+        }
     }
 }

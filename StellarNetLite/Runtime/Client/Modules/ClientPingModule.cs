@@ -1,0 +1,26 @@
+﻿using StellarNet.Lite.Client.Core;
+using StellarNet.Lite.Client.Core.Events;
+using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Protocol;
+using UnityEngine;
+
+namespace StellarNet.Lite.Client.Modules
+{
+    [ClientModule("ClientPingModule", "全局延迟心跳模块")]
+    public sealed class ClientPingModule
+    {
+        private readonly ClientApp _app;
+
+        public ClientPingModule(ClientApp app)
+        {
+            _app = app;
+        }
+
+        [NetHandler]
+        public void OnS2C_Pong(S2C_Pong msg)
+        {
+            float rtt = Time.realtimeSinceStartup - msg.ClientTime;
+            GlobalTypeNetEvent.Broadcast(new Local_PingResult { RttMs = rtt * 1000f });
+        }
+    }
+}

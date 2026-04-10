@@ -88,7 +88,7 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     private void OnLogoutBtn()
     {
-        GameLauncher.NetManager.StopClient();
+        GameLauncher.AppManager.StopClient();
     }
 
     private void OnRefreshRoomListBtn()

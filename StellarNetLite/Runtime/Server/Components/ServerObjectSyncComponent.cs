@@ -33,12 +33,13 @@ namespace StellarNet.Lite.Server.Components
         private readonly ServerApp _app;
         private readonly Dictionary<int, ServerSyncEntity> _entities = new Dictionary<int, ServerSyncEntity>();
         private int _netIdCounter = 0;
+
         private const int SyncIntervalTicks = 3;
         private const int RecordIntervalTicks = 3;
+
         private ObjectSyncState[] _syncStateBuffer = new ObjectSyncState[64];
         private readonly S2C_ObjectSync _reusableSyncMsg = new S2C_ObjectSync();
 
-        // 核心解耦：声明自己负责处理 ObjectSync 相关的快照
         public int SnapshotComponentId => 200;
 
         public ServerObjectSyncComponent(ServerApp app)
@@ -66,8 +67,10 @@ namespace StellarNet.Lite.Server.Components
         public void OnTick()
         {
             if (Room.State != RoomState.Playing || _entities.Count == 0) return;
+
             bool shouldSyncOnline = Room.CurrentTick % SyncIntervalTicks == 0;
             bool shouldRecord = Room.CurrentTick % RecordIntervalTicks == 0;
+
             if (!shouldSyncOnline && !shouldRecord) return;
 
             if (_entities.Count > _syncStateBuffer.Length)
@@ -78,9 +81,24 @@ namespace StellarNet.Lite.Server.Components
 
             int index = 0;
             float currentServerTime = Time.realtimeSinceStartup;
+
             foreach (var kvp in _entities)
             {
                 ServerSyncEntity entity = kvp.Value;
+
+                // 核心修复：防滑冰判定改为检测 LastRoomActiveRealtime，且阈值缩短至 0.5 秒（约丢失10个移动包）
+                if (!string.IsNullOrEmpty(entity.OwnerSessionId))
+                {
+                    Session owner = Room.GetMember(entity.OwnerSessionId);
+                    if (owner != null && (currentServerTime - owner.LastRoomActiveRealtime) > 0.5f)
+                    {
+                        if (entity.Velocity.sqrMagnitude > 0.01f)
+                        {
+                            entity.Velocity = Vector3.zero;
+                        }
+                    }
+                }
+
                 _syncStateBuffer[index++] = new ObjectSyncState
                 {
                     NetId = entity.NetId,
@@ -150,7 +168,6 @@ namespace StellarNet.Lite.Server.Components
             return result;
         }
 
-        // 核心解耦：实现 IReplaySnapshotProvider，将当前所有实体的状态打包为 byte[]
         public byte[] ExportSnapshot()
         {
             ObjectSpawnState[] states = ExportSpawnStates();
@@ -164,7 +181,6 @@ namespace StellarNet.Lite.Server.Components
                 {
                     states[i].Serialize(writer);
                 }
-
                 return ms.ToArray();
             }
         }
