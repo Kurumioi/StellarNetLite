@@ -8,6 +8,10 @@ using StellarNet.Lite.Shared.Infrastructure;
 namespace StellarNet.Lite.Server.Modules
 {
     [ServerModule("ServerLobbyModule", "大厅信息与全局社交模块")]
+    /// <summary>
+    /// 服务端大厅模块。
+    /// 负责房间列表、在线玩家列表、全局聊天和公告分发。
+    /// </summary>
     public sealed class ServerLobbyModule
     {
         private readonly ServerApp _app;

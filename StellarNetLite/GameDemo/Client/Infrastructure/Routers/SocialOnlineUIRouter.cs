@@ -6,6 +6,9 @@ using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Game.Client.Infrastructure
 {
+    /// <summary>
+    /// 在线房间的社交玩法 UI 路由。
+    /// </summary>
     public class SocialOnlineUIRouter : ClientRoomUIRouterBase<ClientSocialRoomComponent>
     {
         private IUnRegister _gameStartedToken;

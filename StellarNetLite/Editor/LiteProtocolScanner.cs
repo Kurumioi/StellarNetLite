@@ -14,6 +14,9 @@ using UnityEngine;
 namespace StellarNet.Lite.Editor
 {
     [InitializeOnLoad]
+    /// <summary>
+    /// 协议、组件和模块的静态注册代码扫描器。
+    /// </summary>
     public static class LiteProtocolScanner
     {
         #region 常量路径
@@ -34,6 +37,9 @@ namespace StellarNet.Lite.Editor
 
         #region 状态与结构
 
+        /// <summary>
+        /// 扫描结果状态。
+        /// </summary>
         private enum ScanResultState : byte
         {
             NoChange = 0,
@@ -41,6 +47,9 @@ namespace StellarNet.Lite.Editor
             Failed = 2
         }
 
+        /// <summary>
+        /// 单个处理方法的扫描元数据。
+        /// </summary>
         private sealed class MethodMeta
         {
             public string MethodName;
@@ -49,6 +58,9 @@ namespace StellarNet.Lite.Editor
             public string FeatureKey;
         }
 
+        /// <summary>
+        /// 单个组件或模块的扫描元数据。
+        /// </summary>
         private sealed class ClassMeta
         {
             public int Id;
@@ -60,6 +72,9 @@ namespace StellarNet.Lite.Editor
             public readonly List<MethodMeta> Methods = new List<MethodMeta>();
         }
 
+        /// <summary>
+        /// 单个协议类型的扫描元数据。
+        /// </summary>
         private sealed class ProtocolMeta
         {
             public int Id;
@@ -70,6 +85,9 @@ namespace StellarNet.Lite.Editor
             public string FeatureKey;
         }
 
+        /// <summary>
+        /// 单个待写入生成文件的记录。
+        /// </summary>
         private sealed class GeneratedFileRecord
         {
             public string Path;
@@ -309,6 +327,9 @@ namespace StellarNet.Lite.Editor
                     Path = $"{ProtocolIdsFolderPath}/Generated_{featureKey}_MsgIds.cs",
                     Content = $@"namespace StellarNet.Lite.Shared.Generated.Protocol.MsgIds
 {{
+    /// <summary>
+    /// {featureKey} 分片协议 Id 常量。
+    /// </summary>
     public static class Generated_{featureKey}_MsgIds
     {{
 {idSb}    }}
@@ -324,6 +345,9 @@ using StellarNet.Lite.Shared.Core;
 
 namespace StellarNet.Lite.Shared.Generated.Protocol.Meta
 {{
+    /// <summary>
+    /// {featureKey} 分片协议元数据注册器。
+    /// </summary>
     public static class Generated_{featureKey}_MessageMeta
     {{
         public static void AppendTypeToMeta(Dictionary<Type, NetMessageMeta> target)
@@ -353,6 +377,9 @@ namespace StellarNet.Lite.Shared.Generated.Protocol.Meta
 
             string content = $@"namespace StellarNet.Lite.Shared.Protocol
 {{
+    /// <summary>
+    /// 聚合协议 Id 常量表。
+    /// </summary>
     public static class MsgIdConst
     {{
 {sb}    }}
@@ -381,6 +408,9 @@ using StellarNet.Lite.Shared.Generated.Protocol.Meta;
 
 namespace StellarNet.Lite.Shared.Protocol
 {{
+    /// <summary>
+    /// 聚合协议元数据注册表。
+    /// </summary>
     public static class AutoMessageMetaRegistry
     {{
         public static readonly Dictionary<Type, NetMessageMeta> TypeToMeta = BuildTypeToMeta();
@@ -564,6 +594,9 @@ namespace StellarNet.Lite.Shared.Protocol
                     Path = $"{ComponentConstFolderPath}/Generated_{featureKey}_ComponentIds.cs",
                     Content = $@"namespace StellarNet.Lite.Shared.Generated.Protocol.Components
 {{
+    /// <summary>
+    /// {featureKey} 分片组件 Id 常量。
+    /// </summary>
     public static class Generated_{featureKey}_ComponentIds
     {{
 {sb}    }}
@@ -581,6 +614,9 @@ namespace StellarNet.Lite.Shared.Protocol
 
             string content = $@"namespace StellarNet.Lite.Shared.Protocol
 {{
+    /// <summary>
+    /// 聚合房间组件 Id 常量表。
+    /// </summary>
     public static class ComponentIdConst
     {{
 {sb}    }}
@@ -656,6 +692,9 @@ using StellarNet.Lite.Client.Core;
 
 namespace StellarNet.Lite.Shared.Generated.Binders.RoomComponents
 {{
+    /// <summary>
+    /// {featureKey} 分片房间组件绑定器。
+    /// </summary>
     public static class Generated_{featureKey}_RoomBinder
     {{
         public static void AppendRoomComponentMeta(List<RoomComponentMeta> target)
@@ -749,6 +788,9 @@ using StellarNet.Lite.Client.Core;
 
 namespace StellarNet.Lite.Shared.Generated.Binders.GlobalModules
 {{
+    /// <summary>
+    /// {featureKey} 分片全局模块绑定器。
+    /// </summary>
     public static class Generated_{featureKey}_ModuleBinder
     {{
         public static void RegisterServer(ServerApp serverApp, Func<byte[], int, int, Type, object> deserializeFunc)
@@ -814,6 +856,9 @@ using StellarNet.Lite.Shared.Generated.Binders.GlobalModules;
 
 namespace StellarNet.Lite.Shared.Binders
 {{
+    /// <summary>
+    /// Runtime 自动装配入口。
+    /// </summary>
     public static class AutoRegistry
     {{
         public static readonly List<RoomComponentMeta> RoomComponentMetaList = BuildRoomComponentMetaList();

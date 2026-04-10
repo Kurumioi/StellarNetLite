@@ -7,6 +7,10 @@ using StellarNet.Lite.Shared.Protocol;
 namespace StellarNet.Lite.Server.Components
 {
     [RoomComponent(1, "RoomSettings", "基础房间设置")]
+    /// <summary>
+    /// 服务端房间基础设置组件。
+    /// 负责成员快照、准备状态和房主迁移。
+    /// </summary>
     public sealed class ServerRoomSettingsComponent : ServerRoomComponent
     {
         private readonly ServerApp _app;

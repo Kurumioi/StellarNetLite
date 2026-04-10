@@ -8,6 +8,9 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Game.Client.Infrastructure
 {
+    /// <summary>
+    /// Demo 全局 UI 路由。
+    /// </summary>
     public class GlobalUIRouter : MonoSingleton<GlobalUIRouter>
     {
         private ClientAppState _lastClientState = ClientAppState.InLobby;

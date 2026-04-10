@@ -9,6 +9,9 @@ using StellarNet.Lite.Shared.Replay;
 
 namespace StellarNet.Lite.Server.Core
 {
+    /// <summary>
+    /// 服务端房间状态。
+    /// </summary>
     public enum RoomState
     {
         Waiting,
@@ -16,6 +19,10 @@ namespace StellarNet.Lite.Server.Core
         Finished
     }
 
+    /// <summary>
+    /// 服务端房间实例。
+    /// 负责成员管理、房间组件驱动、广播和录像录制。
+    /// </summary>
     public sealed class Room
     {
         private const int ReplaySnapshotIntervalTicks = 150;

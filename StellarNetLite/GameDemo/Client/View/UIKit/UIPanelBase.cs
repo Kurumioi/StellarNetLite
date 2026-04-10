@@ -9,7 +9,9 @@ namespace StellarNet.UI
     [RequireComponent(typeof(CanvasGroup))]
     public abstract class UIPanelBase : MonoBehaviour
     {
-        // 面板挂载层级。
+        /// <summary>
+        /// 面板挂载层级。
+        /// </summary>
         public enum PanelLayer
         {
             Bottom = 0,

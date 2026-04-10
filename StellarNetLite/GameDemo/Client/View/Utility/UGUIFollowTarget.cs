@@ -3,8 +3,7 @@
 namespace UGUIFollow
 {
     /// <summary>
-    /// 单个 UGUI 跟随组件。
-    /// 负责把世界坐标目标映射到 Canvas 上的 UI 位置。
+    /// 跟随模式。
     /// </summary>
     public enum FollowMode
     {
@@ -13,6 +12,9 @@ namespace UGUIFollow
     }
 
     [RequireComponent(typeof(RectTransform))]
+    /// <summary>
+    /// 世界目标对应的 UGUI 跟随组件。
+    /// </summary>
     public class UGUIFollowTarget : MonoBehaviour
     {
         [Header("核心引用")] [Tooltip("需要跟随的3D世界目标")]

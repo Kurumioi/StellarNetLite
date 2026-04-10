@@ -6,6 +6,9 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
+/// <summary>
+/// 回放控制面板。
+/// </summary>
 public class Panel_StellarNetReplay : UIPanelBase
 {
     // 回放进度与控制按钮。

@@ -11,6 +11,9 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Client.Components
 {
+    /// <summary>
+    /// 客户端预测后的位移数据。
+    /// </summary>
     public struct PredictedTransformData
     {
         public Vector3 Position;
@@ -21,6 +24,9 @@ namespace StellarNet.Lite.Client.Components
         public float PlaybackSpeed;
     }
 
+    /// <summary>
+    /// 客户端预测后的动画数据。
+    /// </summary>
     public struct PredictedAnimatorData
     {
         public int AnimStateHash;
@@ -33,10 +39,17 @@ namespace StellarNet.Lite.Client.Components
     }
 
     [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
+    /// <summary>
+    /// 客户端对象同步组件。
+    /// 负责缓存服务端同步状态、提供预测结果，并消费录像快照。
+    /// </summary>
     public sealed class ClientObjectSyncComponent : ClientRoomComponent, IReplaySnapshotConsumer
     {
         private readonly ClientApp _app;
 
+        /// <summary>
+        /// 单个同步实体的客户端缓存状态。
+        /// </summary>
         private sealed class SyncEntityData
         {
             public int PrefabHash;
@@ -61,7 +74,9 @@ namespace StellarNet.Lite.Client.Components
         private float _replayBaseLocalTime = -1f;
         private float _replayBaseServerTime = -1f;
 
-        // 核心解耦：声明自己负责消费 ObjectSync 相关的快照
+        /// <summary>
+        /// 当前组件负责消费的快照组件 Id。
+        /// </summary>
         public int SnapshotComponentId => 200;
 
         public ClientObjectSyncComponent(ClientApp app)

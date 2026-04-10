@@ -9,6 +9,9 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
+/// <summary>
+/// 建房与指定房间加入配置面板。
+/// </summary>
 public class Panel_SetRoomConfig : UIPanelBase
 {
     [Header("基础配置")] [SerializeField] private TMP_InputField roomNameIpt;

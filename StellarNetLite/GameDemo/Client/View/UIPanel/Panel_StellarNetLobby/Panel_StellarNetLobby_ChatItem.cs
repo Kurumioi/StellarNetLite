@@ -3,6 +3,9 @@ using TMPro;
 using UnityEngine;
 using StellarNet.Lite.Shared.Protocol;
 
+/// <summary>
+/// 大厅聊天条目。
+/// </summary>
 public class Panel_StellarNetLobby_ChatItem : MonoBehaviour
 {
     [SerializeField] private TMP_Text contentText;

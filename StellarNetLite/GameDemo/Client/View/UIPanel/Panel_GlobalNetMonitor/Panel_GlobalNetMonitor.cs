@@ -5,6 +5,9 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
+/// <summary>
+/// 全局网络状态面板。
+/// </summary>
 public class Panel_GlobalNetMonitor : UIPanelBase
 {
     // 在线 RTT 显示区域。

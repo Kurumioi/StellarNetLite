@@ -1,31 +1,37 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using UnityEngine;
 
 namespace StellarNet.Lite.Client.Core.Events
 {
     /// <summary>
-    /// 客户端房间实例级事件系统
-    /// 职责：与 ClientRoom 生命周期强绑定，确保在线房间与回放沙盒的事件绝对物理隔离。
-    /// 架构说明：支持无侵入式协议直抛，并完美接入 IUnRegister 生命周期管理生态。
+    /// 房间级事件系统。
     /// </summary>
     public sealed class RoomNetEventSystem
     {
-        // EventType -> Delegate。
+        // EventType -> 当前房间的事件委托。
         private readonly Dictionary<Type, Delegate> _delegates = new Dictionary<Type, Delegate>();
-        // 当前事件系统归属的房间 Id，仅用于隔离语义。
+
+        // 当前事件系统所属的房间 Id。
         private readonly string _roomId;
 
+        /// <summary>
+        /// 创建一个房间级事件系统。
+        /// </summary>
         public RoomNetEventSystem(string roomId)
         {
             _roomId = roomId;
         }
 
+        /// <summary>
+        /// 注册房间事件监听。
+        /// </summary>
         public IUnRegister Register<T>(Action<T> onEvent)
         {
-            if (onEvent == null) return new CustomUnRegister(null);
+            if (onEvent == null)
+            {
+                return new CustomUnRegister(null);
+            }
 
-            // 同类型事件允许多个监听器并存。
             Type eventType = typeof(T);
             if (_delegates.TryGetValue(eventType, out Delegate existingDelegate))
             {
@@ -36,15 +42,19 @@ namespace StellarNet.Lite.Client.Core.Events
                 _delegates[eventType] = onEvent;
             }
 
-            // 返回注销令牌，方便和 UI 生命周期绑定。
             return new CustomUnRegister(() => UnRegister(onEvent));
         }
 
+        /// <summary>
+        /// 注销房间事件监听。
+        /// </summary>
         public void UnRegister<T>(Action<T> onEvent)
         {
-            if (onEvent == null) return;
+            if (onEvent == null)
+            {
+                return;
+            }
 
-            // 取消订阅后若该类型已无监听器，则直接移除字典项。
             Type eventType = typeof(T);
             if (_delegates.TryGetValue(eventType, out Delegate existingDelegate))
             {
@@ -60,9 +70,11 @@ namespace StellarNet.Lite.Client.Core.Events
             }
         }
 
+        /// <summary>
+        /// 广播房间事件。
+        /// </summary>
         public void Broadcast<T>(T e)
         {
-            // 房间事件只在当前房间实例内部广播。
             Type eventType = typeof(T);
             if (_delegates.TryGetValue(eventType, out Delegate existingDelegate))
             {
@@ -71,9 +83,11 @@ namespace StellarNet.Lite.Client.Core.Events
             }
         }
 
+        /// <summary>
+        /// 清空全部房间事件监听。
+        /// </summary>
         public void Clear()
         {
-            // 房间销毁时一次性清空全部监听。
             _delegates.Clear();
         }
     }

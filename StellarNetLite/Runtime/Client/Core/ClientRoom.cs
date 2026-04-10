@@ -4,10 +4,24 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Client.Core
 {
+    /// <summary>
+    /// 客户端房间实例。
+    /// </summary>
     public sealed class ClientRoom
     {
+        /// <summary>
+        /// 当前房间 Id。
+        /// </summary>
         public string RoomId { get; }
+
+        /// <summary>
+        /// 当前房间消息分发器。
+        /// </summary>
         public ClientRoomDispatcher Dispatcher { get; }
+
+        /// <summary>
+        /// 当前房间事件总线。
+        /// </summary>
         public RoomNetEventSystem NetEventSystem { get; }
 
         private readonly List<ClientRoomComponent> _components = new List<ClientRoomComponent>();
@@ -32,6 +46,7 @@ namespace StellarNet.Lite.Client.Core
                 return null;
             }
 
+            NetLogger.LogInfo("ClientRoom", $"客户端房间创建成功。RoomId:{roomId}");
             return new ClientRoom(roomId);
         }
 
@@ -109,6 +124,7 @@ namespace StellarNet.Lite.Client.Core
             _components.Clear();
             Dispatcher.Clear();
             NetEventSystem.Clear();
+            NetLogger.LogInfo("ClientRoom", $"客户端房间已销毁。RoomId:{RoomId}");
         }
     }
 }

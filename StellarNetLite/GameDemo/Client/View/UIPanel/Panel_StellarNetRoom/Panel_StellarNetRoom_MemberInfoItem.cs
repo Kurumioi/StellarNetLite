@@ -1,6 +1,9 @@
 using TMPro;
 using UnityEngine;
 
+/// <summary>
+/// 房间成员列表条目。
+/// </summary>
 public class Panel_StellarNetRoom_MemberInfoItem : MonoBehaviour
 {
     [SerializeField] private TMP_Text nameText;

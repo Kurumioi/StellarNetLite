@@ -7,13 +7,39 @@ using StellarNet.Lite.Shared.Protocol;
 namespace StellarNet.Lite.Client.Components
 {
     [RoomComponent(1, "RoomSettings", "基础房间设置")]
+    /// <summary>
+    /// 客户端房间基础信息组件。
+    /// 负责缓存成员列表、房间名和开局状态。
+    /// </summary>
     public sealed class ClientRoomSettingsComponent : ClientRoomComponent
     {
         private readonly ClientApp _app;
+
+        /// <summary>
+        /// 房间成员快照。
+        /// key: SessionId。
+        /// value: 对应成员信息。
+        /// </summary>
         public readonly Dictionary<string, MemberInfo> Members = new Dictionary<string, MemberInfo>();
+
+        /// <summary>
+        /// 当前房间是否已经开局。
+        /// </summary>
         public bool IsGameStarted { get; private set; }
+
+        /// <summary>
+        /// 当前房间名。
+        /// </summary>
         public string RoomName { get; private set; } = string.Empty;
+
+        /// <summary>
+        /// 当前房间最大人数。
+        /// </summary>
         public int MaxMembers { get; private set; }
+
+        /// <summary>
+        /// 当前房间是否为私有房。
+        /// </summary>
         public bool IsPrivate { get; private set; }
 
         public ClientRoomSettingsComponent(ClientApp app)

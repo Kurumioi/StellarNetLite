@@ -1,44 +1,58 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace StellarNet.Lite.Client.Core.Events
 {
     /// <summary>
-    /// 事件注销接口
-    /// 职责：提供统一的事件注销能力，支持与 GameObject 生命周期强绑定，防止内存泄漏。
+    /// 事件注销接口。
     /// </summary>
     public interface IUnRegister
     {
+        /// <summary>
+        /// 执行注销。
+        /// </summary>
         void UnRegister();
 
+        /// <summary>
+        /// 在 GameObject 销毁时执行注销。
+        /// </summary>
         IUnRegister UnRegisterWhenGameObjectDestroyed(GameObject gameObject);
 
         /// <summary>
-        /// 将事件注销与 MonoBehaviour 的 OnDisable 生命周期绑定。
-        /// 架构意图：专为 UI 对象池与频繁隐藏/显示的组件设计，防止隐藏期间后台持续响应网络事件。
+        /// 在 MonoBehaviour 禁用时执行注销。
         /// </summary>
         IUnRegister UnRegisterWhenMonoDisable(MonoBehaviour mono);
     }
 
     /// <summary>
-    /// 注销接口的具体实现 (RoomNetEventSystem 默认使用此实现)
+    /// 默认事件注销实现。
     /// </summary>
     public class CustomUnRegister : IUnRegister
     {
+        // 当前注销回调。
         private Action _onUnRegister;
 
+        /// <summary>
+        /// 创建一个事件注销令牌。
+        /// </summary>
         public CustomUnRegister(Action onUnRegister)
         {
             _onUnRegister = onUnRegister;
         }
 
+        /// <summary>
+        /// 执行注销。
+        /// </summary>
         public void UnRegister()
         {
             _onUnRegister?.Invoke();
             _onUnRegister = null;
         }
 
+        /// <summary>
+        /// 在 GameObject 销毁时执行注销。
+        /// </summary>
         public IUnRegister UnRegisterWhenGameObjectDestroyed(GameObject gameObject)
         {
             if (gameObject == null)
@@ -57,6 +71,9 @@ namespace StellarNet.Lite.Client.Core.Events
             return this;
         }
 
+        /// <summary>
+        /// 在 MonoBehaviour 禁用时执行注销。
+        /// </summary>
         public IUnRegister UnRegisterWhenMonoDisable(MonoBehaviour mono)
         {
             if (mono == null)
@@ -77,19 +94,30 @@ namespace StellarNet.Lite.Client.Core.Events
     }
 
     /// <summary>
-    /// 自动挂载的辅助组件，用于监听 OnDestroy 并触发批量注销
+    /// 在 GameObject 销毁时批量注销事件。
     /// </summary>
     [DisallowMultipleComponent]
     public class EventUnregisterTrigger : MonoBehaviour
     {
+        // 当前触发器管理的注销令牌集合。
         private readonly HashSet<IUnRegister> _unRegisters = new HashSet<IUnRegister>();
 
+        /// <summary>
+        /// 添加一个注销令牌。
+        /// </summary>
         public void Add(IUnRegister unRegister)
         {
-            if (unRegister == null) return;
+            if (unRegister == null)
+            {
+                return;
+            }
+
             _unRegisters.Add(unRegister);
         }
 
+        /// <summary>
+        /// 在销毁时执行全部注销。
+        /// </summary>
         private void OnDestroy()
         {
             foreach (var unRegister in _unRegisters)
@@ -102,19 +130,30 @@ namespace StellarNet.Lite.Client.Core.Events
     }
 
     /// <summary>
-    /// 自动挂载的辅助组件，用于监听 OnDisable 并触发批量注销
+    /// 在 MonoBehaviour 禁用时批量注销事件。
     /// </summary>
     [DisallowMultipleComponent]
     public class EventUnregisterDisableTrigger : MonoBehaviour
     {
+        // 当前触发器管理的注销令牌集合。
         private readonly HashSet<IUnRegister> _unRegisters = new HashSet<IUnRegister>();
 
+        /// <summary>
+        /// 添加一个注销令牌。
+        /// </summary>
         public void Add(IUnRegister unRegister)
         {
-            if (unRegister == null) return;
+            if (unRegister == null)
+            {
+                return;
+            }
+
             _unRegisters.Add(unRegister);
         }
 
+        /// <summary>
+        /// 在禁用时执行全部注销。
+        /// </summary>
         private void OnDisable()
         {
             foreach (var unRegister in _unRegisters)
@@ -122,7 +161,6 @@ namespace StellarNet.Lite.Client.Core.Events
                 unRegister?.UnRegister();
             }
 
-            // 触发后必须清空，以便对象在 OnEnable 重新注册时能够开启新一轮的生命周期追踪
             _unRegisters.Clear();
         }
     }

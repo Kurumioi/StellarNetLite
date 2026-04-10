@@ -9,6 +9,9 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
+/// <summary>
+/// 房间准备阶段面板。
+/// </summary>
 public class Panel_StellarNetRoom : UIPanelBase
 {
     [SerializeField] private TMP_Text accountIdText;

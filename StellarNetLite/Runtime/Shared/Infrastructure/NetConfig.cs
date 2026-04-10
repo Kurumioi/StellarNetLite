@@ -7,6 +7,9 @@ using UnityEngine.Networking;
 
 namespace StellarNet.Lite.Shared.Infrastructure
 {
+    /// <summary>
+    /// 配置文件根目录类型。
+    /// </summary>
     public enum ConfigRootPath
     {
         StreamingAssets,
@@ -14,25 +17,66 @@ namespace StellarNet.Lite.Shared.Infrastructure
     }
 
     [Serializable]
+    /// <summary>
+    /// 框架运行时配置。
+    /// </summary>
     public sealed class NetConfig
     {
-        // 基础物理连接配置。
+        /// <summary>
+        /// 服务端监听地址或客户端目标地址。
+        /// </summary>
         public string Ip = "127.0.0.1";
+
+        /// <summary>
+        /// 服务端监听端口。
+        /// </summary>
         public ushort Port = 7777;
+
+        /// <summary>
+        /// 最大物理连接数。
+        /// </summary>
         public int MaxConnections = 200;
+
+        /// <summary>
+        /// 服务端主 Tick 频率。
+        /// </summary>
         public int TickRate = 60;
 
-        // 运行治理配置。
+        /// <summary>
+        /// 房间最大生命周期，单位小时。
+        /// </summary>
         public int MaxRoomLifetimeHours = 24;
+
+        /// <summary>
+        /// 最大保留录像文件数。
+        /// </summary>
         public int MaxReplayFiles = 100;
+
+        /// <summary>
+        /// 大厅态离线保留时间，单位分钟。
+        /// </summary>
         public int OfflineTimeoutLobbyMinutes = 5;
+
+        /// <summary>
+        /// 房间态离线保留时间，单位分钟。
+        /// </summary>
         public int OfflineTimeoutRoomMinutes = 60;
+
+        /// <summary>
+        /// 空房间自动清理时间，单位分钟。
+        /// </summary>
         public int EmptyRoomTimeoutMinutes = 5;
 
-        // 登录准入配置。
+        /// <summary>
+        /// 最低客户端版本号。
+        /// </summary>
         public string MinClientVersion = "0.0.1";
     }
 
+    /// <summary>
+    /// NetConfig 的加载器。
+    /// 负责同步和异步读取，并对非法值做兜底归一化。
+    /// </summary>
     public static class NetConfigLoader
     {
         public const string ConfigFolderName = "NetConfig";

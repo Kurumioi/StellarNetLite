@@ -8,6 +8,9 @@ using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Client.Core
 {
+    /// <summary>
+    /// 客户端运行状态。
+    /// </summary>
     public enum ClientAppState
     {
         InLobby,
@@ -16,13 +19,35 @@ namespace StellarNet.Lite.Client.Core
         ConnectionSuspended
     }
 
+    /// <summary>
+    /// 客户端逻辑宿主。
+    /// 负责状态流转、消息发送和当前房间生命周期管理。
+    /// </summary>
     public sealed class ClientApp
     {
+        /// <summary>
+        /// 当前客户端会话。
+        /// </summary>
         public ClientSession Session { get; } = new ClientSession();
+
+        /// <summary>
+        /// 当前全局消息分发器。
+        /// </summary>
         public ClientGlobalDispatcher GlobalDispatcher { get; } = new ClientGlobalDispatcher();
+
+        /// <summary>
+        /// 当前在线房间或回放房间。
+        /// </summary>
         public ClientRoom CurrentRoom { get; private set; }
+
+        /// <summary>
+        /// 当前客户端逻辑状态。
+        /// </summary>
         public ClientAppState State { get; private set; } = ClientAppState.InLobby;
         
+        /// <summary>
+        /// 是否进入弱网发送阻断态。
+        /// </summary>
         public bool IsNetworkBlocked { get; set; }
 
         private readonly INetworkTransport _transport;
@@ -30,7 +55,7 @@ namespace StellarNet.Lite.Client.Core
         private uint _sendSeq;
         private bool _isDisposed;
 
-        // 遵循开闭原则：使用注册机制替代硬编码的豁免白名单
+        // 使用注册表维护弱网豁免消息，避免在底层写死协议 Id。
         private readonly HashSet<int> _weakNetBypassMsgIds = new HashSet<int>();
 
         public ClientApp(INetworkTransport transport, INetSerializer serializer)
@@ -42,6 +67,7 @@ namespace StellarNet.Lite.Client.Core
         public void RegisterWeakNetBypassProtocol(int msgId)
         {
             _weakNetBypassMsgIds.Add(msgId);
+            NetLogger.LogInfo("ClientApp", $"注册弱网豁免协议成功。MsgId:{msgId}");
         }
 
         public void Dispose()
@@ -58,6 +84,7 @@ namespace StellarNet.Lite.Client.Core
             Session.Clear();
             GlobalDispatcher.Clear();
             _weakNetBypassMsgIds.Clear();
+            NetLogger.LogInfo("ClientApp", "ClientApp 资源回收完成");
         }
 
         public void OnReceivePacket(Packet packet)
@@ -96,16 +123,39 @@ namespace StellarNet.Lite.Client.Core
                     isValidTransition = targetState == ClientAppState.InLobby || targetState == ClientAppState.OnlineRoom;
                     break;
             }
-            if (!isValidTransition) return false;
+            if (!isValidTransition)
+            {
+                NetLogger.LogWarning("ClientApp", $"状态切换失败: {State} -> {targetState} 非法");
+                return false;
+            }
+
+            ClientAppState oldState = State;
             State = targetState;
+            NetLogger.LogInfo("ClientApp", $"状态切换成功: {oldState} -> {targetState}");
             return true;
         }
 
         public void EnterOnlineRoom(string roomId)
         {
-            if (_isDisposed || string.IsNullOrEmpty(roomId)) return;
+            if (_isDisposed)
+            {
+                NetLogger.LogError("ClientApp", $"进入在线房间失败: ClientApp 已销毁, RoomId:{roomId}");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(roomId))
+            {
+                NetLogger.LogError("ClientApp", "进入在线房间失败: roomId 为空");
+                return;
+            }
+
             ClientRoom newRoom = ClientRoom.Create(roomId);
-            if (newRoom == null) return;
+            if (newRoom == null)
+            {
+                NetLogger.LogError("ClientApp", $"进入在线房间失败: ClientRoom 创建失败, RoomId:{roomId}");
+                return;
+            }
+
             if (!TryChangeState(ClientAppState.OnlineRoom))
             {
                 newRoom.Destroy();
@@ -118,13 +168,30 @@ namespace StellarNet.Lite.Client.Core
             }
             CurrentRoom = newRoom;
             Session.BindRoom(roomId);
+            NetLogger.LogInfo("ClientApp", $"已进入在线房间。RoomId:{roomId}");
         }
 
         public void EnterReplayRoom(string roomId)
         {
-            if (_isDisposed || string.IsNullOrEmpty(roomId)) return;
+            if (_isDisposed)
+            {
+                NetLogger.LogError("ClientApp", $"进入回放房间失败: ClientApp 已销毁, RoomId:{roomId}");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(roomId))
+            {
+                NetLogger.LogError("ClientApp", "进入回放房间失败: roomId 为空");
+                return;
+            }
+
             ClientRoom newRoom = ClientRoom.Create(roomId);
-            if (newRoom == null) return;
+            if (newRoom == null)
+            {
+                NetLogger.LogError("ClientApp", $"进入回放房间失败: ClientRoom 创建失败, RoomId:{roomId}");
+                return;
+            }
+
             if (!TryChangeState(ClientAppState.ReplayRoom))
             {
                 newRoom.Destroy();
@@ -136,11 +203,18 @@ namespace StellarNet.Lite.Client.Core
                 CurrentRoom = null;
             }
             CurrentRoom = newRoom;
+            NetLogger.LogInfo("ClientApp", $"已进入回放房间。RoomId:{roomId}");
         }
 
         public void LeaveRoom(bool silent = false)
         {
-            if (_isDisposed) return;
+            if (_isDisposed)
+            {
+                NetLogger.LogWarning("ClientApp", $"离开房间跳过: ClientApp 已销毁, Silent:{silent}");
+                return;
+            }
+
+            string roomId = CurrentRoom != null ? CurrentRoom.RoomId : Session.CurrentRoomId;
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
@@ -149,11 +223,23 @@ namespace StellarNet.Lite.Client.Core
             }
             Session.UnbindRoom();
             TryChangeState(ClientAppState.InLobby);
+            NetLogger.LogInfo("ClientApp", $"已离开房间。RoomId:{roomId}, Silent:{silent}");
         }
 
         public void SuspendConnection()
         {
-            if (_isDisposed || State != ClientAppState.OnlineRoom) return;
+            if (_isDisposed)
+            {
+                NetLogger.LogWarning("ClientApp", "挂起连接跳过: ClientApp 已销毁");
+                return;
+            }
+
+            if (State != ClientAppState.OnlineRoom)
+            {
+                NetLogger.LogWarning("ClientApp", $"挂起连接跳过: 当前状态非法, State:{State}");
+                return;
+            }
+
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
@@ -163,11 +249,17 @@ namespace StellarNet.Lite.Client.Core
             Session.IsPhysicalOnline = false;
             Session.LastDisconnectRealtime = DateTime.UtcNow;
             TryChangeState(ClientAppState.ConnectionSuspended);
+            NetLogger.LogWarning("ClientApp", $"连接已挂起，等待恢复。RoomId:{Session.CurrentRoomId}");
         }
 
         public void AbortConnection()
         {
-            if (_isDisposed) return;
+            if (_isDisposed)
+            {
+                NetLogger.LogWarning("ClientApp", "中止连接跳过: ClientApp 已销毁");
+                return;
+            }
+
             GlobalTypeNetEvent.Broadcast(new Local_ConnectionAborted());
             if (CurrentRoom != null)
             {
@@ -177,6 +269,7 @@ namespace StellarNet.Lite.Client.Core
             }
             Session.Clear();
             TryChangeState(ClientAppState.InLobby);
+            NetLogger.LogWarning("ClientApp", "连接已执行硬中止并回到大厅态");
         }
 
         public void SendMessage<T>(T msg) where T : class

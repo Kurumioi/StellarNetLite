@@ -8,6 +8,10 @@ using StellarNet.Lite.Shared.Infrastructure;
 namespace StellarNet.Lite.Client.Modules
 {
     [ClientModule("ClientLobbyModule", "客户端大厅与全局社交模块")]
+    /// <summary>
+    /// 客户端大厅模块。
+    /// 负责把大厅协议转发给全局事件总线。
+    /// </summary>
     public sealed class ClientLobbyModule
     {
         private readonly ClientApp _app;

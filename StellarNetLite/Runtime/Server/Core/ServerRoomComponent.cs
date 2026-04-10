@@ -2,54 +2,73 @@ namespace StellarNet.Lite.Server.Core
 {
     /// <summary>
     /// 服务端房间组件基类。
-    /// 所有房间业务都通过覆写这些生命周期钩子接入。
     /// </summary>
     public abstract class ServerRoomComponent
     {
-        // 当前组件所属房间，由工厂装配时注入。
+        /// <summary>
+        /// 当前组件所属房间。
+        /// </summary>
         public Room Room { get; internal set; }
 
-        // 组件初始化。
+        /// <summary>
+        /// 组件初始化回调。
+        /// </summary>
         public virtual void OnInit()
         {
         }
 
-        // 组件销毁收尾。
+        /// <summary>
+        /// 组件销毁回调。
+        /// </summary>
         public virtual void OnDestroy()
         {
         }
 
-        // 成员正式加入房间。
+        /// <summary>
+        /// 成员正式加入房间时回调。
+        /// </summary>
         public virtual void OnMemberJoined(Session session)
         {
         }
 
-        // 成员正式离开房间。
+        /// <summary>
+        /// 成员正式离开房间时回调。
+        /// </summary>
         public virtual void OnMemberLeft(Session session)
         {
         }
 
-        // 成员物理离线。
+        /// <summary>
+        /// 成员物理离线时回调。
+        /// </summary>
         public virtual void OnMemberOffline(Session session)
         {
         }
 
-        // 成员物理恢复在线。
+        /// <summary>
+        /// 成员物理恢复在线时回调。
+        /// </summary>
         public virtual void OnMemberOnline(Session session)
         {
         }
 
-        // 向某个成员补发重连快照。
+        /// <summary>
+        /// 向某个成员补发重连快照。
+        /// </summary>
         public virtual void OnSendSnapshot(Session session)
         {
         }
 
-        // 对局开始回调。
+        /// <summary>
+        /// 对局开始时回调。
+        /// </summary>
         public virtual void OnGameStart()
         {
         }
 
-        // 对局结束回调。
+        /// <summary>
+        /// 对局结束时回调。
+        /// </summary>
         public virtual void OnGameEnd()
         {
         }

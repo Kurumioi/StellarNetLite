@@ -3,7 +3,9 @@ using System.Collections.Generic;
 
 namespace StellarNet.Lite.Shared.Core
 {
-    // 网络消息作用域。
+    /// <summary>
+    /// 网络消息作用域。
+    /// </summary>
     public enum NetScope : byte
     {
         // 全局消息，不依赖房间上下文。
@@ -12,7 +14,9 @@ namespace StellarNet.Lite.Shared.Core
         Room = 1
     }
 
-    // 网络消息方向。
+    /// <summary>
+    /// 网络消息方向。
+    /// </summary>
     public enum NetDir : byte
     {
         // 客户端发往服务端。
@@ -21,7 +25,9 @@ namespace StellarNet.Lite.Shared.Core
         S2C = 1
     }
 
-    // 标记协议消息的元信息特性。
+    /// <summary>
+    /// 协议消息元信息特性。
+    /// </summary>
     [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
     public sealed class NetMsgAttribute : Attribute
     {
@@ -32,6 +38,9 @@ namespace StellarNet.Lite.Shared.Core
         // 发送方向。
         public NetDir Dir { get; }
 
+        /// <summary>
+        /// 创建协议消息元信息特性。
+        /// </summary>
         public NetMsgAttribute(int id, NetScope scope, NetDir dir)
         {
             Id = id;
@@ -40,7 +49,9 @@ namespace StellarNet.Lite.Shared.Core
         }
     }
 
-    // 标记消息处理函数。
+    /// <summary>
+    /// 消息处理函数特性。
+    /// </summary>
     [AttributeUsage(AttributeTargets.Method, Inherited = false, AllowMultiple = false)]
     public sealed class NetHandlerAttribute : Attribute
     {
@@ -49,7 +60,9 @@ namespace StellarNet.Lite.Shared.Core
         }
     }
 
-    // 标记房间组件。
+    /// <summary>
+    /// 房间组件特性。
+    /// </summary>
     [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
     public sealed class RoomComponentAttribute : Attribute
     {
@@ -60,6 +73,9 @@ namespace StellarNet.Lite.Shared.Core
         // 展示名。
         public string DisplayName { get; }
 
+        /// <summary>
+        /// 创建房间组件特性。
+        /// </summary>
         public RoomComponentAttribute(int id, string name, string displayName = "")
         {
             Id = id;
@@ -68,7 +84,9 @@ namespace StellarNet.Lite.Shared.Core
         }
     }
 
-    // 标记服务端全局模块。
+    /// <summary>
+    /// 服务端全局模块特性。
+    /// </summary>
     [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
     public sealed class ServerModuleAttribute : Attribute
     {
@@ -77,6 +95,9 @@ namespace StellarNet.Lite.Shared.Core
         // 展示名。
         public string DisplayName { get; }
 
+        /// <summary>
+        /// 创建服务端全局模块特性。
+        /// </summary>
         public ServerModuleAttribute(string name, string displayName = "")
         {
             Name = name;
@@ -84,7 +105,9 @@ namespace StellarNet.Lite.Shared.Core
         }
     }
 
-    // 标记客户端全局模块。
+    /// <summary>
+    /// 客户端全局模块特性。
+    /// </summary>
     [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
     public sealed class ClientModuleAttribute : Attribute
     {
@@ -93,6 +116,9 @@ namespace StellarNet.Lite.Shared.Core
         // 展示名。
         public string DisplayName { get; }
 
+        /// <summary>
+        /// 创建客户端全局模块特性。
+        /// </summary>
         public ClientModuleAttribute(string name, string displayName = "")
         {
             Name = name;
@@ -102,14 +128,27 @@ namespace StellarNet.Lite.Shared.Core
 
     /// <summary>
     /// 运行时静态协议元数据。
-    /// 我在 Editor 阶段扫描特性后，将协议信息固化为纯值类型结构，避免 Runtime 反射读取 Attribute。
     /// </summary>
     public readonly struct NetMessageMeta
     {
+        /// <summary>
+        /// 协议 Id。
+        /// </summary>
         public readonly int Id;
+
+        /// <summary>
+        /// 协议作用域。
+        /// </summary>
         public readonly NetScope Scope;
+
+        /// <summary>
+        /// 协议方向。
+        /// </summary>
         public readonly NetDir Dir;
 
+        /// <summary>
+        /// 创建运行时协议元数据。
+        /// </summary>
         public NetMessageMeta(int id, NetScope scope, NetDir dir)
         {
             Id = id;
@@ -118,9 +157,9 @@ namespace StellarNet.Lite.Shared.Core
         }
     }
 
-    // ========================================================
-    // 运行时元数据结构 (用于客户端 UI 展示)
-    // ========================================================
+    /// <summary>
+    /// 房间组件展示元数据。
+    /// </summary>
     public struct RoomComponentMeta
     {
         // 组件 Id。
@@ -131,6 +170,9 @@ namespace StellarNet.Lite.Shared.Core
         public string DisplayName;
     }
 
+    /// <summary>
+    /// 全局模块展示元数据。
+    /// </summary>
     public struct GlobalModuleMeta
     {
         // 模块代码名。

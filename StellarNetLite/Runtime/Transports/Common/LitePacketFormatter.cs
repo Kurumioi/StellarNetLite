@@ -5,6 +5,9 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Transports.Common
 {
+    /// <summary>
+    /// Packet 的轻量二进制编解码器。
+    /// </summary>
     public static class LitePacketFormatter
     {
         private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);

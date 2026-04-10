@@ -13,6 +13,10 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Client.Core
 {
+    /// <summary>
+    /// 客户端录像播放器。
+    /// 负责加载录像、驱动回放 Tick、跳转和快照恢复。
+    /// </summary>
     public sealed class ClientReplayPlayer : IDisposable
     {
         private readonly ClientApp _app;

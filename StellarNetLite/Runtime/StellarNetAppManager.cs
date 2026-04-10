@@ -14,9 +14,20 @@ using UnityEngine;
 namespace StellarNet.Lite.Runtime
 {
     [RequireComponent(typeof(INetworkTransport))]
+    /// <summary>
+    /// StellarNet Lite 的统一运行时入口。
+    /// 负责装配传输层、序列化器、客户端逻辑宿主和服务端逻辑宿主。
+    /// </summary>
     public class StellarNetAppManager : MonoBehaviour
     {
+        /// <summary>
+        /// 当前运行时使用的消息序列化器。
+        /// </summary>
         public INetSerializer Serializer { get; private set; }
+
+        /// <summary>
+        /// 当前挂载的物理传输层组件。
+        /// </summary>
         public INetworkTransport Transport { get; private set; }
 
         private NetConfig _netConfig;
@@ -104,6 +115,9 @@ namespace StellarNet.Lite.Runtime
         #endregion
 
         #region ================= 服务端逻辑宿主 =================
+        /// <summary>
+        /// 当前服务端逻辑宿主。
+        /// </summary>
         public ServerApp ServerApp { get; private set; }
 
         public static event Action OnServerStartedEvent;
@@ -162,7 +176,14 @@ namespace StellarNet.Lite.Runtime
         #endregion
 
         #region ================= 客户端逻辑宿主 =================
+        /// <summary>
+        /// 当前客户端逻辑宿主。
+        /// </summary>
         public ClientApp ClientApp { get; private set; }
+
+        /// <summary>
+        /// 当前客户端网络质量监控器。
+        /// </summary>
         public ClientNetworkMonitor NetworkMonitor { get; private set; }
         private Coroutine _reconnectCoroutine;
 

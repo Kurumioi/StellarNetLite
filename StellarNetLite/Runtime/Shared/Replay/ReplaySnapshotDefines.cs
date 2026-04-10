@@ -4,39 +4,87 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Shared.Replay
 {
+    /// <summary>
+    /// 录像帧类型。
+    /// </summary>
     public enum ReplayFrameKind : byte
     {
         None = 0,
         Message = 1,
-        ObjectSnapshot = 2 // 现已升级为通用组件快照帧
+        ObjectSnapshot = 2
     }
 
+    /// <summary>
+    /// 录像格式常量定义。
+    /// </summary>
     public static class ReplayFormatDefines
     {
+        /// <summary>
+        /// 录像文件魔数。
+        /// </summary>
         public const uint MagicBytes = 0x50455253;
+
+        /// <summary>
+        /// 旧版录像格式版本号。
+        /// </summary>
         public const byte VersionLegacy = 2;
+
+        /// <summary>
+        /// 支持组件快照的录像格式版本号。
+        /// </summary>
         public const byte VersionWithObjectSnapshot = 3;
+
+        /// <summary>
+        /// 旧格式缺少总 Tick 时使用的默认回退值。
+        /// </summary>
         public const int DefaultTotalTicksFallback = 108000;
     }
 
-    // 核心解耦：服务端快照提供者接口
+    /// <summary>
+    /// 服务端快照提供者接口。
+    /// </summary>
     public interface IReplaySnapshotProvider
     {
+        /// <summary>
+        /// 当前组件导出的快照组件 Id。
+        /// </summary>
         int SnapshotComponentId { get; }
+
+        /// <summary>
+        /// 导出当前组件快照。
+        /// </summary>
         byte[] ExportSnapshot();
     }
 
-    // 核心解耦：客户端快照消费者接口
+    /// <summary>
+    /// 客户端快照消费者接口。
+    /// </summary>
     public interface IReplaySnapshotConsumer
     {
+        /// <summary>
+        /// 当前组件负责消费的快照组件 Id。
+        /// </summary>
         int SnapshotComponentId { get; }
+
+        /// <summary>
+        /// 应用来自录像流的组件快照。
+        /// </summary>
         void ApplySnapshot(byte[] payload);
     }
 
-    // 通用组件快照数据块
+    /// <summary>
+    /// 单个组件的快照数据块。
+    /// </summary>
     public struct ComponentSnapshotData
     {
+        /// <summary>
+        /// 快照所属组件 Id。
+        /// </summary>
         public int ComponentId;
+
+        /// <summary>
+        /// 组件快照原始负载。
+        /// </summary>
         public byte[] Payload;
 
         public void Serialize(BinaryWriter writer)
@@ -68,11 +116,21 @@ namespace StellarNet.Lite.Shared.Replay
         }
     }
 
-    // 升级后的通用快照帧，支持容纳多个业务组件的快照数据
     [Serializable]
+    /// <summary>
+    /// 通用录像快照帧。
+    /// 支持同一 Tick 内记录多个组件的快照负载。
+    /// </summary>
     public sealed class ReplaySnapshotFrame : ILiteNetSerializable
     {
+        /// <summary>
+        /// 当前快照相对开局的 Tick。
+        /// </summary>
         public int Tick;
+
+        /// <summary>
+        /// 当前 Tick 下所有组件快照。
+        /// </summary>
         public ComponentSnapshotData[] ComponentSnapshots = Array.Empty<ComponentSnapshotData>();
 
         public void Serialize(BinaryWriter writer)

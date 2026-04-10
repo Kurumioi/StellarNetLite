@@ -8,7 +8,6 @@ using UnityEngine.UI;
 
 /// <summary>
 /// 录像列表项组件。
-/// 职责：独立管理单个录像的展示、下载进度监听与状态刷新，实现表现层高内聚。
 /// </summary>
 public class Panel_StellarNetLobby_ReplayItem : MonoBehaviour
 {
@@ -27,6 +26,9 @@ public class Panel_StellarNetLobby_ReplayItem : MonoBehaviour
     // 是否正处于下载中。
     private bool _isDownloading;
 
+    /// <summary>
+    /// 初始化录像列表项。
+    /// </summary>
     public void Init(ReplayBriefInfo info, bool isLocalCached)
     {
         if (info == null) return;
@@ -65,6 +67,9 @@ public class Panel_StellarNetLobby_ReplayItem : MonoBehaviour
             .UnRegisterWhenGameObjectDestroyed(gameObject);
     }
 
+    /// <summary>
+    /// 处理按钮点击。
+    /// </summary>
     private void OnActionBtnClick()
     {
         if (_isDownloading) return;
@@ -87,6 +92,9 @@ public class Panel_StellarNetLobby_ReplayItem : MonoBehaviour
         StellarNet.Lite.Client.Modules.ClientReplayModule.RequestDownload(NetClient.App, _replayId);
     }
 
+    /// <summary>
+    /// 处理下载进度事件。
+    /// </summary>
     private void OnDownloadProgress(Local_ReplayDownloadProgress evt)
     {
         if (evt.ReplayId != _replayId) return;
@@ -105,6 +113,9 @@ public class Panel_StellarNetLobby_ReplayItem : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 处理下载结果事件。
+    /// </summary>
     private void OnDownloadResult(S2C_DownloadReplayResult msg)
     {
         if (msg.ReplayId != _replayId) return;

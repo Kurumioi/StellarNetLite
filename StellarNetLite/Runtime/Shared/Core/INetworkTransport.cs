@@ -1,58 +1,111 @@
-﻿using System;
+using System;
 using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Shared.Core
 {
     /// <summary>
-    /// 统一网络传输层抽象接口。
-    /// 架构意图：提供完整的物理层生命周期与收发包契约，彻底隔离底层网络库（如 Mirror、KCP 等），实现业务层与传输层的绝对解耦。
+    /// 统一网络传输层接口。
     /// </summary>
     public interface INetworkTransport
     {
-        #region 服务端物理事件契约
-
+        /// <summary>
+        /// 服务端启动完成事件。
+        /// </summary>
         event Action OnServerStartedEvent;
+
+        /// <summary>
+        /// 服务端停止完成事件。
+        /// </summary>
         event Action OnServerStoppedEvent;
+
+        /// <summary>
+        /// 服务端收到客户端连接事件。
+        /// </summary>
         event Action<int> OnServerClientConnectedEvent;
+
+        /// <summary>
+        /// 服务端收到客户端断开事件。
+        /// </summary>
         event Action<int> OnServerClientDisconnectedEvent;
+
+        /// <summary>
+        /// 服务端收到数据包事件。
+        /// </summary>
         event Action<int, Packet> OnServerReceivePacketEvent;
 
-        #endregion
-
-        #region 客户端物理事件契约
-
+        /// <summary>
+        /// 客户端启动完成事件。
+        /// </summary>
         event Action OnClientStartedEvent;
+
+        /// <summary>
+        /// 客户端停止完成事件。
+        /// </summary>
         event Action OnClientStoppedEvent;
+
+        /// <summary>
+        /// 客户端连接成功事件。
+        /// </summary>
         event Action OnClientConnectedEvent;
+
+        /// <summary>
+        /// 客户端断开连接事件。
+        /// </summary>
         event Action OnClientDisconnectedEvent;
+
+        /// <summary>
+        /// 客户端收到数据包事件。
+        /// </summary>
         event Action<Packet> OnClientReceivePacketEvent;
 
-        #endregion
-
-        #region 物理层主动行为契约
-
-        // 客户端侧调用，发包到服务端。
+        /// <summary>
+        /// 客户端向服务端发送数据包。
+        /// </summary>
         void SendToServer(Packet packet);
 
-        // 服务端侧调用，发包到指定连接。
+        /// <summary>
+        /// 服务端向指定连接发送数据包。
+        /// </summary>
         void SendToClient(int connectionId, Packet packet);
 
-        // 服务端主动断开某个客户端。
+        /// <summary>
+        /// 服务端主动断开指定连接。
+        /// </summary>
         void DisconnectClient(int connectionId);
 
-        // 启动与停止控制。
+        /// <summary>
+        /// 启动服务端。
+        /// </summary>
         void StartServer();
+
+        /// <summary>
+        /// 启动客户端。
+        /// </summary>
         void StartClient();
+
+        /// <summary>
+        /// 启动主机模式。
+        /// </summary>
         void StartHost();
+
+        /// <summary>
+        /// 停止服务端。
+        /// </summary>
         void StopServer();
+
+        /// <summary>
+        /// 停止客户端。
+        /// </summary>
         void StopClient();
 
-        // 获取当前 RTT，供网络监视器展示。
+        /// <summary>
+        /// 获取当前 RTT。
+        /// </summary>
         float GetRTT();
 
-        // 应用逻辑层下发的网络配置（如端口、最大连接数）。
+        /// <summary>
+        /// 应用网络配置。
+        /// </summary>
         void ApplyConfig(NetConfig config);
-
-        #endregion
     }
 }

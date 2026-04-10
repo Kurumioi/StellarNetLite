@@ -5,14 +5,38 @@ using StellarNet.Lite.Shared.Infrastructure;
 namespace StellarNet.Lite.Game.Shared.Protocol
 {
     [NetMsg(1301, NetScope.Room, NetDir.C2S)]
+    /// <summary>
+    /// 社交房间移动请求。
+    /// </summary>
     public sealed class C2S_SocialMoveReq : ILiteNetSerializable
     {
+        /// <summary>
+        /// 当前坐标 X。
+        /// </summary>
         public float PosX;
+        /// <summary>
+        /// 当前坐标 Y。
+        /// </summary>
         public float PosY;
+        /// <summary>
+        /// 当前坐标 Z。
+        /// </summary>
         public float PosZ;
+        /// <summary>
+        /// 当前速度 X。
+        /// </summary>
         public float VelX;
+        /// <summary>
+        /// 当前速度 Y。
+        /// </summary>
         public float VelY;
+        /// <summary>
+        /// 当前速度 Z。
+        /// </summary>
         public float VelZ;
+        /// <summary>
+        /// 当前朝向 Y。
+        /// </summary>
         public float RotY;
 
         public void Serialize(BinaryWriter writer)
@@ -51,8 +75,14 @@ namespace StellarNet.Lite.Game.Shared.Protocol
     }
 
     [NetMsg(1302, NetScope.Room, NetDir.C2S)]
+    /// <summary>
+    /// 社交房间动作请求。
+    /// </summary>
     public sealed class C2S_SocialActionReq : ILiteNetSerializable
     {
+        /// <summary>
+        /// 动作 Id。
+        /// </summary>
         public int ActionId;
 
         public void Serialize(BinaryWriter writer)
@@ -79,8 +109,14 @@ namespace StellarNet.Lite.Game.Shared.Protocol
     }
 
     [NetMsg(1303, NetScope.Room, NetDir.C2S)]
+    /// <summary>
+    /// 社交房间气泡请求。
+    /// </summary>
     public sealed class C2S_SocialBubbleReq : ILiteNetSerializable
     {
+        /// <summary>
+        /// 气泡文本内容。
+        /// </summary>
         public string Content;
 
         public void Serialize(BinaryWriter writer)
@@ -107,9 +143,18 @@ namespace StellarNet.Lite.Game.Shared.Protocol
     }
 
     [NetMsg(1304, NetScope.Room, NetDir.S2C)]
+    /// <summary>
+    /// 社交房间气泡同步。
+    /// </summary>
     public sealed class S2C_SocialBubbleSync : ILiteNetSerializable
     {
+        /// <summary>
+        /// 目标实体 NetId。
+        /// </summary>
         public int NetId;
+        /// <summary>
+        /// 气泡文本内容。
+        /// </summary>
         public string Content;
 
         public void Serialize(BinaryWriter writer)

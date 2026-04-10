@@ -13,6 +13,9 @@ using UnityEngine;
 namespace StellarNet.Lite.Transports.TCP
 {
     [DisallowMultipleComponent]
+    /// <summary>
+    /// 基于 TcpClient/TcpListener 的 TCP 传输层实现。
+    /// </summary>
     public class TcpTransportProvider : MonoBehaviour, INetworkTransport
     {
         public event Action OnServerStartedEvent;
@@ -32,6 +35,9 @@ namespace StellarNet.Lite.Transports.TCP
         private CancellationTokenSource _serverCts;
         private int _connectionIdCounter = 0;
 
+        /// <summary>
+        /// 服务端侧的 TCP 连接包装。
+        /// </summary>
         private class TcpConnection
         {
             public int Id;

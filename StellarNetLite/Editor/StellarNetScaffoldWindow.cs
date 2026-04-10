@@ -5,25 +5,51 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Editor
 {
+    /// <summary>
+    /// 业务脚手架生成器窗口。
+    /// </summary>
     public sealed class StellarNetScaffoldWindow : EditorWindow
     {
+        /// <summary>
+        /// 脚手架业务类型。
+        /// </summary>
         private enum ScaffoldBusinessType
         {
             RoomComponent = 0,
             GlobalModule = 1
         }
 
+        // 默认输出根目录。
         private const string DefaultOutputRoot = "Assets/Scripts/Game";
+
+        // 默认基础命名空间。
         private const string DefaultBaseNamespace = "StellarNetLite";
+
+        // 脚手架模板目录。
         private const string TemplatesPath = "Assets/StellarNetLite/Editor/Templates/";
 
+        // 当前脚手架业务类型。
         private ScaffoldBusinessType _businessType = ScaffoldBusinessType.RoomComponent;
+
+        // 当前前置命名空间。
         private string _namespacePrefix = string.Empty;
+
+        // 当前输出根目录。
         private string _outputRoot = DefaultOutputRoot;
+
+        // 当前功能名。
         private string _featureName = "NewFeature";
+
+        // 当前显示名。
         private string _displayName = "新功能模块";
+
+        // 当前房间组件 Id。
         private int _componentId = 10;
+
+        // 当前 C2S 协议 Id。
         private int _c2sMsgId = 10000;
+
+        // 当前 S2C 协议 Id。
         private int _s2cMsgId = 10001;
 
         [MenuItem("StellarNetLite/业务脚手架生成器")]
@@ -34,6 +60,9 @@ namespace StellarNet.Lite.Editor
             window.Show();
         }
 
+        /// <summary>
+        /// 绘制脚手架生成窗口。
+        /// </summary>
         private void OnGUI()
         {
             EditorGUILayout.Space(8f);
@@ -76,6 +105,9 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 生成业务脚手架源码。
+        /// </summary>
         private void GenerateScaffold()
         {
             string fullNamespace = string.IsNullOrEmpty(_namespacePrefix) ? DefaultBaseNamespace : $"{_namespacePrefix}.{DefaultBaseNamespace}";
@@ -120,6 +152,9 @@ namespace StellarNet.Lite.Editor
             EditorUtility.DisplayDialog("生成完成", $"业务脚手架生成成功！\n请检查目录: {_outputRoot}", "确定");
         }
 
+        /// <summary>
+        /// 替换模板占位符。
+        /// </summary>
         private string ReplacePlaceholders(string template, string fullNamespace, string scope)
         {
             return template
@@ -132,6 +167,9 @@ namespace StellarNet.Lite.Editor
                 .Replace("#SCOPE#", scope);
         }
 
+        /// <summary>
+        /// 读取指定模板文件。
+        /// </summary>
         private string LoadTemplate(string fileName)
         {
             string path = Path.Combine(TemplatesPath, fileName);
@@ -144,6 +182,9 @@ namespace StellarNet.Lite.Editor
             return File.ReadAllText(path);
         }
 
+        /// <summary>
+        /// 写入生成后的源码文件。
+        /// </summary>
         private void WriteFile(string path, string content)
         {
             string dir = Path.GetDirectoryName(path);

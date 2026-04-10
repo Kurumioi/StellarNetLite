@@ -6,6 +6,10 @@ using StellarNet.Lite.Client.Core.Events;
 namespace StellarNet.Lite.Client.Modules
 {
     [ClientModule("ClientRoomModule", "客户端房间生命周期模块")]
+    /// <summary>
+    /// 客户端房间生命周期模块。
+    /// 负责处理进房、离房和房间装配完成后的进入事件。
+    /// </summary>
     public sealed class ClientRoomModule
     {
         private readonly ClientApp _app;

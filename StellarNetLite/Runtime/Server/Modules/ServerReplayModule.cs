@@ -11,12 +11,34 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Server.Modules
 {
+    /// <summary>
+    /// 单个会话的录像下载任务。
+    /// </summary>
     public class ReplayDownloadTask : IDisposable
     {
+        /// <summary>
+        /// 当前下载中的录像 Id。
+        /// </summary>
         public string ReplayId;
+
+        /// <summary>
+        /// 当前打开的录像文件流。
+        /// </summary>
         public FileStream FS;
+
+        /// <summary>
+        /// 录像总字节数。
+        /// </summary>
         public long TotalLength;
+
+        /// <summary>
+        /// 当前已发送到的偏移。
+        /// </summary>
         public long CurrentOffset;
+
+        /// <summary>
+        /// 最近活跃时间。
+        /// </summary>
         public DateTime LastActiveTimeUtc;
 
         public void Dispose()
@@ -27,6 +49,10 @@ namespace StellarNet.Lite.Server.Modules
     }
 
     [ServerModule("ServerReplayModule", "录像下载与分发模块")]
+    /// <summary>
+    /// 服务端录像模块。
+    /// 负责录像列表、重命名和分片下载。
+    /// </summary>
     public sealed class ServerReplayModule
     {
         private readonly ServerApp _app;

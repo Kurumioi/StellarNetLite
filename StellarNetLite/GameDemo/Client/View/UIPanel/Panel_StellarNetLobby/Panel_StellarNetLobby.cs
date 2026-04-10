@@ -11,11 +11,20 @@ using UnityEngine;
 using UnityEngine.UI;
 
 [Serializable]
+/// <summary>
+/// 大厅面板打开数据。
+/// </summary>
 public class Panel_StellarNetLobbyData
 {
+    /// <summary>
+    /// 当前登录账号 Id。
+    /// </summary>
     public string accountId;
 }
 
+/// <summary>
+/// 大厅面板。
+/// </summary>
 public class Panel_StellarNetLobby : UIPanelBase
 {
     [Header("基础信息")] [SerializeField] private TMP_Text accountIdText;

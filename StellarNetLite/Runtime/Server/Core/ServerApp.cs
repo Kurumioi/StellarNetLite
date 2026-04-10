@@ -8,6 +8,9 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Server.Core
 {
+    /// <summary>
+    /// 服务端主状态机。
+    /// </summary>
     public sealed class ServerApp
     {
         public GlobalDispatcher GlobalDispatcher { get; } = new GlobalDispatcher();
@@ -153,7 +156,7 @@ namespace StellarNet.Lite.Server.Core
 
             if (packet.Scope == NetScope.Room)
             {
-                // 核心修复：只有收到房间业务包时，才刷新房间活跃度
+                // 只有收到房间业务包时才刷新房间活跃时间。
                 session.MarkRoomActive(Time.realtimeSinceStartup);
 
                 if (string.IsNullOrEmpty(packet.RoomId) || packet.RoomId != session.CurrentRoomId)

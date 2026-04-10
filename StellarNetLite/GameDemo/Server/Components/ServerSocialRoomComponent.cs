@@ -10,6 +10,9 @@ using UnityEngine;
 namespace StellarNet.Lite.Game.Server.Components
 {
     [RoomComponent(102, "SocialRoom", "简易交友房间")]
+    /// <summary>
+    /// Demo 社交房间服务端组件。
+    /// </summary>
     public sealed class ServerSocialRoomComponent
         : ServerRoomComponent, ITickableComponent
     {
@@ -102,7 +105,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 ServerSyncEntity playerSync = _syncService.GetEntity(kvp.Value);
                 if (playerSync == null) continue;
 
-                // 修复1：恢复服务端的航位推测（Dead Reckoning），让广播出去的坐标无限接近客户端真实位置
+                // 服务端按速度积分位置，降低广播坐标与客户端真实位置的偏差。
                 if (playerSync.Velocity.sqrMagnitude > 0.01f)
                 {
                     playerSync.Position += playerSync.Velocity * deltaTime;
@@ -146,7 +149,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 return;
             }
 
-            // 校验通过：用客户端的绝对精确坐标覆盖服务端的预测坐标，消除累积误差
+            // 校验通过后使用客户端位置覆盖服务端预测位置，消除积分误差。
             playerSync.Position = newPos;
             playerSync.Velocity = newVel;
             playerSync.Rotation = new Vector3(0f, msg.RotY, 0f);

@@ -1,11 +1,13 @@
-﻿using System;
+using StellarNet.Lite.Game.Client.Infrastructure;
+using StellarNet.Lite.Runtime;
+using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.UI;
 using StellarNet.View;
-using StellarNet.Lite.Game.Client.Infrastructure;
-using StellarNet.Lite.Shared.Infrastructure;
-using StellarNet.Lite.Runtime;
 using UnityEngine;
 
+/// <summary>
+/// 网络模式。
+/// </summary>
 public enum ENetMode
 {
     None,
@@ -14,15 +16,32 @@ public enum ENetMode
     Host
 }
 
+/// <summary>
+/// Demo 启动入口。
+/// </summary>
 public class GameLauncher : MonoSingleton<GameLauncher>
 {
-    [SerializeField] private StellarNetAppManager appManager;
+    [SerializeField]
+    private StellarNetAppManager appManager;
+
+    /// <summary>
+    /// 当前启动器持有的应用管理器。
+    /// </summary>
     public static StellarNetAppManager AppManager => Instance != null ? Instance.appManager : null;
 
+    /// <summary>
+    /// 当前启动的网络模式。
+    /// </summary>
     public ENetMode netMode = ENetMode.None;
 
+    /// <summary>
+    /// 当前客户端是否已连接到服务端。
+    /// </summary>
     public bool IsClientConnectedServer { get; private set; }
 
+    /// <summary>
+    /// 初始化启动器。
+    /// </summary>
     protected override void Awake()
     {
         base.Awake();
@@ -33,19 +52,25 @@ public class GameLauncher : MonoSingleton<GameLauncher>
 
         if (appManager == null)
         {
-            NetLogger.LogError("GameLauncher", "Awake 初始化失败: appManager 未绑定");
+            NetLogger.LogError("GameLauncher", "初始化失败: appManager 未绑定");
         }
     }
 
+    /// <summary>
+    /// 启动网络模式。
+    /// </summary>
     private void Start()
     {
-        // 核心修改：监听 AppManager 抛出的物理连接事件
         StellarNetAppManager.OnClientConnectedEvent += OnClientConnected;
         StellarNetAppManager.OnClientDisconnectedEvent += OnClientDisconnected;
 
+        NetLogger.LogInfo("GameLauncher", $"启动流程开始: Mode:{netMode}");
         LauncherNetAsync(netMode);
     }
 
+    /// <summary>
+    /// 销毁启动器。
+    /// </summary>
     protected override void OnDestroy()
     {
         base.OnDestroy();
@@ -53,9 +78,12 @@ public class GameLauncher : MonoSingleton<GameLauncher>
         StellarNetAppManager.OnClientDisconnectedEvent -= OnClientDisconnected;
     }
 
+    /// <summary>
+    /// 处理客户端连接成功事件。
+    /// </summary>
     private void OnClientConnected()
     {
-        // 核心修复：必须先修改状态事实，再通知 UI 刷新！
+        // 先更新连接状态，再刷新 UI。
         IsClientConnectedServer = true;
 
         GlobalUIRouter.Instance.Init();
@@ -63,12 +91,15 @@ public class GameLauncher : MonoSingleton<GameLauncher>
         UIKit.OpenPanel<Panel_GlobalNetMonitor>();
         UIKit.OpenPanel<Panel_StellarNetLogin>();
 
-        NetLogger.LogInfo("GameLauncher", "客户端已连接服务端");
+        NetLogger.LogInfo("GameLauncher", "连接完成");
     }
 
+    /// <summary>
+    /// 处理客户端断开连接事件。
+    /// </summary>
     private void OnClientDisconnected()
     {
-        // 核心修复：先修改状态事实，再通知 UI 刷新！
+        // 先更新连接状态，再通知断线处理。
         IsClientConnectedServer = false;
 
         if (GlobalUIRouter.Instance != null)
@@ -76,48 +107,94 @@ public class GameLauncher : MonoSingleton<GameLauncher>
             GlobalUIRouter.Instance.HandlePhysicalDisconnect();
         }
 
-        NetLogger.LogError("GameLauncher", "客户端已断开服务端");
+        NetLogger.LogWarning("GameLauncher", "连接断开");
     }
 
+    /// <summary>
+    /// 按指定模式启动网络。
+    /// </summary>
     private async void LauncherNetAsync(ENetMode eNetMode)
     {
-        if (eNetMode == ENetMode.None || appManager == null) return;
+        if (eNetMode == ENetMode.None)
+        {
+            NetLogger.LogWarning("GameLauncher", "启动跳过: 未选择网络模式");
+            return;
+        }
 
+        if (appManager == null)
+        {
+            NetLogger.LogError("GameLauncher", "启动失败: appManager 为空");
+            return;
+        }
+
+        NetLogger.LogInfo("GameLauncher", $"加载配置: Root:{ConfigRootPath.StreamingAssets}");
         NetConfig config = await NetConfigLoader.LoadAsync(ConfigRootPath.StreamingAssets);
-        if (config == null) return;
+        if (config == null)
+        {
+            NetLogger.LogError("GameLauncher", "启动失败: 配置加载为空");
+            return;
+        }
 
         appManager.ApplyConfig(config);
+        NetLogger.LogInfo("GameLauncher", $"配置应用完成: Ip:{config.Ip}, Port:{config.Port}, TickRate:{config.TickRate}");
 
         switch (eNetMode)
         {
-            case ENetMode.Client: StartClient(); break;
-            case ENetMode.Server: StartServer(); break;
-            case ENetMode.Host: StartHost(); break;
+            case ENetMode.Client:
+                StartClient();
+                break;
+            case ENetMode.Server:
+                StartServer();
+                break;
+            case ENetMode.Host:
+                StartHost();
+                break;
         }
     }
 
+    /// <summary>
+    /// 启动客户端模式。
+    /// </summary>
     [ContextMenu("启动客户端")]
     public void StartClient()
     {
-        if (appManager != null && appManager.Transport != null)
+        if (appManager == null || appManager.Transport == null)
         {
-            appManager.Transport.StartClient();
+            NetLogger.LogError("GameLauncher", "启动客户端失败: Transport 未就绪");
+            return;
         }
+
+        appManager.Transport.StartClient();
+        NetLogger.LogInfo("GameLauncher", "启动网络模式: Client");
     }
 
+    /// <summary>
+    /// 启动服务端模式。
+    /// </summary>
     private void StartServer()
     {
-        if (appManager != null && appManager.Transport != null)
+        if (appManager == null || appManager.Transport == null)
         {
-            appManager.Transport.StartServer();
+            NetLogger.LogError("GameLauncher", "启动服务端失败: Transport 未就绪");
+            return;
         }
+
+        appManager.Transport.StartServer();
+        NetLogger.LogInfo("GameLauncher", "启动网络模式: Server");
     }
 
+    /// <summary>
+    /// 启动主机模式。
+    /// </summary>
     private void StartHost()
     {
-        if (appManager != null && appManager.Transport != null)
+        if (appManager == null || appManager.Transport == null)
         {
-            appManager.Transport.StartHost();
+            NetLogger.LogError("GameLauncher", "启动主机失败: Transport 未就绪");
+            return;
         }
+
+        appManager.Transport.StartHost();
+        NetLogger.LogInfo("GameLauncher", "启动网络模式: Host");
     }
 }

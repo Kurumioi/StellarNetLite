@@ -10,6 +10,9 @@ using StellarNet.Lite.Shared.Replay;
 
 namespace StellarNet.Lite.Server.Components
 {
+    /// <summary>
+    /// 服务端同步实体。
+    /// </summary>
     public class ServerSyncEntity
     {
         public int NetId;
@@ -28,6 +31,10 @@ namespace StellarNet.Lite.Server.Components
     }
 
     [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
+    /// <summary>
+    /// 服务端对象同步组件。
+    /// 负责实体创建、销毁、周期同步和回放快照导出。
+    /// </summary>
     public sealed class ServerObjectSyncComponent : ServerRoomComponent, ITickableComponent, IReplaySnapshotProvider
     {
         private readonly ServerApp _app;
@@ -86,7 +93,7 @@ namespace StellarNet.Lite.Server.Components
             {
                 ServerSyncEntity entity = kvp.Value;
 
-                // 核心修复：防滑冰判定改为检测 LastRoomActiveRealtime，且阈值缩短至 0.5 秒（约丢失10个移动包）
+                // 房主长期未发送房间业务包时，清空速度以避免滑行残留。
                 if (!string.IsNullOrEmpty(entity.OwnerSessionId))
                 {
                     Session owner = Room.GetMember(entity.OwnerSessionId);

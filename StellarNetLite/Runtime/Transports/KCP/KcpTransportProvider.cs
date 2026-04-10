@@ -11,6 +11,9 @@ using ErrorCode = kcp2k.ErrorCode;
 namespace StellarNet.Lite.Transports.KCP
 {
     [DisallowMultipleComponent]
+    /// <summary>
+    /// 基于 kcp2k 的 KCP 传输层实现。
+    /// </summary>
     public class KcpTransportProvider : MonoBehaviour, INetworkTransport
     {
         #region 物理事件契约

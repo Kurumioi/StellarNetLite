@@ -7,6 +7,9 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
+/// <summary>
+/// 大厅房间列表条目。
+/// </summary>
 public class Panel_StellarNetLobby_RoomItem : MonoBehaviour
 {
     // 房间项展示字段。

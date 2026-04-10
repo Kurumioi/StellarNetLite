@@ -17,8 +17,7 @@ namespace StellarNet.Lite.Editor
     public static class NetPrefabScanner
     {
         /// <summary>
-        /// 我将网络预制体常量表统一输出到生成目录根下，
-        /// 这样客户端通过 prefab hash 反查资源路径时，只依赖这份静态表即可。
+        /// 网络预制体常量表输出路径。
         /// </summary>
         private const string OutputConstFilePath = "Assets/StellarNetLiteGenerated/NetPrefabConsts.cs";
 

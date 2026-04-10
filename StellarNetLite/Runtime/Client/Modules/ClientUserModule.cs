@@ -6,6 +6,10 @@ using StellarNet.Lite.Shared.Protocol;
 namespace StellarNet.Lite.Client.Modules
 {
     [ClientModule("ClientUserModule", "客户端用户模块")]
+    /// <summary>
+    /// 客户端用户模块。
+    /// 负责登录结果、重连结果和踢下线处理。
+    /// </summary>
     public sealed class ClientUserModule
     {
         private readonly ClientApp _app;

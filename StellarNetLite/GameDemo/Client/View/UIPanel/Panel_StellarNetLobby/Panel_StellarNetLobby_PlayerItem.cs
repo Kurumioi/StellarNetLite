@@ -2,6 +2,9 @@
 using UnityEngine;
 using StellarNet.Lite.Shared.Protocol;
 
+/// <summary>
+/// 大厅在线玩家条目。
+/// </summary>
 public class Panel_StellarNetLobby_PlayerItem : MonoBehaviour
 {
     [SerializeField] private TMP_Text nameText;

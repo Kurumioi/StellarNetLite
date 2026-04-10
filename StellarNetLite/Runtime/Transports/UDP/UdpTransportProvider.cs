@@ -13,6 +13,10 @@ using UnityEngine;
 namespace StellarNet.Lite.Transports.UDP
 {
     [DisallowMultipleComponent]
+    /// <summary>
+    /// 基于 UdpClient 的 UDP 传输层实现。
+    /// 仅用于教学和实验，不适合直接承载生产业务链路。
+    /// </summary>
     public class UdpTransportProvider : MonoBehaviour, INetworkTransport
     {
         public event Action OnServerStartedEvent;

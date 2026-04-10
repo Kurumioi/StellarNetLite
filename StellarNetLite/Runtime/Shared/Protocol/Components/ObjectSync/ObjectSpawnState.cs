@@ -1,51 +1,126 @@
-﻿using System.IO;
+using System.IO;
 using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Shared.ObjectSync
 {
     /// <summary>
-    /// 对象完整生成态共享结构。
-    /// 我把对象生成、重连恢复、回放关键帧恢复共用的字段统一收敛到这里，
-    /// 是为了让完整对象状态只维护一份事实源，避免在线事件、回放结构、本地事件分别复制同样字段。
+    /// 对象完整生成态。
     /// </summary>
     public struct ObjectSpawnState : ILiteNetSerializable
     {
+        /// <summary>
+        /// 当前实体 NetId。
+        /// </summary>
         public int NetId;
+
+        /// <summary>
+        /// 当前实体预制体 Hash。
+        /// </summary>
         public int PrefabHash;
+
+        /// <summary>
+        /// 当前实体同步掩码。
+        /// </summary>
         public byte Mask;
 
+        /// <summary>
+        /// 当前位置 X。
+        /// </summary>
         public float PosX;
+
+        /// <summary>
+        /// 当前位置 Y。
+        /// </summary>
         public float PosY;
+
+        /// <summary>
+        /// 当前位置 Z。
+        /// </summary>
         public float PosZ;
 
+        /// <summary>
+        /// 当前旋转 X。
+        /// </summary>
         public float RotX;
+
+        /// <summary>
+        /// 当前旋转 Y。
+        /// </summary>
         public float RotY;
+
+        /// <summary>
+        /// 当前旋转 Z。
+        /// </summary>
         public float RotZ;
 
+        /// <summary>
+        /// 当前朝向 X。
+        /// </summary>
         public float DirX;
+
+        /// <summary>
+        /// 当前朝向 Y。
+        /// </summary>
         public float DirY;
+
+        /// <summary>
+        /// 当前朝向 Z。
+        /// </summary>
         public float DirZ;
 
+        /// <summary>
+        /// 当前缩放 X。
+        /// </summary>
         public float ScaleX;
+
+        /// <summary>
+        /// 当前缩放 Y。
+        /// </summary>
         public float ScaleY;
+
+        /// <summary>
+        /// 当前缩放 Z。
+        /// </summary>
         public float ScaleZ;
 
+        /// <summary>
+        /// 当前动画状态 Hash。
+        /// </summary>
         public int AnimStateHash;
+
+        /// <summary>
+        /// 当前动画归一化时间。
+        /// </summary>
         public float AnimNormalizedTime;
+
+        /// <summary>
+        /// 第一个动画浮点参数。
+        /// </summary>
         public float FloatParam1;
+
+        /// <summary>
+        /// 第二个动画浮点参数。
+        /// </summary>
         public float FloatParam2;
+
+        /// <summary>
+        /// 第三个动画浮点参数。
+        /// </summary>
         public float FloatParam3;
 
+        /// <summary>
+        /// 当前实体拥有者 SessionId。
+        /// </summary>
         public string OwnerSessionId;
 
         /// <summary>
-        /// 我显式维护二进制顺序，是为了让在线协议和录像关键帧共同依赖同一份稳定布局。
+        /// 序列化完整生成态。
         /// </summary>
         public void Serialize(BinaryWriter writer)
         {
             if (writer == null)
             {
-                NetLogger.LogError("ObjectSpawnState", "序列化失败: writer 为空");
+                NetLogger.LogError("ObjectSpawnState", "序列化失败: Writer 为空");
                 return;
             }
 
@@ -79,14 +154,13 @@ namespace StellarNet.Lite.Shared.ObjectSync
         }
 
         /// <summary>
-        /// 我按与 Serialize 完全一致的顺序回读字段，
-        /// 这样后续扩展完整生成态时，只需要维护这一处共享结构，不需要多处同步补字段。
+        /// 反序列化完整生成态。
         /// </summary>
         public void Deserialize(BinaryReader reader)
         {
             if (reader == null)
             {
-                NetLogger.LogError("ObjectSpawnState", "反序列化失败: reader 为空");
+                NetLogger.LogError("ObjectSpawnState", "反序列化失败: Reader 为空");
                 return;
             }
 
@@ -120,7 +194,7 @@ namespace StellarNet.Lite.Shared.ObjectSync
         }
 
         /// <summary>
-        /// 我提供默认构造入口，是为了避免业务侧漏填缩放时写出零缩放脏数据。
+        /// 创建默认完整生成态。
         /// </summary>
         public static ObjectSpawnState CreateDefault()
         {

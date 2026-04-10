@@ -8,6 +8,9 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
+/// <summary>
+/// 登录与重连确认面板。
+/// </summary>
 public class Panel_StellarNetLogin : UIPanelBase
 {
     [SerializeField] private TMP_InputField accountIpt;

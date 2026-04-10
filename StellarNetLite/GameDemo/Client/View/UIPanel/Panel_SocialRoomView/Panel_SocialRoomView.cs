@@ -22,6 +22,7 @@ public class Panel_SocialRoomView : UIPanelBase
 
     private StellarNet.Lite.Client.Components.Views.ObjectSpawnerView _spawnerView;
     private StellarNet.Lite.Game.Client.Views.SocialRoomInputController _inputController;
+
     private int _localNetId = -1;
     private readonly Dictionary<int, SocialRoomBubbleItem> _activeBubbles = new Dictionary<int, SocialRoomBubbleItem>();
 
@@ -42,15 +43,16 @@ public class Panel_SocialRoomView : UIPanelBase
         if (NetClient.CurrentRoom != null)
         {
             _spawnerView = FindObjectOfType<StellarNet.Lite.Client.Components.Views.ObjectSpawnerView>();
-
             _inputController = gameObject.GetComponent<StellarNet.Lite.Game.Client.Views.SocialRoomInputController>();
             if (_inputController == null) _inputController = gameObject.AddComponent<StellarNet.Lite.Game.Client.Views.SocialRoomInputController>();
+            
             _inputController.Init(NetClient.CurrentRoom);
 
             NetClient.CurrentRoom.NetEventSystem.Register<S2C_SocialBubbleSync>(HandleBubbleSync).UnRegisterWhenMonoDisable(this);
             NetClient.CurrentRoom.NetEventSystem.Register<Local_ObjectSpawned>(HandleObjectSpawned).UnRegisterWhenMonoDisable(this);
+            // 监听房间快照，用于房主顺位时的 UI 动态刷新
+            NetClient.CurrentRoom.NetEventSystem.Register<S2C_RoomSnapshot>(HandleRoomSnapshot).UnRegisterWhenMonoDisable(this);
 
-            // [修复2]：UI 打开时，实体可能已经生成，主动向底层组件查询状态，补偿 _localNetId
             var syncComp = NetClient.CurrentRoom.GetComponent<ClientObjectSyncComponent>();
             if (syncComp != null && NetClient.Session != null)
             {
@@ -65,16 +67,7 @@ public class Panel_SocialRoomView : UIPanelBase
                 }
             }
 
-            var settingsComp = NetClient.CurrentRoom.GetComponent<ClientRoomSettingsComponent>();
-            if (settingsComp != null && NetClient.Session != null &&
-                settingsComp.Members.TryGetValue(NetClient.Session.SessionId, out MemberInfo myInfo))
-            {
-                endGameBtn.gameObject.SetActive(myInfo.IsOwner);
-            }
-            else
-            {
-                endGameBtn.gameObject.SetActive(false);
-            }
+            RefreshOwnerUI();
         }
 
         bool isReplay = NetClient.State == ClientAppState.ReplayRoom;
@@ -86,7 +79,6 @@ public class Panel_SocialRoomView : UIPanelBase
     public override void OnClose()
     {
         base.OnClose();
-        // 注意：这里不再调用 _spawnerView.Clear()，因为它不属于当前 UI 面板管理
         _spawnerView = null;
         _inputController?.Clear();
         ClearAllBubbles();
@@ -112,6 +104,32 @@ public class Panel_SocialRoomView : UIPanelBase
         if (evt != null) CreateOrUpdateBubble(evt.NetId, evt.Content);
     }
 
+    private void HandleRoomSnapshot(S2C_RoomSnapshot msg)
+    {
+        // 收到快照时，重新评估房主权限
+        RefreshOwnerUI();
+    }
+
+    private void RefreshOwnerUI()
+    {
+        if (NetClient.State == ClientAppState.ReplayRoom)
+        {
+            endGameBtn.gameObject.SetActive(false);
+            return;
+        }
+
+        var settingsComp = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
+        if (settingsComp != null && NetClient.Session != null &&
+            settingsComp.Members.TryGetValue(NetClient.Session.SessionId, out MemberInfo myInfo))
+        {
+            endGameBtn.gameObject.SetActive(myInfo.IsOwner);
+        }
+        else
+        {
+            endGameBtn.gameObject.SetActive(false);
+        }
+    }
+
     private void CreateOrUpdateBubble(int netId, string content)
     {
         if (netId <= 0) return;
@@ -123,7 +141,6 @@ public class Panel_SocialRoomView : UIPanelBase
                 existingBubble.UpdateContent(content, 4f);
                 return;
             }
-
             _activeBubbles.Remove(netId);
         }
 
@@ -156,7 +173,6 @@ public class Panel_SocialRoomView : UIPanelBase
         {
             if (kvp.Value != null) Destroy(kvp.Value.gameObject);
         }
-
         _activeBubbles.Clear();
     }
 

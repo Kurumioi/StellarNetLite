@@ -2,12 +2,17 @@
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.Protocol;
 using UnityEngine;
 
 namespace StellarNet.Lite.Client.Modules
 {
     [ClientModule("ClientReplayModule", "客户端回放模块")]
+    /// <summary>
+    /// 客户端回放下载模块。
+    /// 负责拉取录像文件、写入本地缓存并广播下载进度。
+    /// </summary>
     public sealed class ClientReplayModule
     {
         private readonly ClientApp _app;
@@ -15,6 +20,9 @@ namespace StellarNet.Lite.Client.Modules
         private int _expectedTotalBytes;
         private FileStream _fileStream;
 
+        /// <summary>
+        /// 客户端录像缓存目录。
+        /// </summary>
         public static string CacheFolderPath => Path.Combine(Application.persistentDataPath, "ClientReplays").Replace("\\", "/");
 
         public ClientReplayModule(ClientApp app)
@@ -40,11 +48,13 @@ namespace StellarNet.Lite.Client.Modules
 
             if (File.Exists(finalPath))
             {
+                NetLogger.LogInfo("ClientReplayModule", $"录像已存在本地缓存，直接复用。ReplayId:{replayId}");
                 GlobalTypeNetEvent.Broadcast(new S2C_DownloadReplayResult { Success = true, ReplayId = replayId, ReplayFileData = finalPath });
                 return;
             }
 
             int startOffset = File.Exists(tmpPath) ? (int)new FileInfo(tmpPath).Length : 0;
+            NetLogger.LogInfo("ClientReplayModule", $"请求下载录像。ReplayId:{replayId}, StartOffset:{startOffset}");
             app.SendMessage(new C2S_DownloadReplay { ReplayId = replayId, StartOffset = startOffset });
         }
 
@@ -66,6 +76,8 @@ namespace StellarNet.Lite.Client.Modules
             EnsureCacheFolderExists();
             _downloadingReplayId = msg.ReplayId ?? string.Empty;
             _expectedTotalBytes = msg.TotalBytes;
+            NetLogger.LogInfo("ClientReplayModule",
+                $"录像下载开始。ReplayId:{_downloadingReplayId}, AcceptedOffset:{msg.AcceptedOffset}, TotalBytes:{_expectedTotalBytes}");
 
             string tmpPath = Path.Combine(CacheFolderPath, $"{_downloadingReplayId}.tmp").Replace("\\", "/");
             if (msg.AcceptedOffset == 0 && File.Exists(tmpPath)) File.Delete(tmpPath);
@@ -114,6 +126,7 @@ namespace StellarNet.Lite.Client.Modules
 
             _downloadingReplayId = string.Empty;
             _expectedTotalBytes = 0;
+            NetLogger.LogInfo("ClientReplayModule", $"录像下载完成。ReplayId:{replayId}, File:{finalPath}");
             GlobalTypeNetEvent.Broadcast(new S2C_DownloadReplayResult { Success = true, ReplayId = replayId, ReplayFileData = finalPath });
         }
 
@@ -122,6 +135,7 @@ namespace StellarNet.Lite.Client.Modules
             CloseFileStream();
             _downloadingReplayId = string.Empty;
             _expectedTotalBytes = 0;
+            NetLogger.LogError("ClientReplayModule", $"录像下载失败。ReplayId:{replayId}, Reason:{reason}");
             GlobalTypeNetEvent.Broadcast(new S2C_DownloadReplayResult { Success = false, ReplayId = replayId ?? string.Empty, Reason = reason });
         }
 

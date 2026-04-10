@@ -9,6 +9,10 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Server.Infrastructure
 {
+    /// <summary>
+    /// 服务端录像存储器。
+    /// 负责录制帧、保存成品录像和滚动清理。
+    /// </summary>
     public static class ServerReplayStorage
     {
         public const string ReplayFolderName = "Replays";

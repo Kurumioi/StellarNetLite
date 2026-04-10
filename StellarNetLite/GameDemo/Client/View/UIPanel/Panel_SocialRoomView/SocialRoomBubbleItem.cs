@@ -2,21 +2,27 @@
 using UnityEngine;
 
 /// <summary>
-/// 纯粹的业务表现层脚本：仅负责气泡文本的渲染与生命周期倒计时销毁。
-/// 坐标跟随职责已完全剥离至 UGUIFollowTarget。
+/// 聊天气泡项。
 /// </summary>
 public class SocialRoomBubbleItem : MonoBehaviour
 {
-    [Header("UI 引用")] [Tooltip("用于显示聊天内容的文本组件")]
+    /// <summary>
+    /// 用于显示聊天内容的文本组件。
+    /// </summary>
+    [Header("UI 引用")]
+    [Tooltip("用于显示聊天内容的文本组件")]
     public TextMeshProUGUI contentText;
 
     // 剩余显示时间。
     private float _remainTime;
     private bool _isActive;
 
+    /// <summary>
+    /// 初始化气泡内容和持续时间。
+    /// </summary>
     public void Init(string content, float duration)
     {
-        // 初始化阶段只确保文本引用可用，然后复用更新逻辑。
+        // 先确保文本组件可用，再复用更新逻辑。
         if (contentText == null)
         {
             contentText = GetComponentInChildren<TextMeshProUGUI>();
@@ -30,6 +36,9 @@ public class SocialRoomBubbleItem : MonoBehaviour
         UpdateContent(content, duration);
     }
 
+    /// <summary>
+    /// 更新气泡内容和持续时间。
+    /// </summary>
     public void UpdateContent(string content, float duration)
     {
         // 刷新文本并重置寿命。
@@ -42,6 +51,9 @@ public class SocialRoomBubbleItem : MonoBehaviour
         _isActive = true;
     }
 
+    /// <summary>
+    /// 按帧刷新气泡生命周期。
+    /// </summary>
     private void Update()
     {
         if (!_isActive) return;

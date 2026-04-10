@@ -9,8 +9,6 @@ namespace StellarNet.Lite.Editor
 {
     /// <summary>
     /// 网络配置编辑器窗口。
-    /// 我把它收敛成带脏状态和保存结果语义的工具窗口，是为了让配置编辑流程具备更稳定的可见性，
-    /// 避免开发者在 StreamingAssets 与 PersistentDataPath 之间切换时，对当前配置来源和保存结果产生误判。
     /// </summary>
     public sealed class NetConfigEditorWindow : EditorWindow
     {

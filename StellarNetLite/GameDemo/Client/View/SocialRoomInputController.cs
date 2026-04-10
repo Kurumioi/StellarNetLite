@@ -10,6 +10,9 @@ using UnityEngine.EventSystems;
 
 namespace StellarNet.Lite.Game.Client.Views
 {
+    /// <summary>
+    /// 社交房间输入控制器。
+    /// </summary>
     public class SocialRoomInputController : MonoBehaviour
     {
         private ClientRoom _boundRoom;

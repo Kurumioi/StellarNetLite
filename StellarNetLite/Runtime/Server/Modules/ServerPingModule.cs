@@ -5,6 +5,10 @@ using StellarNet.Lite.Shared.Protocol;
 namespace StellarNet.Lite.Server.Modules
 {
     [ServerModule("ServerPingModule", "全局延迟心跳模块")]
+    /// <summary>
+    /// 服务端 Ping 模块。
+    /// 负责原样回包 Pong。
+    /// </summary>
     public sealed class ServerPingModule
     {
         private readonly ServerApp _app;
