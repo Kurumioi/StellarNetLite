@@ -2,6 +2,7 @@
 using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
+using StellarNet.Lite.Server.Infrastructure;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
 using UnityEngine;
@@ -14,6 +15,7 @@ namespace StellarNet.Lite.Server.Core
     public sealed class ServerApp
     {
         public GlobalDispatcher GlobalDispatcher { get; } = new GlobalDispatcher();
+        public ServerPersistenceRuntime PersistenceRuntime { get; } = new ServerPersistenceRuntime();
         public IReadOnlyDictionary<string, Room> Rooms => _rooms;
         public IReadOnlyDictionary<string, Session> Sessions => _sessions;
         public NetConfig Config { get; }

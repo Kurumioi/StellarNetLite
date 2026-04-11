@@ -28,6 +28,7 @@ namespace StellarNet.Lite.Server.Infrastructure
     {
         private const int MaxCachedLogEntries = 10000;
         private static readonly TimeSpan LogRetentionWindow = TimeSpan.FromDays(30);
+        private static readonly TimeSpan PersistenceShutdownWaitSlice = TimeSpan.FromSeconds(5);
 
         private sealed class LogRecord
         {
@@ -297,7 +298,7 @@ namespace StellarNet.Lite.Server.Infrastructure
         {
             PrintLine("+------------------------------------------------------------------------------+");
             PrintLine("| StellarNet Lite Headless Server Console                                      |");
-            PrintLine("| Type 'help' to view status, rooms, sessions, logs and diagnostics commands.  |");
+            PrintLine("| Type 'help' to view status, rooms, sessions, logs and persist commands.      |");
             PrintLine("+------------------------------------------------------------------------------+");
         }
 
@@ -326,6 +327,56 @@ namespace StellarNet.Lite.Server.Infrastructure
 
             if (serverApp != null)
             {
+                ServerPersistenceRuntime persistenceRuntime = serverApp.PersistenceRuntime;
+                persistenceRuntime.BeginShutdown();
+                PrintLine("Persistence runtime entered shutdown mode. New tracked tasks are blocked by default.");
+
+                int joinPendingCount = persistenceRuntime.JoinOnShutdownPendingCount;
+                if (joinPendingCount > 0)
+                {
+                    PrintLine($"Waiting for {joinPendingCount} tracked persistence task(s) before room cleanup...");
+                    PrintPersistenceEntries(
+                        persistenceRuntime.SnapshotPending()
+                            .Where(info => info != null && info.JoinOnShutdown)
+                            .ToArray());
+
+                    while (true)
+                    {
+                        Task<PersistenceDrainResult> drainTask = persistenceRuntime.WaitForIdleAsync(PersistenceShutdownWaitSlice);
+                        while (!drainTask.IsCompleted)
+                        {
+                            yield return null;
+                        }
+
+                        if (drainTask.IsFaulted)
+                        {
+                            Exception ex = drainTask.Exception != null ? drainTask.Exception.GetBaseException() : null;
+                            PrintLine($"Persistence wait failed: {(ex != null ? ex.Message : "Unknown error")}. Shutdown will continue.");
+                            break;
+                        }
+
+                        if (drainTask.IsCanceled)
+                        {
+                            PrintLine("Persistence wait was canceled unexpectedly. Shutdown will continue.");
+                            break;
+                        }
+
+                        PersistenceDrainResult drainResult = drainTask.Result;
+                        if (drainResult.Completed)
+                        {
+                            PrintLine("Tracked persistence tasks completed.");
+                            break;
+                        }
+
+                        PrintLine($"Still waiting for {drainResult.PendingCount} tracked persistence task(s)...");
+                        PrintPersistenceEntries(drainResult.Pending);
+                    }
+                }
+                else
+                {
+                    PrintLine("No tracked persistence tasks require shutdown wait.");
+                }
+
                 Room[] rooms = serverApp.Rooms.Values.Where(room => room != null).ToArray();
                 Session[] sessions = serverApp.Sessions.Values.Where(session => session != null).ToArray();
                 int playingRoomCount = rooms.Count(room => room.State == RoomState.Playing);
@@ -504,6 +555,20 @@ namespace StellarNet.Lite.Server.Infrastructure
                     PrintLogFiles();
                     return;
 
+                case "persist":
+                case "pending":
+                    if (args.Count > 1)
+                    {
+                        PrintUsage("persist");
+                        return;
+                    }
+
+                    if (TryEnsureServerApp(out _, out ServerApp persistenceApp))
+                    {
+                        PrintPersistenceStatus(persistenceApp);
+                    }
+                    return;
+
                 case "gc":
                     if (TryEnsureServerApp(out StellarNetAppManager gcManager, out ServerApp gcApp))
                     {
@@ -544,8 +609,9 @@ namespace StellarNet.Lite.Server.Infrastructure
                 new[] { "logs [count]", "Show recent in-memory error logs as a table." },
                 new[] { "findlog <keyword> [limit]", "Search recent and retained error logs, then print details." },
                 new[] { "logfiles", "List retained log files within the last 30 days." },
+                new[] { "persist / pending", "Show tracked async persistence tasks and shutdown wait state." },
                 new[] { "gc", "Trigger one immediate server GC tick." },
-                new[] { "exit", "Gracefully stop the server, cleanup rooms, then exit the process." }
+                new[] { "exit", "Wait tracked persistence tasks, cleanup rooms, then exit the process." }
             };
 
             PrintTable(new[] { "Command", "Description" }, rows);
@@ -627,6 +693,7 @@ namespace StellarNet.Lite.Server.Infrastructure
             int offlineCount = sessions.Length - onlineCount;
             TimeSpan uptime = DateTime.UtcNow - _startupTimeUtc;
             FileInfo[] retainedFiles = GetRetainedLogFiles();
+            ServerPersistenceRuntime persistenceRuntime = serverApp.PersistenceRuntime;
 
             var rows = new List<string[]>
             {
@@ -643,12 +710,61 @@ namespace StellarNet.Lite.Server.Infrastructure
                 new[] { "EmptyRoomTimeoutMin", serverApp.Config != null ? serverApp.Config.EmptyRoomTimeoutMinutes.ToString() : "-" },
                 new[] { "OfflineLobbyTimeoutMin", serverApp.Config != null ? serverApp.Config.OfflineTimeoutLobbyMinutes.ToString() : "-" },
                 new[] { "OfflineRoomTimeoutMin", serverApp.Config != null ? serverApp.Config.OfflineTimeoutRoomMinutes.ToString() : "-" },
+                new[] { "PersistencePending", persistenceRuntime.PendingCount.ToString() },
+                new[] { "PersistenceJoinOnShutdown", persistenceRuntime.JoinOnShutdownPendingCount.ToString() },
+                new[] { "PersistenceShutdownMode", persistenceRuntime.IsShuttingDown ? "Yes" : "No" },
                 new[] { "CurrentLogFile", string.IsNullOrEmpty(_logFilePath) ? "-" : _logFilePath },
                 new[] { "RetainedLogFiles", retainedFiles.Length.ToString() },
                 new[] { "RecentLogCache", $"{Volatile.Read(ref _recentLogCount)}/{MaxCachedLogEntries}" }
             };
 
             PrintTable(new[] { "Metric", "Value" }, rows);
+        }
+
+        private void PrintPersistenceStatus(ServerApp serverApp)
+        {
+            ServerPersistenceRuntime persistenceRuntime = serverApp.PersistenceRuntime;
+            var summaryRows = new List<string[]>
+            {
+                new[] { "ShutdownMode", persistenceRuntime.IsShuttingDown ? "Yes" : "No" },
+                new[] { "Pending", persistenceRuntime.PendingCount.ToString() },
+                new[] { "JoinOnShutdownPending", persistenceRuntime.JoinOnShutdownPendingCount.ToString() }
+            };
+
+            PrintTable(new[] { "Metric", "Value" }, summaryRows);
+            PrintPersistenceEntries(persistenceRuntime.SnapshotPending());
+        }
+
+        private void PrintPersistenceEntries(IReadOnlyList<PersistencePendingInfo> pendingInfos)
+        {
+            var rows = new List<string[]>();
+            IReadOnlyList<PersistencePendingInfo> safePendingInfos = pendingInfos ?? Array.Empty<PersistencePendingInfo>();
+            for (int i = 0; i < safePendingInfos.Count; i++)
+            {
+                PersistencePendingInfo info = safePendingInfos[i];
+                if (info == null)
+                {
+                    continue;
+                }
+
+                string taskId = info.Id.ToString("N");
+                rows.Add(new[]
+                {
+                    taskId.Substring(0, Math.Min(taskId.Length, 8)),
+                    info.Owner,
+                    info.Operation,
+                    info.JoinOnShutdown ? "Yes" : "No",
+                    info.StartUtc.ToString("yyyy-MM-dd HH:mm:ss"),
+                    info.Elapsed.TotalSeconds.ToString("F1")
+                });
+            }
+
+            if (rows.Count == 0)
+            {
+                rows.Add(new[] { "-", "-", "-", "-", "-", "-" });
+            }
+
+            PrintTable(new[] { "TaskId", "Owner", "Operation", "JoinOnShutdown", "StartUtc", "ElapsedSec" }, rows);
         }
 
         private void PrintRoomsTable(ServerApp serverApp)
