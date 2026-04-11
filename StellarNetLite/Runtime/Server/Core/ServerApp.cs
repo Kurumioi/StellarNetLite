@@ -28,6 +28,7 @@ namespace StellarNet.Lite.Server.Core
         private readonly Dictionary<int, Session> _connectionToSession = new Dictionary<int, Session>();
         private readonly Dictionary<string, Session> _accountToSession = new Dictionary<string, Session>();
         private readonly Dictionary<string, Room> _rooms = new Dictionary<string, Room>();
+        private readonly HashSet<int> _unauthenticatedGlobalMsgIds = new HashSet<int>();
         #endregion
 
         private readonly List<string> _gcRoomCache = new List<string>();
@@ -150,6 +151,30 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            if (!session.IsAuthenticated)
+            {
+                if (packet.Scope != NetScope.Global)
+                {
+                    NetLogger.LogWarning(
+                        "ServerApp",
+                        $"未鉴权会话禁止访问房间域协议, MsgId:{packet.MsgId}, Scope:{packet.Scope}",
+                        packet.RoomId,
+                        session.SessionId,
+                        $"ConnId:{connectionId}");
+                    return;
+                }
+
+                if (!_unauthenticatedGlobalMsgIds.Contains(packet.MsgId))
+                {
+                    NetLogger.LogWarning(
+                        "ServerApp",
+                        $"未鉴权会话禁止访问全局协议, MsgId:{packet.MsgId}",
+                        sessionId: session.SessionId,
+                        extraContext: $"ConnId:{connectionId}");
+                    return;
+                }
+            }
+
             if (packet.Scope == NetScope.Global)
             {
                 GlobalDispatcher.Dispatch(session, packet);
@@ -261,6 +286,18 @@ namespace StellarNet.Lite.Server.Core
             if (_isDisposed || string.IsNullOrEmpty(roomId)) return null;
             _rooms.TryGetValue(roomId, out Room room);
             return room;
+        }
+
+        public void RegisterUnauthenticatedGlobalProtocol(int msgId)
+        {
+            if (_isDisposed) return;
+            if (msgId <= 0)
+            {
+                NetLogger.LogError("ServerApp", $"注册未鉴权协议失败: MsgId 非法, MsgId:{msgId}");
+                return;
+            }
+
+            _unauthenticatedGlobalMsgIds.Add(msgId);
         }
 
         #endregion

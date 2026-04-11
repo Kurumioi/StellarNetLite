@@ -132,6 +132,7 @@ namespace StellarNet.Lite.Runtime
             }
 
             ServerApp = new ServerApp(Transport, Serializer, _netConfig);
+            ServerApp.RegisterUnauthenticatedGlobalProtocol(MsgIdConst.C2S_Login);
             Func<byte[], int, int, Type, object> deserializeFunc = Serializer.Deserialize;
             AutoRegistry.RegisterServer(ServerApp, deserializeFunc);
 

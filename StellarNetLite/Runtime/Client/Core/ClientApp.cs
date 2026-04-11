@@ -1,4 +1,5 @@
 ﻿using System;
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using StellarNet.Lite.Client.Core.Events;
@@ -50,10 +51,17 @@ namespace StellarNet.Lite.Client.Core
         /// </summary>
         public bool IsNetworkBlocked { get; set; }
 
+        /// <summary>
+        /// 当前在线房间是否已经收到最终确认。
+        /// </summary>
+        public bool IsCurrentRoomConfirmed => _isCurrentRoomConfirmed;
+
         private readonly INetworkTransport _transport;
         private readonly INetSerializer _serializer;
+        private readonly List<Action> _disposeCallbacks = new List<Action>();
         private uint _sendSeq;
         private bool _isDisposed;
+        private bool _isCurrentRoomConfirmed;
 
         // 使用注册表维护弱网豁免消息，避免在底层写死协议 Id。
         private readonly HashSet<int> _weakNetBypassMsgIds = new HashSet<int>();
@@ -76,15 +84,42 @@ namespace StellarNet.Lite.Client.Core
             _isDisposed = true;
             NetLogger.LogWarning("ClientApp", "执行 ClientApp 深度销毁与资源回收");
             GlobalTypeNetEvent.Broadcast(new Local_ConnectionAborted());
+            ExecuteDisposeCallbacks();
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
                 CurrentRoom = null;
             }
+            _isCurrentRoomConfirmed = false;
             Session.Clear();
             GlobalDispatcher.Clear();
             _weakNetBypassMsgIds.Clear();
             NetLogger.LogInfo("ClientApp", "ClientApp 资源回收完成");
+        }
+
+        public void RegisterDisposeCallback(Action callback)
+        {
+            if (_isDisposed || callback == null)
+            {
+                return;
+            }
+
+            _disposeCallbacks.Add(callback);
+        }
+
+        public bool ConfirmCurrentRoom(string roomId)
+        {
+            if (_isDisposed ||
+                State != ClientAppState.OnlineRoom ||
+                CurrentRoom == null ||
+                string.IsNullOrEmpty(roomId) ||
+                CurrentRoom.RoomId != roomId)
+            {
+                return false;
+            }
+
+            _isCurrentRoomConfirmed = true;
+            return true;
         }
 
         public void OnReceivePacket(Packet packet)
@@ -167,6 +202,7 @@ namespace StellarNet.Lite.Client.Core
                 CurrentRoom = null;
             }
             CurrentRoom = newRoom;
+            _isCurrentRoomConfirmed = false;
             Session.BindRoom(roomId);
             NetLogger.LogInfo("ClientApp", $"已进入在线房间。RoomId:{roomId}");
         }
@@ -203,6 +239,7 @@ namespace StellarNet.Lite.Client.Core
                 CurrentRoom = null;
             }
             CurrentRoom = newRoom;
+            _isCurrentRoomConfirmed = true;
             NetLogger.LogInfo("ClientApp", $"已进入回放房间。RoomId:{roomId}");
         }
 
@@ -221,6 +258,7 @@ namespace StellarNet.Lite.Client.Core
                 CurrentRoom = null;
                 GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSuspended = false, IsSilent = silent });
             }
+            _isCurrentRoomConfirmed = false;
             Session.UnbindRoom();
             TryChangeState(ClientAppState.InLobby);
             NetLogger.LogInfo("ClientApp", $"已离开房间。RoomId:{roomId}, Silent:{silent}");
@@ -246,6 +284,7 @@ namespace StellarNet.Lite.Client.Core
                 CurrentRoom = null;
                 GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSuspended = true, IsSilent = false });
             }
+            _isCurrentRoomConfirmed = false;
             Session.IsPhysicalOnline = false;
             Session.LastDisconnectRealtime = DateTime.UtcNow;
             TryChangeState(ClientAppState.ConnectionSuspended);
@@ -267,6 +306,7 @@ namespace StellarNet.Lite.Client.Core
                 CurrentRoom = null;
                 GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSuspended = false, IsSilent = false });
             }
+            _isCurrentRoomConfirmed = false;
             Session.Clear();
             TryChangeState(ClientAppState.InLobby);
             NetLogger.LogWarning("ClientApp", "连接已执行硬中止并回到大厅态");
@@ -293,7 +333,7 @@ namespace StellarNet.Lite.Client.Core
             string roomId = string.Empty;
             if (meta.Scope == NetScope.Room)
             {
-                if (State != ClientAppState.OnlineRoom || CurrentRoom == null) return;
+                if (State != ClientAppState.OnlineRoom || CurrentRoom == null || !_isCurrentRoomConfirmed) return;
                 roomId = CurrentRoom.RoomId;
                 if (string.IsNullOrEmpty(roomId)) return;
             }
@@ -311,6 +351,29 @@ namespace StellarNet.Lite.Client.Core
             {
                 ArrayPool<byte>.Shared.Return(buffer);
             }
+        }
+
+        private void ExecuteDisposeCallbacks()
+        {
+            for (int i = 0; i < _disposeCallbacks.Count; i++)
+            {
+                Action callback = _disposeCallbacks[i];
+                if (callback == null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    callback();
+                }
+                catch (Exception ex)
+                {
+                    NetLogger.LogError("ClientApp", $"执行销毁回调失败: {ex.Message}");
+                }
+            }
+
+            _disposeCallbacks.Clear();
         }
     }
 }

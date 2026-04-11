@@ -141,35 +141,68 @@ namespace StellarNet.Lite.Server.Core
             }
         }
 
-        public void AddMember(Session session)
+        public bool AddMember(Session session)
         {
+            return TryAddMember(session, true, out _);
+        }
+
+        public bool TryAddMember(Session session, bool notifyComponents, out string reason)
+        {
+            reason = string.Empty;
             if (_isDestroyed)
             {
                 NetLogger.LogError("Room", $"加入房间失败: 房间已销毁, RoomId:{RoomId}, SessionId:{session?.SessionId ?? "null"}");
-                return;
+                reason = "房间已销毁";
+                return false;
             }
 
             if (session == null)
             {
                 NetLogger.LogError("Room", "加入房间失败: session 为空", RoomId);
-                return;
+                reason = "会话为空";
+                return false;
             }
 
             if (_members.ContainsKey(session.SessionId))
             {
                 NetLogger.LogWarning("Room", $"加入房间跳过: 会话已存在, SessionId:{session.SessionId}", RoomId, session.SessionId);
-                return;
+                reason = "会话已在房间中";
+                return false;
             }
 
             if (State == RoomState.Finished)
             {
                 NetLogger.LogWarning("Room", "拦截加入: 房间已结束", RoomId, session.SessionId);
-                return;
+                reason = "房间已结束";
+                return false;
+            }
+
+            if (_members.Count >= Config.MaxMembers)
+            {
+                NetLogger.LogWarning("Room", $"拦截加入: 房间人数已满, Count:{_members.Count}, Max:{Config.MaxMembers}", RoomId, session.SessionId);
+                reason = "房间人数已满";
+                return false;
             }
 
             _members.Add(session.SessionId, session);
             session.BindRoom(RoomId);
+            session.SetRoomReady(notifyComponents);
             EmptySince = DateTime.MaxValue;
+            if (notifyComponents)
+            {
+                NotifyMemberJoined(session);
+            }
+
+            return true;
+        }
+
+        public void NotifyMemberJoined(Session session)
+        {
+            if (_isDestroyed || session == null || !_members.ContainsKey(session.SessionId))
+            {
+                return;
+            }
+
             for (int i = 0; i < _components.Count; i++)
             {
                 _components[i].OnMemberJoined(session);

@@ -40,6 +40,11 @@ namespace StellarNet.Lite.Server.Core
         public bool IsOnline { get; private set; }
 
         /// <summary>
+        /// 当前会话是否已完成业务鉴权。
+        /// </summary>
+        public bool IsAuthenticated => !string.IsNullOrEmpty(AccountId) && AccountId != "UNAUTH";
+
+        /// <summary>
         /// 当前房间数据是否已准备完成。
         /// </summary>
         public bool IsRoomReady { get; private set; }
