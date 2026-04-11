@@ -1,11 +1,9 @@
 ﻿using System;
-using System;
 using System.Buffers;
 using System.Collections.Generic;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
-using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Client.Core
 {
@@ -45,7 +43,7 @@ namespace StellarNet.Lite.Client.Core
         /// 当前客户端逻辑状态。
         /// </summary>
         public ClientAppState State { get; private set; } = ClientAppState.InLobby;
-        
+
         /// <summary>
         /// 是否进入弱网发送阻断态。
         /// </summary>
@@ -90,6 +88,7 @@ namespace StellarNet.Lite.Client.Core
                 CurrentRoom.Destroy();
                 CurrentRoom = null;
             }
+
             _isCurrentRoomConfirmed = false;
             Session.Clear();
             GlobalDispatcher.Clear();
@@ -130,6 +129,7 @@ namespace StellarNet.Lite.Client.Core
                 GlobalDispatcher.Dispatch(packet);
                 return;
             }
+
             if (packet.Scope == NetScope.Room)
             {
                 if (State == ClientAppState.ReplayRoom || State == ClientAppState.ConnectionSuspended) return;
@@ -158,6 +158,7 @@ namespace StellarNet.Lite.Client.Core
                     isValidTransition = targetState == ClientAppState.InLobby || targetState == ClientAppState.OnlineRoom;
                     break;
             }
+
             if (!isValidTransition)
             {
                 NetLogger.LogWarning("ClientApp", $"状态切换失败: {State} -> {targetState} 非法");
@@ -196,11 +197,13 @@ namespace StellarNet.Lite.Client.Core
                 newRoom.Destroy();
                 return;
             }
+
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
                 CurrentRoom = null;
             }
+
             CurrentRoom = newRoom;
             _isCurrentRoomConfirmed = false;
             Session.BindRoom(roomId);
@@ -233,11 +236,13 @@ namespace StellarNet.Lite.Client.Core
                 newRoom.Destroy();
                 return;
             }
+
             if (CurrentRoom != null)
             {
                 CurrentRoom.Destroy();
                 CurrentRoom = null;
             }
+
             CurrentRoom = newRoom;
             _isCurrentRoomConfirmed = true;
             NetLogger.LogInfo("ClientApp", $"已进入回放房间。RoomId:{roomId}");
@@ -258,6 +263,7 @@ namespace StellarNet.Lite.Client.Core
                 CurrentRoom = null;
                 GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSuspended = false, IsSilent = silent });
             }
+
             _isCurrentRoomConfirmed = false;
             Session.UnbindRoom();
             TryChangeState(ClientAppState.InLobby);
@@ -284,6 +290,7 @@ namespace StellarNet.Lite.Client.Core
                 CurrentRoom = null;
                 GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSuspended = true, IsSilent = false });
             }
+
             _isCurrentRoomConfirmed = false;
             Session.IsPhysicalOnline = false;
             Session.LastDisconnectRealtime = DateTime.UtcNow;
@@ -306,6 +313,7 @@ namespace StellarNet.Lite.Client.Core
                 CurrentRoom = null;
                 GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSuspended = false, IsSilent = false });
             }
+
             _isCurrentRoomConfirmed = false;
             Session.Clear();
             TryChangeState(ClientAppState.InLobby);
