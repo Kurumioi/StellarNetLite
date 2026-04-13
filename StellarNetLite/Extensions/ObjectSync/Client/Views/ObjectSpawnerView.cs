@@ -1,35 +1,38 @@
+using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using StellarNet.Lite.Client.Components.Runtime;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.ObjectSync;
-using StellarNet.Lite.Shared.Protocol;
 using UnityEngine;
 
 namespace StellarNet.Lite.Client.Components.Views
 {
     /// <summary>
     /// 对象生成与销毁视图。
+    /// 负责协调逻辑实体、异步资源加载和最终场景实例化。
     /// </summary>
     public class ObjectSpawnerView : MonoBehaviour
     {
-        // 当前绑定的客户端房间。
+        private sealed class SpawnedEntityEntry
+        {
+            public ObjectSpawnState LatestState;
+            public GameObject Instance;
+            public CancellationTokenSource LoadCts;
+            public Task LoadTask;
+            public NetEntityLoadState LoadState;
+        }
+
         private ClientRoom _room;
-
-        // 当前房间的对象同步组件。
         private ClientObjectSyncComponent _syncService;
-
-        // PrefabHash -> 预制体资源。
-        private readonly Dictionary<int, GameObject> _prefabMap = new Dictionary<int, GameObject>();
-
-        // NetId -> 已生成的场景对象。
-        private readonly Dictionary<int, GameObject> _spawnedObjects = new Dictionary<int, GameObject>();
-
-        // 当前是否已完成初始化。
+        private readonly Dictionary<int, SpawnedEntityEntry> _spawnEntries = new Dictionary<int, SpawnedEntityEntry>();
         private bool _isInitialized;
 
         /// <summary>
-        /// 当前是否已完成初始化。
+        /// 当前是否已经完成初始化。
         /// </summary>
         public bool IsInitialized => _isInitialized;
 
@@ -61,7 +64,6 @@ namespace StellarNet.Lite.Client.Components.Views
             {
                 NetLogger.LogError("ObjectSpawnerView", $"初始化失败: 缺失 ClientObjectSyncComponent, Object:{name}", room.RoomId);
                 _room = null;
-                _syncService = null;
                 _isInitialized = false;
                 return false;
             }
@@ -70,6 +72,7 @@ namespace StellarNet.Lite.Client.Components.Views
             _room.NetEventSystem.Register<Local_ObjectDestroyed>(OnLocalObjectDestroyed);
 
             _isInitialized = true;
+            BootstrapExistingEntities();
             NetLogger.LogInfo("ObjectSpawnerView", "初始化完成", room.RoomId, extraContext: $"Object:{name}");
             return true;
         }
@@ -86,29 +89,22 @@ namespace StellarNet.Lite.Client.Components.Views
                 _room.NetEventSystem.UnRegister<Local_ObjectDestroyed>(OnLocalObjectDestroyed);
             }
 
+            List<int> netIds = new List<int>(_spawnEntries.Keys);
+            for (int i = 0; i < netIds.Count; i++)
+            {
+                CleanupEntity(netIds[i], true);
+            }
+
+            _spawnEntries.Clear();
             _room = null;
             _syncService = null;
             _isInitialized = false;
-
-            foreach (KeyValuePair<int, GameObject> kvp in _spawnedObjects)
-            {
-                if (kvp.Value != null)
-                {
-                    Destroy(kvp.Value);
-                }
-            }
-
-            _spawnedObjects.Clear();
             NetLogger.LogInfo("ObjectSpawnerView", "清理完成", roomId, extraContext: $"Object:{name}");
         }
 
-        /// <summary>
-        /// 销毁时清理所有缓存。
-        /// </summary>
         private void OnDestroy()
         {
             Clear();
-            _prefabMap.Clear();
         }
 
         /// <summary>
@@ -116,43 +112,66 @@ namespace StellarNet.Lite.Client.Components.Views
         /// </summary>
         public GameObject GetSpawnedObject(int netId)
         {
-            _spawnedObjects.TryGetValue(netId, out GameObject obj);
-            return obj;
+            if (_spawnEntries.TryGetValue(netId, out SpawnedEntityEntry entry))
+            {
+                return entry.Instance;
+            }
+
+            return null;
         }
 
         /// <summary>
-        /// 获取或加载指定 PrefabHash 的预制体。
+        /// 查询指定实体当前加载状态。
         /// </summary>
-        private GameObject GetOrLoadPrefab(int prefabHash)
+        public bool TryGetEntityLoadState(int netId, out NetEntityLoadState loadState)
         {
-            if (_prefabMap.TryGetValue(prefabHash, out GameObject cachedPrefab))
+            if (_spawnEntries.TryGetValue(netId, out SpawnedEntityEntry entry))
             {
-                return cachedPrefab;
+                loadState = entry.LoadState;
+                return true;
             }
 
-            if (!NetPrefabConsts.HashToPathMap.TryGetValue(prefabHash, out string resPath))
-            {
-                NetLogger.LogError("ObjectSpawnerView", $"加载失败: 未知 PrefabHash:{prefabHash}", extraContext: $"Object:{name}");
-                return null;
-            }
-
-            GameObject loadedPrefab = Resources.Load<GameObject>(resPath);
-            if (loadedPrefab == null)
-            {
-                NetLogger.LogError("ObjectSpawnerView", $"加载失败: Resources/{resPath} 不存在", extraContext: $"Object:{name}");
-                return null;
-            }
-
-            _prefabMap.Add(prefabHash, loadedPrefab);
-            return loadedPrefab;
+            loadState = NetEntityLoadState.None;
+            return false;
         }
 
-        /// <summary>
-        /// 处理本地对象生成事件。
-        /// </summary>
+        private void BootstrapExistingEntities()
+        {
+            if (_syncService == null)
+            {
+                return;
+            }
+
+            List<ObjectSpawnState> states = _syncService.GetAllSpawnStates();
+            for (int i = 0; i < states.Count; i++)
+            {
+                TrackOrStartSpawn(states[i]);
+            }
+        }
+
         private void OnLocalObjectSpawned(Local_ObjectSpawned evt)
         {
-            ObjectSpawnState state = evt.State;
+            TrackOrStartSpawn(evt.State);
+        }
+
+        private void OnLocalObjectDestroyed(Local_ObjectDestroyed evt)
+        {
+            if (!_isInitialized)
+            {
+                return;
+            }
+
+            if (!_spawnEntries.ContainsKey(evt.NetId))
+            {
+                NetLogger.LogWarning("ObjectSpawnerView", $"销毁跳过: 找不到实体记录, NetId:{evt.NetId}", extraContext: $"Object:{name}");
+                return;
+            }
+
+            CleanupEntity(evt.NetId, true);
+        }
+
+        private void TrackOrStartSpawn(ObjectSpawnState state)
+        {
             if (!_isInitialized)
             {
                 NetLogger.LogError(
@@ -177,92 +196,173 @@ namespace StellarNet.Lite.Client.Components.Views
                 return;
             }
 
-            if (_spawnedObjects.ContainsKey(state.NetId))
+            if (!_spawnEntries.TryGetValue(state.NetId, out SpawnedEntityEntry entry))
             {
-                NetLogger.LogWarning(
-                    "ObjectSpawnerView",
-                    $"生成跳过: NetId 已存在, NetId:{state.NetId}, PrefabHash:{state.PrefabHash}",
-                    extraContext: $"Object:{name}");
+                entry = new SpawnedEntityEntry();
+                _spawnEntries.Add(state.NetId, entry);
+            }
+
+            entry.LatestState = state;
+
+            if (entry.Instance != null)
+            {
+                entry.LoadState = NetEntityLoadState.Ready;
                 return;
             }
 
-            GameObject prefab = GetOrLoadPrefab(state.PrefabHash);
-            if (prefab == null)
+            if (entry.LoadTask != null && !entry.LoadTask.IsCompleted)
             {
                 return;
             }
 
-            Vector3 spawnPos = new Vector3(state.PosX, state.PosY, state.PosZ);
-            Quaternion spawnRot = Quaternion.Euler(state.RotX, state.RotY, state.RotZ);
-            Vector3 spawnScale = new Vector3(
-                Mathf.Approximately(state.ScaleX, 0f) ? 1f : state.ScaleX,
-                Mathf.Approximately(state.ScaleY, 0f) ? 1f : state.ScaleY,
-                Mathf.Approximately(state.ScaleZ, 0f) ? 1f : state.ScaleZ);
-
-            GameObject instance = Instantiate(prefab, spawnPos, spawnRot);
-            instance.transform.localScale = spawnScale;
-
-            NetIdentity identity = instance.GetComponent<NetIdentity>();
-            if (identity == null)
-            {
-                identity = instance.AddComponent<NetIdentity>();
-            }
-
-            identity.Init(state.NetId, _syncService);
-
-            if ((state.Mask & (byte)EntitySyncMask.Transform) != 0)
-            {
-                NetTransformView transView = instance.GetComponent<NetTransformView>();
-                if (transView == null)
-                {
-                    transView = instance.AddComponent<NetTransformView>();
-                }
-
-                transView.HardSetInitialState(spawnPos, spawnRot, spawnScale);
-
-                // 仅在实体拥有者等于当前会话时标记为本地玩家。
-                transView.IsLocalPlayer = NetClient.Session != null && state.OwnerSessionId == NetClient.Session.SessionId;
-            }
-
-            if ((state.Mask & (byte)EntitySyncMask.Animator) != 0)
-            {
-                NetAnimatorView animView = instance.GetComponent<NetAnimatorView>();
-                if (animView == null)
-                {
-                    animView = instance.AddComponent<NetAnimatorView>();
-                }
-
-                animView.HardSetInitialState(
-                    state.AnimStateHash,
-                    state.AnimNormalizedTime,
-                    state.FloatParam1,
-                    state.FloatParam2,
-                    state.FloatParam3);
-            }
-
-            _spawnedObjects.Add(state.NetId, instance);
+            StartResolveAndSpawn(state.NetId, entry);
         }
 
-        /// <summary>
-        /// 处理本地对象销毁事件。
-        /// </summary>
-        private void OnLocalObjectDestroyed(Local_ObjectDestroyed evt)
+        private void StartResolveAndSpawn(int netId, SpawnedEntityEntry entry)
         {
-            if (!_isInitialized)
+            entry.LoadCts?.Cancel();
+            entry.LoadCts?.Dispose();
+            entry.LoadCts = new CancellationTokenSource();
+            entry.LoadState = NetEntityLoadState.LoadingAsset;
+            entry.LoadTask = ResolveAndSpawnAsync(netId, entry, entry.LoadCts.Token);
+        }
+
+        private async Task ResolveAndSpawnAsync(int netId, SpawnedEntityEntry entry, CancellationToken cancellationToken)
+        {
+            try
+            {
+                INetPrefabResolver resolver = ObjectSyncClientRuntime.PrefabResolver;
+                if (resolver == null)
+                {
+                    entry.LoadState = NetEntityLoadState.Failed;
+                    NetLogger.LogError("ObjectSpawnerView", $"生成失败: 未配置 PrefabResolver, NetId:{netId}", extraContext: $"Object:{name}");
+                    return;
+                }
+
+                NetPrefabResolveResult result = await resolver.ResolveAsync(entry.LatestState.PrefabHash, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!_isInitialized || _syncService == null)
+                {
+                    return;
+                }
+
+                if (!_spawnEntries.TryGetValue(netId, out SpawnedEntityEntry currentEntry) || currentEntry != entry)
+                {
+                    return;
+                }
+
+                if (!result.Success || result.Prefab == null)
+                {
+                    entry.LoadState = NetEntityLoadState.Failed;
+                    NetLogger.LogError(
+                        "ObjectSpawnerView",
+                        $"异步加载失败: NetId:{netId}, PrefabHash:{entry.LatestState.PrefabHash}, Reason:{result.ErrorMessage}",
+                        _room != null ? _room.RoomId : "-",
+                        extraContext: $"Object:{name}");
+                    return;
+                }
+
+                if (_syncService.TryGetSpawnState(netId, out ObjectSpawnState latestState))
+                {
+                    entry.LatestState = latestState;
+                }
+
+                if (!_spawnEntries.TryGetValue(netId, out currentEntry) || currentEntry != entry)
+                {
+                    return;
+                }
+
+                entry.LoadState = NetEntityLoadState.SpawningView;
+                NetEntitySpawnContext context = new NetEntitySpawnContext(_room, _syncService, entry.LatestState, transform);
+
+                INetSpawnStrategy spawnStrategy = ObjectSyncClientRuntime.SpawnStrategy;
+                GameObject instance = spawnStrategy != null ? spawnStrategy.Spawn(result.Prefab, context) : null;
+                if (instance == null)
+                {
+                    entry.LoadState = NetEntityLoadState.Failed;
+                    NetLogger.LogError(
+                        "ObjectSpawnerView",
+                        $"实例化失败: NetId:{netId}, PrefabHash:{entry.LatestState.PrefabHash}",
+                        _room != null ? _room.RoomId : "-",
+                        extraContext: $"Object:{name}");
+                    return;
+                }
+
+                entry.Instance = instance;
+
+                INetViewBinder binder = ObjectSyncClientRuntime.ViewBinder;
+                binder?.Bind(instance, context);
+                entry.LoadState = NetEntityLoadState.Ready;
+            }
+            catch (OperationCanceledException)
+            {
+                if (_spawnEntries.TryGetValue(netId, out SpawnedEntityEntry currentEntry) && currentEntry == entry)
+                {
+                    entry.LoadState = NetEntityLoadState.Destroyed;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (_spawnEntries.TryGetValue(netId, out SpawnedEntityEntry currentEntry) && currentEntry == entry)
+                {
+                    entry.LoadState = NetEntityLoadState.Failed;
+                }
+
+                NetLogger.LogError(
+                    "ObjectSpawnerView",
+                    $"异步生成异常: NetId:{netId}, Exception:{ex.GetType().Name}, Message:{ex.Message}",
+                    _room != null ? _room.RoomId : "-",
+                    extraContext: $"Object:{name}");
+            }
+            finally
+            {
+                if (_spawnEntries.TryGetValue(netId, out SpawnedEntityEntry currentEntry) && currentEntry == entry)
+                {
+                    entry.LoadTask = null;
+                }
+            }
+        }
+
+        private void CleanupEntity(int netId, bool removeEntry)
+        {
+            if (!_spawnEntries.TryGetValue(netId, out SpawnedEntityEntry entry))
             {
                 return;
             }
 
-            if (!_spawnedObjects.TryGetValue(evt.NetId, out GameObject instance))
+            entry.LoadCts?.Cancel();
+            entry.LoadCts?.Dispose();
+            entry.LoadCts = null;
+            entry.LoadTask = null;
+
+            if (entry.Instance != null)
             {
-                NetLogger.LogWarning("ObjectSpawnerView", $"销毁跳过: 找不到实例, NetId:{evt.NetId}", extraContext: $"Object:{name}");
-                return;
+                ObjectSpawnState currentState = entry.LatestState;
+                if (_syncService != null && _syncService.TryGetSpawnState(netId, out ObjectSpawnState latestState))
+                {
+                    currentState = latestState;
+                }
+
+                NetEntitySpawnContext context = new NetEntitySpawnContext(_room, _syncService, currentState, transform);
+                INetSpawnStrategy spawnStrategy = ObjectSyncClientRuntime.SpawnStrategy;
+                if (spawnStrategy != null)
+                {
+                    spawnStrategy.Despawn(entry.Instance, context);
+                }
+                else
+                {
+                    Destroy(entry.Instance);
+                }
+
+                entry.Instance = null;
             }
 
-            _spawnedObjects.Remove(evt.NetId);
-            if (instance != null)
+            entry.LoadState = NetEntityLoadState.Destroyed;
+
+            if (removeEntry)
             {
-                Destroy(instance);
+                _spawnEntries.Remove(netId);
             }
         }
     }

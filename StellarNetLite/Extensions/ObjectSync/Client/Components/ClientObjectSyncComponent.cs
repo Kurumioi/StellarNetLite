@@ -241,26 +241,24 @@ namespace StellarNet.Lite.Client.Components
             _replayBaseServerTime = -1f;
         }
 
+        public bool TryGetSpawnState(int netId, out ObjectSpawnState state)
+        {
+            if (!_entities.TryGetValue(netId, out SyncEntityData data))
+            {
+                state = default;
+                return false;
+            }
+
+            state = BuildSpawnState(netId, data);
+            return true;
+        }
+
         public List<ObjectSpawnState> GetAllSpawnStates()
         {
             var list = new List<ObjectSpawnState>(_entities.Count);
             foreach (var kvp in _entities)
             {
-                var data = kvp.Value;
-                list.Add(new ObjectSpawnState
-                {
-                    NetId = kvp.Key,
-                    PrefabHash = data.PrefabHash,
-                    Mask = data.Mask,
-                    PosX = data.RawPos.x, PosY = data.RawPos.y, PosZ = data.RawPos.z,
-                    RotX = data.RawRot.x, RotY = data.RawRot.y, RotZ = data.RawRot.z,
-                    DirX = data.RawVel.x, DirY = data.RawVel.y, DirZ = data.RawVel.z,
-                    ScaleX = data.RawScale.x, ScaleY = data.RawScale.y, ScaleZ = data.RawScale.z,
-                    AnimStateHash = data.AnimStateHash,
-                    AnimNormalizedTime = data.AnimNormalizedTime,
-                    FloatParam1 = data.FloatParam1, FloatParam2 = data.FloatParam2, FloatParam3 = data.FloatParam3,
-                    OwnerSessionId = data.OwnerSessionId
-                });
+                list.Add(BuildSpawnState(kvp.Key, kvp.Value));
             }
 
             return list;
@@ -385,6 +383,34 @@ namespace StellarNet.Lite.Client.Components
             data.ServerTime = 0f;
 
             if (broadcastLocalEvent) Room.NetEventSystem.Broadcast(new Local_ObjectSpawned { State = state });
+        }
+
+        private ObjectSpawnState BuildSpawnState(int netId, SyncEntityData data)
+        {
+            return new ObjectSpawnState
+            {
+                NetId = netId,
+                PrefabHash = data.PrefabHash,
+                Mask = data.Mask,
+                PosX = data.RawPos.x,
+                PosY = data.RawPos.y,
+                PosZ = data.RawPos.z,
+                RotX = data.RawRot.x,
+                RotY = data.RawRot.y,
+                RotZ = data.RawRot.z,
+                DirX = data.RawVel.x,
+                DirY = data.RawVel.y,
+                DirZ = data.RawVel.z,
+                ScaleX = data.RawScale.x,
+                ScaleY = data.RawScale.y,
+                ScaleZ = data.RawScale.z,
+                AnimStateHash = data.AnimStateHash,
+                AnimNormalizedTime = data.AnimNormalizedTime,
+                FloatParam1 = data.FloatParam1,
+                FloatParam2 = data.FloatParam2,
+                FloatParam3 = data.FloatParam3,
+                OwnerSessionId = data.OwnerSessionId
+            };
         }
     }
 }
