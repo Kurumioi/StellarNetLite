@@ -10,10 +10,10 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-[Serializable]
 /// <summary>
 /// 大厅面板打开数据。
 /// </summary>
+[Serializable]
 public class Panel_StellarNetLobbyData
 {
     /// <summary>

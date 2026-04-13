@@ -2,10 +2,10 @@
 
 namespace StellarNet.Lite.Shared.Protocol
 {
-    [NetMsg(10, NetScope.Global, NetDir.C2S)]
     /// <summary>
     /// 客户端发起的 Ping 请求。
     /// </summary>
+    [NetMsg(10, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_Ping
     {
         /// <summary>
@@ -14,10 +14,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public float ClientTime;
     }
 
-    [NetMsg(11, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 服务端返回的 Pong 响应。
     /// </summary>
+    [NetMsg(11, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_Pong
     {
         /// <summary>

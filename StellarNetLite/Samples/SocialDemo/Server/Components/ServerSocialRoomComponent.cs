@@ -9,10 +9,10 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Game.Server.Components
 {
-    [RoomComponent(102, "SocialRoom", "简易交友房间")]
     /// <summary>
     /// Demo 社交房间服务端组件。
     /// </summary>
+    [RoomComponent(102, "SocialRoom", "简易交友房间")]
     public sealed class ServerSocialRoomComponent
         : ServerRoomComponent, ITickableComponent
     {

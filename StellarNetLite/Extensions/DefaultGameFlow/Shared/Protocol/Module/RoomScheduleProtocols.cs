@@ -36,10 +36,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public Dictionary<string, string> CustomProperties;
     }
 
-    [NetMsg(200, NetScope.Global, NetDir.C2S)]
     /// <summary>
     /// 创建房间请求。
     /// </summary>
+    [NetMsg(200, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_CreateRoom
     {
         /// <summary>
@@ -48,10 +48,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public RoomDTO RoomConfig;
     }
 
-    [NetMsg(201, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 创建房间结果。
     /// </summary>
+    [NetMsg(201, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_CreateRoomResult
     {
         /// <summary>
@@ -75,10 +75,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public string Reason;
     }
 
-    [NetMsg(202, NetScope.Global, NetDir.C2S)]
     /// <summary>
     /// 加入房间请求。
     /// </summary>
+    [NetMsg(202, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_JoinRoom
     {
         /// <summary>
@@ -92,10 +92,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public string Password;
     }
 
-    [NetMsg(203, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 加入房间结果。
     /// </summary>
+    [NetMsg(203, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_JoinRoomResult
     {
         /// <summary>
@@ -119,18 +119,18 @@ namespace StellarNet.Lite.Shared.Protocol
         public string Reason;
     }
 
-    [NetMsg(204, NetScope.Global, NetDir.C2S)]
     /// <summary>
     /// 离开房间请求。
     /// </summary>
+    [NetMsg(204, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_LeaveRoom
     {
     }
 
-    [NetMsg(205, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 离开房间结果。
     /// </summary>
+    [NetMsg(205, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_LeaveRoomResult
     {
         /// <summary>
@@ -139,10 +139,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public bool Success;
     }
 
-    [NetMsg(206, NetScope.Global, NetDir.C2S)]
     /// <summary>
     /// 房间装配完成确认。
     /// </summary>
+    [NetMsg(206, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_RoomSetupReady
     {
         /// <summary>
@@ -151,10 +151,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public string RoomId;
     }
 
-    [NetMsg(207, NetScope.Global, NetDir.C2S)]
     /// <summary>
     /// 指定房间 Id 加入或创建请求。
     /// </summary>
+    [NetMsg(207, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_JoinOrCreateRoom
     {
         /// <summary>
@@ -168,10 +168,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public RoomDTO RoomConfig;
     }
 
-    [NetMsg(208, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 房间装配最终确认结果。
     /// </summary>
+    [NetMsg(208, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_RoomSetupResult
     {
         /// <summary>

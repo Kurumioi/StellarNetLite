@@ -13,11 +13,11 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Runtime
 {
-    [RequireComponent(typeof(INetworkTransport))]
     /// <summary>
     /// StellarNet Lite 的统一运行时入口。
     /// 负责装配传输层、序列化器、客户端逻辑宿主和服务端逻辑宿主。
     /// </summary>
+    [RequireComponent(typeof(INetworkTransport))]
     public class StellarNetAppManager : MonoBehaviour
     {
         /// <summary>
@@ -32,6 +32,8 @@ namespace StellarNet.Lite.Runtime
 
         private NetConfig _netConfig;
         private bool _isCoreInitialized;
+
+        #region ================= 生命周期与初始化 =================
 
         public void Awake()
         {
@@ -94,6 +96,7 @@ namespace StellarNet.Lite.Runtime
                 NetLogger.LogError("StellarNetAppManager", "应用配置失败: 传入 config 为空");
                 return;
             }
+
             _netConfig = config;
             Transport?.ApplyConfig(_netConfig);
         }
@@ -106,15 +109,20 @@ namespace StellarNet.Lite.Runtime
             }
         }
 
+        #endregion
+
         #region ================= 物理层快捷代理 =================
+
         public void StartClient() => Transport?.StartClient();
         public void StopClient() => Transport?.StopClient();
         public void StartServer() => Transport?.StartServer();
         public void StopServer() => Transport?.StopServer();
         public void StartHost() => Transport?.StartHost();
+
         #endregion
 
         #region ================= 服务端逻辑宿主 =================
+
         /// <summary>
         /// 当前服务端逻辑宿主。
         /// </summary>
@@ -122,6 +130,19 @@ namespace StellarNet.Lite.Runtime
 
         public static event Action OnServerStartedEvent;
         public static event Action OnServerStoppedEvent;
+
+        /// <summary>
+        /// 服务端物理连接建立事件。
+        /// 警告：此事件仅代表底层 Socket/Transport 连通，此时客户端尚未鉴权，无 Session 绑定。
+        /// 业务层玩法逻辑严禁监听此事件！请监听业务层的玩家登录协议事件。
+        /// </summary>
+        public static event Action<int> OnServerClientConnectedEvent;
+
+        /// <summary>
+        /// 服务端物理连接断开事件。
+        /// 保证与 Connected 事件严格成对触发，用于底层连接池或大盘监控。
+        /// </summary>
+        public static event Action<int> OnServerClientDisconnectedEvent;
 
         private void HandleServerStarted()
         {
@@ -150,23 +171,29 @@ namespace StellarNet.Lite.Runtime
                 ServerApp.Dispose();
                 ServerApp = null;
             }
+
             ServerRoomFactory.Clear();
         }
 
         private void HandleServerClientConnected(int connectionId)
         {
+            OnServerClientConnectedEvent?.Invoke(connectionId);
             NetLogger.LogInfo("StellarNetAppManager", "物理连接建立，等待业务层鉴权", "-", "-", $"ConnId:{connectionId}");
         }
 
         private void HandleServerClientDisconnected(int connectionId)
         {
+            OnServerClientDisconnectedEvent?.Invoke(connectionId);
+
             if (ServerApp == null) return;
+
             Session session = ServerApp.TryGetSessionByConnectionId(connectionId);
             if (session != null)
             {
                 NetLogger.LogInfo("StellarNetAppManager", "物理连接断开，触发会话离线", "-", session.SessionId, $"ConnId:{connectionId}");
                 ServerApp.UnbindConnection(session);
             }
+
             ServerLobbyModule.BroadcastOnlinePlayerList(ServerApp);
         }
 
@@ -174,9 +201,11 @@ namespace StellarNet.Lite.Runtime
         {
             ServerApp?.OnReceivePacket(connectionId, packet);
         }
+
         #endregion
 
         #region ================= 客户端逻辑宿主 =================
+
         /// <summary>
         /// 当前客户端逻辑宿主。
         /// </summary>
@@ -186,6 +215,7 @@ namespace StellarNet.Lite.Runtime
         /// 当前客户端网络质量监控器。
         /// </summary>
         public ClientNetworkMonitor NetworkMonitor { get; private set; }
+
         private Coroutine _reconnectCoroutine;
 
         public static event Action OnClientStartedEvent;
@@ -204,7 +234,7 @@ namespace StellarNet.Lite.Runtime
             if (ClientApp == null)
             {
                 ClientApp = new ClientApp(Transport, Serializer);
-                
+
                 // 业务层主动注册弱网豁免白名单，解耦底层引擎
                 ClientApp.RegisterWeakNetBypassProtocol(MsgIdConst.C2S_Ping);
                 ClientApp.RegisterWeakNetBypassProtocol(MsgIdConst.C2S_Login);
@@ -224,6 +254,7 @@ namespace StellarNet.Lite.Runtime
                     NetworkMonitor = gameObject.AddComponent<ClientNetworkMonitor>();
                 }
             }
+
             NetworkMonitor.Init(ClientApp, Transport);
 
             NetLogger.LogInfo("StellarNetAppManager", "客户端逻辑内核装配完毕，准备就绪。");
@@ -247,6 +278,7 @@ namespace StellarNet.Lite.Runtime
                 ClientApp = null;
                 NetClient.Initialize(null);
             }
+
             ClientRoomFactory.Clear();
         }
 
@@ -277,6 +309,7 @@ namespace StellarNet.Lite.Runtime
                     ClientApp.SendMessage(loginReq);
                 }
             }
+
             OnClientConnectedEvent?.Invoke();
         }
 
@@ -292,6 +325,7 @@ namespace StellarNet.Lite.Runtime
                     {
                         StopCoroutine(_reconnectCoroutine);
                     }
+
                     _reconnectCoroutine = StartCoroutine(ReconnectionRoutine());
                 }
                 else if (ClientApp.State == ClientAppState.ConnectionSuspended)
@@ -304,6 +338,7 @@ namespace StellarNet.Lite.Runtime
                     ClientApp.AbortConnection();
                 }
             }
+
             OnClientDisconnectedEvent?.Invoke();
         }
 
@@ -373,8 +408,10 @@ namespace StellarNet.Lite.Runtime
             {
                 StopCoroutine(_reconnectCoroutine);
             }
+
             _reconnectCoroutine = StartCoroutine(ReconnectionRoutine());
         }
+
         #endregion
     }
 }

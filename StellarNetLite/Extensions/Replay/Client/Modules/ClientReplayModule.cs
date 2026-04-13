@@ -8,11 +8,11 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Client.Modules
 {
-    [ClientModule("ClientReplayModule", "客户端回放模块")]
     /// <summary>
     /// 客户端回放下载模块。
     /// 负责拉取录像文件、写入本地缓存并广播下载进度。
     /// </summary>
+    [ClientModule("ClientReplayModule", "客户端回放模块")]
     public sealed class ClientReplayModule
     {
         private readonly ClientApp _app;

@@ -13,10 +13,10 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Editor
 {
-    [InitializeOnLoad]
     /// <summary>
     /// 协议、组件和模块的静态注册代码扫描器。
     /// </summary>
+    [InitializeOnLoad]
     public static class LiteProtocolScanner
     {
         #region 常量路径

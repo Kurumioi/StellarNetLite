@@ -6,11 +6,11 @@ using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Client.Components
 {
-    [RoomComponent(1, "RoomSettings", "基础房间设置")]
     /// <summary>
     /// 客户端房间基础信息组件。
     /// 负责缓存成员列表、房间名和开局状态。
     /// </summary>
+    [RoomComponent(1, "RoomSettings", "基础房间设置")]
     public sealed class ClientRoomSettingsComponent : ClientRoomComponent
     {
         private readonly ClientApp _app;

@@ -38,11 +38,11 @@ namespace StellarNet.Lite.Client.Components
         public float ServerTimeDelta;
     }
 
-    [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
     /// <summary>
     /// 客户端对象同步组件。
     /// 负责缓存服务端同步状态、提供预测结果，并消费录像快照。
     /// </summary>
+    [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
     public sealed class ClientObjectSyncComponent : ClientRoomComponent, IReplaySnapshotConsumer
     {
         private readonly ClientApp _app;

@@ -74,18 +74,18 @@ namespace StellarNet.Lite.Shared.Protocol
         public string RoomId;
     }
 
-    [NetMsg(210, NetScope.Global, NetDir.C2S)]
     /// <summary>
     /// 请求房间列表。
     /// </summary>
+    [NetMsg(210, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_GetRoomList
     {
     }
 
-    [NetMsg(211, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 房间列表响应。
     /// </summary>
+    [NetMsg(211, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_RoomListResponse
     {
         /// <summary>
@@ -94,10 +94,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public RoomBriefInfo[] Rooms;
     }
 
-    [NetMsg(212, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 在线玩家全量同步。
     /// </summary>
+    [NetMsg(212, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_OnlinePlayerListSync
     {
         /// <summary>
@@ -106,10 +106,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public OnlinePlayerInfo[] Players;
     }
 
-    [NetMsg(213, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 单个玩家状态增量同步。
     /// </summary>
+    [NetMsg(213, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_GlobalPlayerStateIncrementalSync
     {
         /// <summary>
@@ -123,10 +123,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public OnlinePlayerInfo Player;
     }
 
-    [NetMsg(214, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 全局公告广播。
     /// </summary>
+    [NetMsg(214, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_GlobalAnnouncement
     {
         /// <summary>
@@ -145,10 +145,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public long PublishUnixTime;
     }
 
-    [NetMsg(215, NetScope.Global, NetDir.C2S)]
     /// <summary>
     /// 发送大厅全局聊天。
     /// </summary>
+    [NetMsg(215, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_GlobalChat
     {
         /// <summary>
@@ -157,10 +157,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public string Content;
     }
 
-    [NetMsg(216, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 大厅全局聊天同步。
     /// </summary>
+    [NetMsg(216, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_GlobalChatSync
     {
         /// <summary>

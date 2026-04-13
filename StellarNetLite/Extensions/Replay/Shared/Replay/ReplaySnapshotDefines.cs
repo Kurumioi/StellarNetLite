@@ -116,11 +116,11 @@ namespace StellarNet.Lite.Shared.Replay
         }
     }
 
-    [Serializable]
     /// <summary>
     /// 通用录像快照帧。
     /// 支持同一 Tick 内记录多个组件的快照负载。
     /// </summary>
+    [Serializable]
     public sealed class ReplaySnapshotFrame : ILiteNetSerializable
     {
         /// <summary>

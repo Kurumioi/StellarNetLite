@@ -4,10 +4,10 @@ using StellarNet.Lite.Shared.Core;
 
 namespace StellarNet.Lite.Game.Client.Components
 {
-    [RoomComponent(102, "SocialRoom", "简易交友房间")]
     /// <summary>
     /// Demo 社交房间客户端组件。
     /// </summary>
+    [RoomComponent(102, "SocialRoom", "简易交友房间")]
     public sealed class ClientSocialRoomComponent : ClientRoomComponent
     {
         private readonly ClientApp _app;

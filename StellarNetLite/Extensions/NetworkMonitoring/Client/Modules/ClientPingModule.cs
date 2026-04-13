@@ -6,11 +6,11 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Client.Modules
 {
-    [ClientModule("ClientPingModule", "全局延迟心跳模块")]
     /// <summary>
     /// 客户端 Ping 模块。
     /// 负责把 Pong 转换为本地 RTT 结果。
     /// </summary>
+    [ClientModule("ClientPingModule", "全局延迟心跳模块")]
     public sealed class ClientPingModule
     {
         private readonly ClientApp _app;

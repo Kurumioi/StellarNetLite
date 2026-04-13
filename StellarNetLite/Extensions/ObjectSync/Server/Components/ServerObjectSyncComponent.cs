@@ -30,11 +30,11 @@ namespace StellarNet.Lite.Server.Components
         public float FloatParam3;
     }
 
-    [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
     /// <summary>
     /// 服务端对象同步组件。
     /// 负责实体创建、销毁、周期同步和回放快照导出。
     /// </summary>
+    [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
     public sealed class ServerObjectSyncComponent : ServerRoomComponent, ITickableComponent, IReplaySnapshotProvider
     {
         private readonly ServerApp _app;

@@ -2,10 +2,10 @@
 
 namespace StellarNet.Lite.Shared.Protocol
 {
-    [NetMsg(100, NetScope.Global, NetDir.C2S)]
     /// <summary>
     /// 登录请求。
     /// </summary>
+    [NetMsg(100, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_Login
     {
         /// <summary>
@@ -19,10 +19,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public string ClientVersion;
     }
 
-    [NetMsg(101, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 登录结果。
     /// </summary>
+    [NetMsg(101, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_LoginResult
     {
         /// <summary>
@@ -46,10 +46,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public string Reason;
     }
 
-    [NetMsg(102, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 顶号或强制下线通知。
     /// </summary>
+    [NetMsg(102, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_KickOut
     {
         /// <summary>
@@ -58,10 +58,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public string Reason;
     }
 
-    [NetMsg(103, NetScope.Global, NetDir.C2S)]
     /// <summary>
     /// 重连确认请求。
     /// </summary>
+    [NetMsg(103, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_ConfirmReconnect
     {
         /// <summary>
@@ -70,10 +70,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public bool Accept;
     }
 
-    [NetMsg(104, NetScope.Global, NetDir.S2C)]
     /// <summary>
     /// 重连结果。
     /// </summary>
+    [NetMsg(104, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_ReconnectResult
     {
         /// <summary>
@@ -97,10 +97,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public string Reason;
     }
 
-    [NetMsg(105, NetScope.Global, NetDir.C2S)]
     /// <summary>
     /// 客户端重连装配完成确认。
     /// </summary>
+    [NetMsg(105, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_ReconnectReady
     {
     }

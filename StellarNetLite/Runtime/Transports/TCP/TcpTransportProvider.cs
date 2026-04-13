@@ -12,10 +12,10 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Transports.TCP
 {
-    [DisallowMultipleComponent]
     /// <summary>
     /// 基于 TcpClient/TcpListener 的 TCP 传输层实现。
     /// </summary>
+    [DisallowMultipleComponent]
     public class TcpTransportProvider : MonoBehaviour, INetworkTransport
     {
         public event Action OnServerStartedEvent;

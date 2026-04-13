@@ -33,10 +33,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public bool IsOwner;
     }
 
-    [NetMsg(300, NetScope.Room, NetDir.S2C)]
     /// <summary>
     /// 房间全量快照。
     /// </summary>
+    [NetMsg(300, NetScope.Room, NetDir.S2C)]
     public sealed class S2C_RoomSnapshot
     {
         /// <summary>
@@ -60,10 +60,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public MemberInfo[] Members;
     }
 
-    [NetMsg(301, NetScope.Room, NetDir.S2C)]
     /// <summary>
     /// 成员加入通知。
     /// </summary>
+    [NetMsg(301, NetScope.Room, NetDir.S2C)]
     public sealed class S2C_MemberJoined
     {
         /// <summary>
@@ -72,10 +72,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public MemberInfo Member;
     }
 
-    [NetMsg(302, NetScope.Room, NetDir.S2C)]
     /// <summary>
     /// 成员离开通知。
     /// </summary>
+    [NetMsg(302, NetScope.Room, NetDir.S2C)]
     public sealed class S2C_MemberLeft
     {
         /// <summary>
@@ -84,10 +84,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public string SessionId;
     }
 
-    [NetMsg(303, NetScope.Room, NetDir.C2S)]
     /// <summary>
     /// 设置准备状态请求。
     /// </summary>
+    [NetMsg(303, NetScope.Room, NetDir.C2S)]
     public sealed class C2S_SetReady
     {
         /// <summary>
@@ -96,10 +96,10 @@ namespace StellarNet.Lite.Shared.Protocol
         public bool IsReady;
     }
 
-    [NetMsg(304, NetScope.Room, NetDir.S2C)]
     /// <summary>
     /// 成员准备状态变更通知。
     /// </summary>
+    [NetMsg(304, NetScope.Room, NetDir.S2C)]
     public sealed class S2C_MemberReadyChanged
     {
         /// <summary>

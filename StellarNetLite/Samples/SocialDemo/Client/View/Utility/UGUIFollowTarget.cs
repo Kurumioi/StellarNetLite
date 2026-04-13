@@ -11,10 +11,10 @@ namespace UGUIFollow
         Smooth // 平滑跟随：适用于交互提示、动态标签等需要阻尼缓冲的元素
     }
 
-    [RequireComponent(typeof(RectTransform))]
     /// <summary>
     /// 世界目标对应的 UGUI 跟随组件。
     /// </summary>
+    [RequireComponent(typeof(RectTransform))]
     public class UGUIFollowTarget : MonoBehaviour
     {
         [Header("核心引用")] [Tooltip("需要跟随的3D世界目标")]

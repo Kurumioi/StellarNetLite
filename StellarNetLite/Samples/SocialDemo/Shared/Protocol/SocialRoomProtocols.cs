@@ -4,10 +4,10 @@ using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Game.Shared.Protocol
 {
-    [NetMsg(1301, NetScope.Room, NetDir.C2S)]
     /// <summary>
     /// 社交房间移动请求。
     /// </summary>
+    [NetMsg(1301, NetScope.Room, NetDir.C2S)]
     public sealed class C2S_SocialMoveReq : ILiteNetSerializable
     {
         /// <summary>
@@ -74,10 +74,10 @@ namespace StellarNet.Lite.Game.Shared.Protocol
         }
     }
 
-    [NetMsg(1302, NetScope.Room, NetDir.C2S)]
     /// <summary>
     /// 社交房间动作请求。
     /// </summary>
+    [NetMsg(1302, NetScope.Room, NetDir.C2S)]
     public sealed class C2S_SocialActionReq : ILiteNetSerializable
     {
         /// <summary>
@@ -108,10 +108,10 @@ namespace StellarNet.Lite.Game.Shared.Protocol
         }
     }
 
-    [NetMsg(1303, NetScope.Room, NetDir.C2S)]
     /// <summary>
     /// 社交房间气泡请求。
     /// </summary>
+    [NetMsg(1303, NetScope.Room, NetDir.C2S)]
     public sealed class C2S_SocialBubbleReq : ILiteNetSerializable
     {
         /// <summary>
@@ -142,10 +142,10 @@ namespace StellarNet.Lite.Game.Shared.Protocol
         }
     }
 
-    [NetMsg(1304, NetScope.Room, NetDir.S2C)]
     /// <summary>
     /// 社交房间气泡同步。
     /// </summary>
+    [NetMsg(1304, NetScope.Room, NetDir.S2C)]
     public sealed class S2C_SocialBubbleSync : ILiteNetSerializable
     {
         /// <summary>

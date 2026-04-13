@@ -16,10 +16,10 @@ namespace StellarNet.Lite.Shared.Infrastructure
         PersistentDataPath
     }
 
-    [Serializable]
     /// <summary>
     /// 框架运行时配置。
     /// </summary>
+    [Serializable]
     public sealed class NetConfig
     {
         /// <summary>

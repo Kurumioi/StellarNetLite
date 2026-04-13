@@ -12,11 +12,11 @@ using UnityEngine;
 
 namespace StellarNet.Lite.Transports.UDP
 {
-    [DisallowMultipleComponent]
     /// <summary>
     /// 基于 UdpClient 的 UDP 传输层实现。
     /// 仅用于教学和实验，不适合直接承载生产业务链路。
     /// </summary>
+    [DisallowMultipleComponent]
     public class UdpTransportProvider : MonoBehaviour, INetworkTransport
     {
         public event Action OnServerStartedEvent;
@@ -38,7 +38,7 @@ namespace StellarNet.Lite.Transports.UDP
 
         private readonly ConcurrentDictionary<IPEndPoint, int> _endpointToConnId = new ConcurrentDictionary<IPEndPoint, int>();
         private readonly ConcurrentDictionary<int, IPEndPoint> _connIdToEndpoint = new ConcurrentDictionary<int, IPEndPoint>();
-        
+
         private UdpClient _clientUdp;
         private CancellationTokenSource _clientCts;
         private IPEndPoint _serverEndpoint;
@@ -69,6 +69,7 @@ namespace StellarNet.Lite.Transports.UDP
         }
 
         #region 服务端
+
         public void StartServer()
         {
             if (_isServerActive) return;
@@ -79,9 +80,9 @@ namespace StellarNet.Lite.Transports.UDP
                 _serverUdp = new UdpClient(_appConfig.Port);
                 _serverCts = new CancellationTokenSource();
                 _isServerActive = true;
-                
+
                 _ = ReceiveServerDataAsync(_serverCts.Token);
-                
+
                 NetLogger.LogWarning("UdpTransportProvider", $"[警告] UDP 服务端已启动。纯 UDP 会丢包，严禁用于生产环境业务逻辑！监听端口: {_appConfig.Port}");
                 _mainThreadActions.Enqueue(() => OnServerStartedEvent?.Invoke());
             }
@@ -95,7 +96,7 @@ namespace StellarNet.Lite.Transports.UDP
         {
             if (!_isServerActive) return;
             _isServerActive = false;
-            
+
             _serverCts?.Cancel();
             _serverUdp?.Close();
             _serverUdp = null;
@@ -114,13 +115,13 @@ namespace StellarNet.Lite.Transports.UDP
                 while (!token.IsCancellationRequested)
                 {
                     UdpReceiveResult result = await _serverUdp.ReceiveAsync();
-                    
+
                     if (!_endpointToConnId.TryGetValue(result.RemoteEndPoint, out int connId))
                     {
                         connId = Interlocked.Increment(ref _connectionIdCounter);
                         _endpointToConnId[result.RemoteEndPoint] = connId;
                         _connIdToEndpoint[connId] = result.RemoteEndPoint;
-                        
+
                         _mainThreadActions.Enqueue(() => OnServerClientConnectedEvent?.Invoke(connId));
                     }
 
@@ -129,20 +130,24 @@ namespace StellarNet.Lite.Transports.UDP
                         byte[] safePayload = new byte[packet.PayloadLength];
                         Buffer.BlockCopy(packet.Payload, packet.PayloadOffset, safePayload, 0, packet.PayloadLength);
                         Packet safePacket = new Packet(packet.Seq, packet.MsgId, packet.Scope, packet.RoomId, safePayload, packet.PayloadLength);
-                        
+
                         _mainThreadActions.Enqueue(() => OnServerReceivePacketEvent?.Invoke(connId, safePacket));
                     }
                 }
             }
-            catch (ObjectDisposedException) { }
+            catch (ObjectDisposedException)
+            {
+            }
             catch (Exception ex) when (!token.IsCancellationRequested)
             {
                 NetLogger.LogError("UdpTransportProvider", $"服务端接收异常: {ex.Message}");
             }
         }
+
         #endregion
 
         #region 客户端
+
         public void StartClient()
         {
             if (_appConfig == null) return;
@@ -150,7 +155,7 @@ namespace StellarNet.Lite.Transports.UDP
             if (_isClientActive)
             {
                 if (_isPhysicalConnected) return;
-                
+
                 if (_clientUdp != null)
                 {
                     _clientCts?.Cancel();
@@ -167,15 +172,16 @@ namespace StellarNet.Lite.Transports.UDP
                 _isPhysicalConnected = true;
 
                 NetLogger.LogWarning("UdpTransportProvider", $"[警告] UDP 客户端已启动。目标: {_appConfig.Ip}:{_appConfig.Port}");
-                
-                _mainThreadActions.Enqueue(() => 
+
+                _mainThreadActions.Enqueue(() =>
                 {
                     if (!_isClientActive)
                     {
                         _isClientActive = true;
                         OnClientStartedEvent?.Invoke();
                     }
-                    OnClientConnectedEvent?.Invoke(); 
+
+                    OnClientConnectedEvent?.Invoke();
                 });
 
                 _ = ReceiveClientDataAsync(_clientCts.Token);
@@ -198,7 +204,7 @@ namespace StellarNet.Lite.Transports.UDP
             _clientUdp = null;
 
             NetLogger.LogInfo("UdpTransportProvider", "UDP 客户端已停止");
-            _mainThreadActions.Enqueue(() => 
+            _mainThreadActions.Enqueue(() =>
             {
                 OnClientDisconnectedEvent?.Invoke();
                 OnClientStoppedEvent?.Invoke();
@@ -214,10 +220,7 @@ namespace StellarNet.Lite.Transports.UDP
             _clientUdp?.Close();
             _clientUdp = null;
 
-            _mainThreadActions.Enqueue(() => 
-            {
-                OnClientDisconnectedEvent?.Invoke();
-            });
+            _mainThreadActions.Enqueue(() => { OnClientDisconnectedEvent?.Invoke(); });
         }
 
         private async Task ReceiveClientDataAsync(CancellationToken token)
@@ -233,12 +236,14 @@ namespace StellarNet.Lite.Transports.UDP
                         byte[] safePayload = new byte[packet.PayloadLength];
                         Buffer.BlockCopy(packet.Payload, packet.PayloadOffset, safePayload, 0, packet.PayloadLength);
                         Packet safePacket = new Packet(packet.Seq, packet.MsgId, packet.Scope, packet.RoomId, safePayload, packet.PayloadLength);
-                        
+
                         _mainThreadActions.Enqueue(() => OnClientReceivePacketEvent?.Invoke(safePacket));
                     }
                 }
             }
-            catch (ObjectDisposedException) { }
+            catch (ObjectDisposedException)
+            {
+            }
             catch (Exception ex) when (!token.IsCancellationRequested)
             {
                 NetLogger.LogError("UdpTransportProvider", $"客户端接收异常: {ex.Message}");
@@ -251,9 +256,11 @@ namespace StellarNet.Lite.Transports.UDP
                 }
             }
         }
+
         #endregion
 
         #region 混合与发送
+
         public void StartHost()
         {
             StartServer();
@@ -263,8 +270,8 @@ namespace StellarNet.Lite.Transports.UDP
         public void SendToServer(Packet packet)
         {
             if (!_isPhysicalConnected || _clientUdp == null || _serverEndpoint == null) return;
-            
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(65507); 
+
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(65507);
             try
             {
                 int length = LitePacketFormatter.Serialize(packet, buffer, 0);
@@ -310,7 +317,8 @@ namespace StellarNet.Lite.Transports.UDP
             }
         }
 
-        public float GetRTT() => 0.02f; 
+        public float GetRTT() => 0.02f;
+
         #endregion
     }
 }
