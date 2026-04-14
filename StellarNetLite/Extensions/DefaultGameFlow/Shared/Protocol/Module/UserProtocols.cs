@@ -5,7 +5,7 @@ namespace StellarNet.Lite.Shared.Protocol
     /// <summary>
     /// 登录请求。
     /// </summary>
-    [NetMsg(100, NetScope.Global, NetDir.C2S)]
+    [NetMsg(100, NetScope.Global, NetDir.C2S, AllowUnauthenticated = true)]
     public sealed class C2S_Login
     {
         /// <summary>

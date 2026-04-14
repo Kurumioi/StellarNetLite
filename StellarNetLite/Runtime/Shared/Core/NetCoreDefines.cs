@@ -37,6 +37,8 @@ namespace StellarNet.Lite.Shared.Core
         public NetScope Scope { get; }
         // 发送方向。
         public NetDir Dir { get; }
+        // 是否允许未鉴权会话访问。仅允许标记在 Global + C2S 协议上。
+        public bool AllowUnauthenticated { get; set; }
 
         /// <summary>
         /// 创建协议消息元信息特性。

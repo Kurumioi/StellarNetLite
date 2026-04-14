@@ -153,12 +153,29 @@ namespace StellarNet.Lite.Runtime
             }
 
             ServerApp = new ServerApp(Transport, Serializer, _netConfig);
-            ServerApp.RegisterUnauthenticatedGlobalProtocol(MsgIdConst.C2S_Login);
+            RegisterUnauthenticatedProtocols(ServerApp);
             Func<byte[], int, int, Type, object> deserializeFunc = Serializer.Deserialize;
             AutoRegistry.RegisterServer(ServerApp, deserializeFunc);
 
             NetLogger.LogInfo("StellarNetAppManager", $"服务端逻辑内核装配完毕。TickRate:{_netConfig.TickRate}");
             OnServerStartedEvent?.Invoke();
+        }
+
+        private static void RegisterUnauthenticatedProtocols(ServerApp serverApp)
+        {
+            if (serverApp == null) return;
+
+            int[] msgIds = AutoUnauthenticatedProtocolRegistry.GlobalC2SMsgIds;
+            if (msgIds == null || msgIds.Length == 0)
+            {
+                NetLogger.LogWarning("StellarNetAppManager", "未鉴权协议表为空，当前不会放行任何登录前全局协议");
+                return;
+            }
+
+            for (int i = 0; i < msgIds.Length; i++)
+            {
+                serverApp.RegisterUnauthenticatedGlobalProtocol(msgIds[i]);
+            }
         }
 
         private void HandleServerStopped()
