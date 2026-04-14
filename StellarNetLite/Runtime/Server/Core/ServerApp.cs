@@ -28,6 +28,7 @@ namespace StellarNet.Lite.Server.Core
         private readonly Dictionary<int, Session> _connectionToSession = new Dictionary<int, Session>();
         private readonly Dictionary<string, Session> _accountToSession = new Dictionary<string, Session>();
         private readonly Dictionary<string, Room> _rooms = new Dictionary<string, Room>();
+        private readonly Dictionary<Type, object> _globalModules = new Dictionary<Type, object>();
         private readonly HashSet<int> _unauthenticatedGlobalMsgIds = new HashSet<int>();
         #endregion
 
@@ -57,6 +58,7 @@ namespace StellarNet.Lite.Server.Core
             _sessions.Clear();
             _connectionToSession.Clear();
             _accountToSession.Clear();
+            _globalModules.Clear();
             GlobalDispatcher.Clear();
         }
 
@@ -298,6 +300,67 @@ namespace StellarNet.Lite.Server.Core
             }
 
             _unauthenticatedGlobalMsgIds.Add(msgId);
+        }
+
+        public void RegisterGlobalModule(object module)
+        {
+            if (_isDisposed || module == null) return;
+
+            Type moduleType = module.GetType();
+            if (_globalModules.ContainsKey(moduleType))
+            {
+                NetLogger.LogError("ServerApp", $"注册全局模块失败: 模块类型重复, Type:{moduleType.FullName}");
+                return;
+            }
+
+            _globalModules.Add(moduleType, module);
+        }
+
+        public T GetGlobalModule<T>() where T : class
+        {
+            if (TryGetGlobalModule(out T module))
+            {
+                return module;
+            }
+
+            NetLogger.LogWarning("ServerApp", $"获取全局模块失败: 未找到模块, Type:{typeof(T).FullName}");
+            return null;
+        }
+
+        public bool TryGetGlobalModule<T>(out T module) where T : class
+        {
+            module = null;
+            if (_isDisposed) return false;
+
+            Type targetType = typeof(T);
+            if (_globalModules.TryGetValue(targetType, out object exactModule))
+            {
+                module = exactModule as T;
+                return module != null;
+            }
+
+            T matchedModule = null;
+            Type matchedType = null;
+            foreach (KeyValuePair<Type, object> kvp in _globalModules)
+            {
+                if (!targetType.IsAssignableFrom(kvp.Key)) continue;
+                if (!(kvp.Value is T typedModule)) continue;
+
+                if (matchedModule != null)
+                {
+                    NetLogger.LogError(
+                        "ServerApp",
+                        $"获取全局模块失败: 匹配到多个模块, Target:{targetType.FullName}, TypeA:{matchedType.FullName}, TypeB:{kvp.Key.FullName}");
+                    module = null;
+                    return false;
+                }
+
+                matchedModule = typedModule;
+                matchedType = kvp.Key;
+            }
+
+            module = matchedModule;
+            return module != null;
         }
 
         #endregion
