@@ -103,7 +103,8 @@ public class Panel_StellarNetReplay : UIPanelBase
 
     private string FormatTime(int ticks)
     {
-        int totalSeconds = ticks / 60;
+        int tickRate = _replayPlayer != null ? _replayPlayer.GetRecordedTickRate() : 60;
+        int totalSeconds = tickRate > 0 ? Mathf.FloorToInt(ticks / (float)tickRate) : ticks / 60;
         int minutes = totalSeconds / 60;
         int seconds = totalSeconds % 60;
         return $"{minutes:D2}:{seconds:D2}";

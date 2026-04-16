@@ -2436,8 +2436,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4d479644787c46ef86ef3983d482b97d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  PosSmoothTime: 0.1
-  RotSmoothSpeed: 15
+  PosSmoothTime: 0.06
+  RotSmoothSpeed: 20
   SnapThreshold: 3
   CatchUpThreshold: 1.5
   StopThreshold: 0.05
@@ -2454,8 +2454,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   TargetAnimator: {fileID: 3238250712986701221}
-  ParamSmoothTime: 0.05
-  AnimCrossFadeTime: 0.15
+  ParamSmoothTime: 0.03
+  AnimCrossFadeTime: 0.1
   EnableAntiIceSkating: 1
   AntiIceTargetStates:
   - Idle

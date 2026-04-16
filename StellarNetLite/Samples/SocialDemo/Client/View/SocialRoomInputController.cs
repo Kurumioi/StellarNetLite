@@ -25,7 +25,8 @@ namespace StellarNet.Lite.Game.Client.Views
         private CharacterController _characterController;
         private float _lastSendTime;
 
-        private const float SendInterval = 0.05f;
+        // 开发态默认按 30Hz 上报移动输入，兼顾肉眼观感和基础带宽成本。
+        private const float SendInterval = 1f / 30f;
         private const float MoveSpeed = 4.0f;
         private const float RotationSmoothSpeed = 15f;
         private float _targetRotationY;

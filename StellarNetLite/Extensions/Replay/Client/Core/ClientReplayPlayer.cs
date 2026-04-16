@@ -27,7 +27,7 @@ namespace StellarNet.Lite.Client.Core
 
         private bool _isPlaying;
         private float _tickAccumulator;
-        private const float TickInterval = 1f / 60f;
+        private float _tickInterval = 1f / ReplayFormatDefines.DefaultTickRateFallback;
         private float _lastReportedTimeScale = -1f;
 
         private string _replayFilePath;
@@ -38,6 +38,7 @@ namespace StellarNet.Lite.Client.Core
         private string _roomId;
         private int[] _componentIds;
         private int _realTotalTicks = ReplayFormatDefines.DefaultTotalTicksFallback;
+        private int _recordedTickRate = ReplayFormatDefines.DefaultTickRateFallback;
         private byte _replayVersion = ReplayFormatDefines.VersionLegacy;
 
         private readonly Dictionary<int, long> _messageFrameIndex = new Dictionary<int, long>();
@@ -92,6 +93,7 @@ namespace StellarNet.Lite.Client.Core
             PlaybackSpeed = 1f;
             _tickAccumulator = 0f;
             _lastReportedTimeScale = -1f;
+            _tickInterval = 1f / ReplayFormatDefines.DefaultTickRateFallback;
             bool initSuccess = InitStream();
             if (!initSuccess)
             {
@@ -201,6 +203,18 @@ namespace StellarNet.Lite.Client.Core
                             $"录像总 Tick 非法，已回退为 0, FilePath:{_replayFilePath}, TotalTicks:{_realTotalTicks}");
                         _realTotalTicks = 0;
                     }
+
+                    _recordedTickRate = _replayVersion >= ReplayFormatDefines.VersionWithTickRate
+                        ? headerReader.ReadInt32()
+                        : ReplayFormatDefines.DefaultTickRateFallback;
+                    if (_recordedTickRate <= 0)
+                    {
+                        NetLogger.LogWarning("ClientReplayPlayer",
+                            $"录像 TickRate 非法，已回退为 {ReplayFormatDefines.DefaultTickRateFallback}, FilePath:{_replayFilePath}, TickRate:{_recordedTickRate}");
+                        _recordedTickRate = ReplayFormatDefines.DefaultTickRateFallback;
+                    }
+
+                    _tickInterval = 1f / _recordedTickRate;
 
                     if (string.IsNullOrEmpty(_roomId))
                     {
@@ -345,9 +359,9 @@ namespace StellarNet.Lite.Client.Core
             }
 
             _tickAccumulator += deltaTime * PlaybackSpeed;
-            while (_tickAccumulator >= TickInterval)
+            while (_tickAccumulator >= _tickInterval)
             {
-                _tickAccumulator -= TickInterval;
+                _tickAccumulator -= _tickInterval;
                 ProcessNextTick();
                 if (CurrentTick >= _realTotalTicks)
                 {
@@ -415,6 +429,11 @@ namespace StellarNet.Lite.Client.Core
         public int GetTotalTicks()
         {
             return _realTotalTicks;
+        }
+
+        public int GetRecordedTickRate()
+        {
+            return _recordedTickRate > 0 ? _recordedTickRate : ReplayFormatDefines.DefaultTickRateFallback;
         }
 
         private void RestartSandbox()

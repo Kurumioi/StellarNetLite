@@ -41,8 +41,10 @@ namespace StellarNet.Lite.Server.Components
         private readonly Dictionary<int, ServerSyncEntity> _entities = new Dictionary<int, ServerSyncEntity>();
         private int _netIdCounter = 0;
 
-        private const int SyncIntervalTicks = 3;
-        private const int RecordIntervalTicks = 3;
+        // 无配置开发态默认优先保证在线观感，在线同步默认每 Tick 广播一次。
+        private const int SyncIntervalTicks = 1;
+        // 回放录制频率必须和在线同步频率保持一致，否则录像观感会比局内更稀疏。
+        private const int RecordIntervalTicks = SyncIntervalTicks;
 
         private ObjectSyncState[] _syncStateBuffer = new ObjectSyncState[64];
         private readonly S2C_ObjectSync _reusableSyncMsg = new S2C_ObjectSync();

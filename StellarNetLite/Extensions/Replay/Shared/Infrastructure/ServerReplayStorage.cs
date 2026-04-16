@@ -227,7 +227,7 @@ namespace StellarNet.Lite.Server.Infrastructure
             using (BinaryWriter headerWriter = new BinaryWriter(ms))
             {
                 headerWriter.Write(ReplayFormatDefines.MagicBytes);
-                headerWriter.Write(ReplayFormatDefines.VersionWithObjectSnapshot);
+                headerWriter.Write(ReplayFormatDefines.VersionWithTickRate);
                 headerWriter.Write(finalDisplayName);
                 headerWriter.Write(roomId);
                 int compCount = componentIds?.Length ?? 0;
@@ -238,6 +238,10 @@ namespace StellarNet.Lite.Server.Infrastructure
                 }
 
                 headerWriter.Write(totalTicks);
+                int recordedTickRate = config != null && config.TickRate > 0
+                    ? config.TickRate
+                    : ReplayFormatDefines.DefaultTickRateFallback;
+                headerWriter.Write(recordedTickRate);
                 headerWriter.Flush();
                 headerBytes = ms.ToArray();
             }

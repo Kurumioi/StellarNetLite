@@ -35,9 +35,19 @@ namespace StellarNet.Lite.Shared.Replay
         public const byte VersionWithObjectSnapshot = 3;
 
         /// <summary>
+        /// 支持在录像头中记录原始 TickRate 的格式版本号。
+        /// </summary>
+        public const byte VersionWithTickRate = 4;
+
+        /// <summary>
         /// 旧格式缺少总 Tick 时使用的默认回退值。
         /// </summary>
         public const int DefaultTotalTicksFallback = 108000;
+
+        /// <summary>
+        /// 旧格式缺少 TickRate 时使用的默认回退值。
+        /// </summary>
+        public const int DefaultTickRateFallback = 60;
     }
 
     /// <summary>
