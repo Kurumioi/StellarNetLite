@@ -40,6 +40,8 @@ namespace StellarNet.Lite.Server.Core
         public int MemberCount => _members.Count;
         public RoomState State { get; private set; } = RoomState.Waiting;
         public string LastReplayId { get; private set; }
+        public float CurrentRealtimeSinceStartup { get; private set; }
+        public DateTime CurrentUtcNow { get; private set; }
 
         private readonly Dictionary<string, Session> _members = new Dictionary<string, Session>();
         public IReadOnlyDictionary<string, Session> Members => _members;
@@ -67,6 +69,12 @@ namespace StellarNet.Lite.Server.Core
             EmptySince = DateTime.UtcNow;
             CurrentTick = 0;
             State = RoomState.Waiting;
+        }
+
+        public void UpdateRuntimeContext(float realtimeSinceStartup, DateTime utcNow)
+        {
+            CurrentRealtimeSinceStartup = realtimeSinceStartup;
+            CurrentUtcNow = utcNow;
         }
 
         public void SetComponentIds(int[] ids)

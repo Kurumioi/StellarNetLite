@@ -47,7 +47,7 @@ namespace StellarNet.Lite.Transports.UDP
         private bool _isClientActive;
         private bool _isPhysicalConnected;
 
-        private readonly ConcurrentQueue<Action> _mainThreadActions = new ConcurrentQueue<Action>();
+        private readonly ConcurrentQueue<Action> _clientMainThreadActions = new ConcurrentQueue<Action>();
 
         public void ApplyConfig(NetConfig config)
         {
@@ -56,7 +56,7 @@ namespace StellarNet.Lite.Transports.UDP
 
         private void Update()
         {
-            while (_mainThreadActions.TryDequeue(out Action action))
+            while (_clientMainThreadActions.TryDequeue(out Action action))
             {
                 action?.Invoke();
             }
@@ -84,7 +84,7 @@ namespace StellarNet.Lite.Transports.UDP
                 _ = ReceiveServerDataAsync(_serverCts.Token);
 
                 NetLogger.LogWarning("UdpTransportProvider", $"[警告] UDP 服务端已启动。纯 UDP 会丢包，严禁用于生产环境业务逻辑！监听端口: {_appConfig.Port}");
-                _mainThreadActions.Enqueue(() => OnServerStartedEvent?.Invoke());
+                OnServerStartedEvent?.Invoke();
             }
             catch (Exception ex)
             {
@@ -105,7 +105,7 @@ namespace StellarNet.Lite.Transports.UDP
             _connIdToEndpoint.Clear();
 
             NetLogger.LogInfo("UdpTransportProvider", "UDP 服务端已停止");
-            _mainThreadActions.Enqueue(() => OnServerStoppedEvent?.Invoke());
+            OnServerStoppedEvent?.Invoke();
         }
 
         private async Task ReceiveServerDataAsync(CancellationToken token)
@@ -122,7 +122,7 @@ namespace StellarNet.Lite.Transports.UDP
                         _endpointToConnId[result.RemoteEndPoint] = connId;
                         _connIdToEndpoint[connId] = result.RemoteEndPoint;
 
-                        _mainThreadActions.Enqueue(() => OnServerClientConnectedEvent?.Invoke(connId));
+                        OnServerClientConnectedEvent?.Invoke(connId);
                     }
 
                     if (LitePacketFormatter.TryDeserialize(result.Buffer, 0, result.Buffer.Length, out Packet packet))
@@ -131,7 +131,7 @@ namespace StellarNet.Lite.Transports.UDP
                         Buffer.BlockCopy(packet.Payload, packet.PayloadOffset, safePayload, 0, packet.PayloadLength);
                         Packet safePacket = new Packet(packet.Seq, packet.MsgId, packet.Scope, packet.RoomId, safePayload, packet.PayloadLength);
 
-                        _mainThreadActions.Enqueue(() => OnServerReceivePacketEvent?.Invoke(connId, safePacket));
+                        OnServerReceivePacketEvent?.Invoke(connId, safePacket);
                     }
                 }
             }
@@ -173,7 +173,7 @@ namespace StellarNet.Lite.Transports.UDP
 
                 NetLogger.LogWarning("UdpTransportProvider", $"[警告] UDP 客户端已启动。目标: {_appConfig.Ip}:{_appConfig.Port}");
 
-                _mainThreadActions.Enqueue(() =>
+                _clientMainThreadActions.Enqueue(() =>
                 {
                     if (!_isClientActive)
                     {
@@ -204,7 +204,7 @@ namespace StellarNet.Lite.Transports.UDP
             _clientUdp = null;
 
             NetLogger.LogInfo("UdpTransportProvider", "UDP 客户端已停止");
-            _mainThreadActions.Enqueue(() =>
+            _clientMainThreadActions.Enqueue(() =>
             {
                 OnClientDisconnectedEvent?.Invoke();
                 OnClientStoppedEvent?.Invoke();
@@ -220,7 +220,7 @@ namespace StellarNet.Lite.Transports.UDP
             _clientUdp?.Close();
             _clientUdp = null;
 
-            _mainThreadActions.Enqueue(() => { OnClientDisconnectedEvent?.Invoke(); });
+            _clientMainThreadActions.Enqueue(() => { OnClientDisconnectedEvent?.Invoke(); });
         }
 
         private async Task ReceiveClientDataAsync(CancellationToken token)
@@ -237,7 +237,7 @@ namespace StellarNet.Lite.Transports.UDP
                         Buffer.BlockCopy(packet.Payload, packet.PayloadOffset, safePayload, 0, packet.PayloadLength);
                         Packet safePacket = new Packet(packet.Seq, packet.MsgId, packet.Scope, packet.RoomId, safePayload, packet.PayloadLength);
 
-                        _mainThreadActions.Enqueue(() => OnClientReceivePacketEvent?.Invoke(safePacket));
+                        _clientMainThreadActions.Enqueue(() => OnClientReceivePacketEvent?.Invoke(safePacket));
                     }
                 }
             }
@@ -313,7 +313,7 @@ namespace StellarNet.Lite.Transports.UDP
             if (_connIdToEndpoint.TryRemove(connectionId, out IPEndPoint endpoint))
             {
                 _endpointToConnId.TryRemove(endpoint, out _);
-                _mainThreadActions.Enqueue(() => OnServerClientDisconnectedEvent?.Invoke(connectionId));
+                OnServerClientDisconnectedEvent?.Invoke(connectionId);
             }
         }
 

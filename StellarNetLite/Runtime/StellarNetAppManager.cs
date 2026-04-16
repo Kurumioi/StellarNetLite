@@ -4,6 +4,7 @@ using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Client.Infrastructure;
 using StellarNet.Lite.Server.Core;
+using StellarNet.Lite.Server.Infrastructure;
 using StellarNet.Lite.Server.Modules;
 using StellarNet.Lite.Shared.Binders;
 using StellarNet.Lite.Shared.Core;
@@ -20,6 +21,8 @@ namespace StellarNet.Lite.Runtime
     [RequireComponent(typeof(INetworkTransport))]
     public class StellarNetAppManager : MonoBehaviour
     {
+        private static StellarNetAppManager _persistentInstance;
+
         /// <summary>
         /// 当前运行时使用的消息序列化器。
         /// </summary>
@@ -32,11 +35,23 @@ namespace StellarNet.Lite.Runtime
 
         private NetConfig _netConfig;
         private bool _isCoreInitialized;
+        private bool _serverRuntimeRequested;
+        private readonly object _serverLifecycleLock = new object();
+        private ServerRuntimeHost _serverRuntime;
 
         #region ================= 生命周期与初始化 =================
 
         public void Awake()
         {
+            if (_persistentInstance != null && _persistentInstance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _persistentInstance = this;
+            DontDestroyOnLoad(gameObject);
+
             Transport = GetComponent<INetworkTransport>();
             if (Transport == null)
             {
@@ -45,7 +60,7 @@ namespace StellarNet.Lite.Runtime
             }
 
             Serializer = new LiteNetSerializer();
-            _netConfig = NetConfigLoader.LoadServerConfigSync(ConfigRootPath.StreamingAssets);
+            _netConfig = NetConfigLoader.LoadRuntimeConfigSync();
             Transport.ApplyConfig(_netConfig);
 
             NetMessageMapper.Initialize();
@@ -73,6 +88,13 @@ namespace StellarNet.Lite.Runtime
 
         private void OnDestroy()
         {
+            if (_persistentInstance == this)
+            {
+                _persistentInstance = null;
+            }
+
+            DisposeServerRuntime();
+
             if (Transport != null)
             {
                 Transport.OnServerStartedEvent -= HandleServerStarted;
@@ -101,23 +123,30 @@ namespace StellarNet.Lite.Runtime
             Transport?.ApplyConfig(_netConfig);
         }
 
-        private void FixedUpdate()
-        {
-            if (ServerApp != null)
-            {
-                ServerApp.Tick();
-            }
-        }
-
         #endregion
 
         #region ================= 物理层快捷代理 =================
 
         public void StartClient() => Transport?.StartClient();
         public void StopClient() => Transport?.StopClient();
-        public void StartServer() => Transport?.StartServer();
-        public void StopServer() => Transport?.StopServer();
-        public void StartHost() => Transport?.StartHost();
+        public void StartServer()
+        {
+            _serverRuntimeRequested = true;
+            Transport?.StartServer();
+        }
+
+        public void StopServer()
+        {
+            _serverRuntimeRequested = false;
+            Transport?.StopServer();
+            DisposeServerRuntime();
+        }
+
+        public void StartHost()
+        {
+            _serverRuntimeRequested = true;
+            Transport?.StartHost();
+        }
 
         #endregion
 
@@ -127,6 +156,7 @@ namespace StellarNet.Lite.Runtime
         /// 当前服务端逻辑宿主。
         /// </summary>
         public ServerApp ServerApp { get; private set; }
+        public ServerRuntimeHost ServerRuntime => _serverRuntime;
 
         public static event Action OnServerStartedEvent;
         public static event Action OnServerStoppedEvent;
@@ -144,20 +174,59 @@ namespace StellarNet.Lite.Runtime
         /// </summary>
         public static event Action<int> OnServerClientDisconnectedEvent;
 
+        private ServerRuntimeHost EnsureServerRuntimeCreated()
+        {
+            lock (_serverLifecycleLock)
+            {
+                if (_serverRuntime != null)
+                {
+                    return _serverRuntime;
+                }
+
+                if (!_serverRuntimeRequested)
+                {
+                    return null;
+                }
+
+                if (!_isCoreInitialized || _netConfig == null || Transport == null)
+                {
+                    NetLogger.LogError("StellarNetAppManager", "服务端运行宿主创建失败: 核心初始化未完成或配置为空");
+                    return null;
+                }
+
+                ServerApp = new ServerApp(Transport, Serializer, _netConfig);
+                RegisterUnauthenticatedProtocols(ServerApp);
+                Func<byte[], int, int, Type, object> deserializeFunc = Serializer.Deserialize;
+                AutoRegistry.RegisterServer(ServerApp, deserializeFunc);
+
+                _serverRuntime = new ServerRuntimeHost(ServerApp, Transport);
+                _serverRuntime.Start();
+
+                NetLogger.LogInfo("StellarNetAppManager", $"服务端逻辑内核装配完毕。TickRate:{_netConfig.TickRate}");
+                return _serverRuntime;
+            }
+        }
+
+        private void DisposeServerRuntime()
+        {
+            lock (_serverLifecycleLock)
+            {
+                ServerRuntimeHost runtime = _serverRuntime;
+                ServerApp serverApp = ServerApp;
+
+                _serverRuntime = null;
+                ServerApp = null;
+
+                runtime?.Stop();
+                serverApp?.Dispose();
+                ServerRoomFactory.Clear();
+            }
+        }
+
         private void HandleServerStarted()
         {
-            if (!_isCoreInitialized || _netConfig == null)
-            {
-                NetLogger.LogError("StellarNetAppManager", "服务端启动失败: 核心初始化未完成或配置为空");
-                return;
-            }
-
-            ServerApp = new ServerApp(Transport, Serializer, _netConfig);
-            RegisterUnauthenticatedProtocols(ServerApp);
-            Func<byte[], int, int, Type, object> deserializeFunc = Serializer.Deserialize;
-            AutoRegistry.RegisterServer(ServerApp, deserializeFunc);
-
-            NetLogger.LogInfo("StellarNetAppManager", $"服务端逻辑内核装配完毕。TickRate:{_netConfig.TickRate}");
+            _serverRuntimeRequested = true;
+            EnsureServerRuntimeCreated();
             OnServerStartedEvent?.Invoke();
         }
 
@@ -180,43 +249,49 @@ namespace StellarNet.Lite.Runtime
 
         private void HandleServerStopped()
         {
+            _serverRuntimeRequested = false;
             OnServerStoppedEvent?.Invoke();
             NetLogger.LogInfo("StellarNetAppManager", "服务端逻辑内核已停止运行");
-
-            if (ServerApp != null)
-            {
-                ServerApp.Dispose();
-                ServerApp = null;
-            }
-
-            ServerRoomFactory.Clear();
+            DisposeServerRuntime();
         }
 
         private void HandleServerClientConnected(int connectionId)
         {
-            OnServerClientConnectedEvent?.Invoke(connectionId);
-            NetLogger.LogInfo("StellarNetAppManager", "物理连接建立，等待业务层鉴权", "-", "-", $"ConnId:{connectionId}");
+            ServerRuntimeHost runtime = EnsureServerRuntimeCreated();
+            runtime?.ExecuteOrEnqueue(() =>
+            {
+                OnServerClientConnectedEvent?.Invoke(connectionId);
+                NetLogger.LogInfo("StellarNetAppManager", "物理连接建立，等待业务层鉴权", "-", "-", $"ConnId:{connectionId}");
+            });
         }
 
         private void HandleServerClientDisconnected(int connectionId)
         {
-            OnServerClientDisconnectedEvent?.Invoke(connectionId);
-
-            if (ServerApp == null) return;
-
-            Session session = ServerApp.TryGetSessionByConnectionId(connectionId);
-            if (session != null)
+            ServerRuntimeHost runtime = EnsureServerRuntimeCreated();
+            runtime?.ExecuteOrEnqueue(() =>
             {
-                NetLogger.LogInfo("StellarNetAppManager", "物理连接断开，触发会话离线", "-", session.SessionId, $"ConnId:{connectionId}");
-                ServerApp.UnbindConnection(session);
-            }
+                OnServerClientDisconnectedEvent?.Invoke(connectionId);
 
-            ServerLobbyModule.BroadcastOnlinePlayerList(ServerApp);
+                if (ServerApp == null)
+                {
+                    return;
+                }
+
+                Session session = ServerApp.TryGetSessionByConnectionId(connectionId);
+                if (session != null)
+                {
+                    NetLogger.LogInfo("StellarNetAppManager", "物理连接断开，触发会话离线", "-", session.SessionId, $"ConnId:{connectionId}");
+                    ServerApp.UnbindConnection(session);
+                }
+
+                ServerLobbyModule.BroadcastOnlinePlayerList(ServerApp);
+            });
         }
 
         private void HandleServerReceivePacket(int connectionId, Packet packet)
         {
-            ServerApp?.OnReceivePacket(connectionId, packet);
+            ServerRuntimeHost runtime = EnsureServerRuntimeCreated();
+            runtime?.ExecuteOrEnqueue(() => { ServerApp?.OnReceivePacket(connectionId, packet); });
         }
 
         #endregion

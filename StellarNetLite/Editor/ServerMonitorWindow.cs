@@ -49,17 +49,19 @@ namespace StellarNet.Lite.Editor
             }
 
             ServerApp serverApp = appManager.ServerApp;
+            lock (serverApp.SyncRoot)
+            {
+                DrawOverview(serverApp);
+                EditorGUILayout.Space(10);
 
-            DrawOverview(serverApp);
-            EditorGUILayout.Space(10);
+                EditorGUILayout.BeginHorizontal();
+                DrawRoomList(serverApp);
+                DrawSessionList(serverApp);
+                EditorGUILayout.EndHorizontal();
 
-            EditorGUILayout.BeginHorizontal();
-            DrawRoomList(serverApp);
-            DrawSessionList(serverApp);
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.Space(10);
-            DrawRoomDetails(serverApp);
+                EditorGUILayout.Space(10);
+                DrawRoomDetails(serverApp);
+            }
         }
 
         private void DrawOverview(ServerApp serverApp)

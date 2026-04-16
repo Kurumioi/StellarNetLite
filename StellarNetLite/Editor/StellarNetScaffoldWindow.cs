@@ -1,5 +1,6 @@
 ﻿using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 
@@ -71,7 +72,7 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.Space(8f);
 
             _businessType = (ScaffoldBusinessType)EditorGUILayout.EnumPopup("脚手架类型", _businessType);
-            _namespacePrefix = EditorGUILayout.TextField("前置 Namespace", _namespacePrefix);
+            _namespacePrefix = SanitizeNamespacePrefix(EditorGUILayout.TextField("前置 Namespace", _namespacePrefix));
 
             EditorGUILayout.BeginHorizontal();
             _outputRoot = EditorGUILayout.TextField("输出根目录", _outputRoot);
@@ -86,7 +87,7 @@ namespace StellarNet.Lite.Editor
 
             EditorGUILayout.EndHorizontal();
 
-            _featureName = EditorGUILayout.TextField("模块名 (英文)", _featureName);
+            _featureName = SanitizeIdentifier(EditorGUILayout.TextField("模块名 (英文)", _featureName), "NewFeature");
             _displayName = EditorGUILayout.TextField("显示名 (中文)", _displayName);
 
             if (_businessType == ScaffoldBusinessType.RoomComponent)
@@ -110,6 +111,10 @@ namespace StellarNet.Lite.Editor
         /// </summary>
         private void GenerateScaffold()
         {
+            _featureName = SanitizeIdentifier(_featureName, "NewFeature");
+            _namespacePrefix = SanitizeNamespacePrefix(_namespacePrefix);
+            _displayName = string.IsNullOrWhiteSpace(_displayName) ? "新功能模块" : _displayName.Trim();
+
             string fullNamespace = string.IsNullOrEmpty(_namespacePrefix) ? DefaultBaseNamespace : $"{_namespacePrefix}.{DefaultBaseNamespace}";
             string scope = _businessType == ScaffoldBusinessType.RoomComponent ? "NetScope.Room" : "NetScope.Global";
 
@@ -160,11 +165,58 @@ namespace StellarNet.Lite.Editor
             return template
                 .Replace("#NAMESPACE#", fullNamespace)
                 .Replace("#FEATURE_NAME#", _featureName)
-                .Replace("#DISPLAY_NAME#", _displayName)
+                .Replace("#DISPLAY_NAME#", EscapeStringLiteral(_displayName))
                 .Replace("#COMPONENT_ID#", _componentId.ToString())
                 .Replace("#C2S_MSG_ID#", _c2sMsgId.ToString())
                 .Replace("#S2C_MSG_ID#", _s2cMsgId.ToString())
                 .Replace("#SCOPE#", scope);
+        }
+
+        private static string SanitizeIdentifier(string value, string fallback)
+        {
+            string noWhitespace = Regex.Replace(value ?? string.Empty, @"\s+", string.Empty);
+            string safe = Regex.Replace(noWhitespace, @"[^a-zA-Z0-9_]", string.Empty);
+            if (string.IsNullOrEmpty(safe))
+            {
+                return fallback;
+            }
+
+            return char.IsDigit(safe[0]) ? "_" + safe : safe;
+        }
+
+        private static string SanitizeNamespacePrefix(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            string noWhitespace = Regex.Replace(value, @"\s+", string.Empty);
+            string[] rawSegments = noWhitespace.Split('.');
+            var safeSegments = new StringBuilder();
+
+            for (int i = 0; i < rawSegments.Length; i++)
+            {
+                string safeSegment = SanitizeIdentifier(rawSegments[i], string.Empty);
+                if (string.IsNullOrEmpty(safeSegment))
+                {
+                    continue;
+                }
+
+                if (safeSegments.Length > 0)
+                {
+                    safeSegments.Append('.');
+                }
+
+                safeSegments.Append(safeSegment);
+            }
+
+            return safeSegments.ToString();
+        }
+
+        private static string EscapeStringLiteral(string value)
+        {
+            return string.IsNullOrEmpty(value) ? string.Empty : value.Replace("\\", "\\\\").Replace("\"", "\\\"");
         }
 
         /// <summary>

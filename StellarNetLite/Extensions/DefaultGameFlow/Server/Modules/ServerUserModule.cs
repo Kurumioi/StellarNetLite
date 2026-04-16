@@ -134,7 +134,7 @@ namespace StellarNet.Lite.Server.Modules
 
             _app.RemoveSession(session.SessionId);
 
-            var authSession = new Session(session.SessionId, accountId, session.ConnectionId);
+                var authSession = new Session(session.SessionId, accountId, session.ConnectionId, _app.CurrentRealtimeSinceStartup);
             authSession.ResetSeq(session.LastReceivedSeq);
             _app.RegisterSession(authSession);
 

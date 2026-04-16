@@ -14,7 +14,7 @@ namespace StellarNet.Lite.Transports.KCP
     /// 基于 kcp2k 的 KCP 传输层实现。
     /// </summary>
     [DisallowMultipleComponent]
-    public class KcpTransportProvider : MonoBehaviour, INetworkTransport
+    public class KcpTransportProvider : MonoBehaviour, INetworkTransport, IServerTransportPump
     {
         #region 物理事件契约
 
@@ -74,16 +74,19 @@ namespace StellarNet.Lite.Transports.KCP
 
         private void Update()
         {
-            if (_isServerActive && _server != null)
-            {
-                _server.TickIncoming();
-                _server.TickOutgoing();
-            }
-
             if (_isClientActive && _client != null)
             {
                 _client.TickIncoming();
                 _client.TickOutgoing();
+            }
+        }
+
+        public void PumpServer()
+        {
+            if (_isServerActive && _server != null)
+            {
+                _server.TickIncoming();
+                _server.TickOutgoing();
             }
         }
 

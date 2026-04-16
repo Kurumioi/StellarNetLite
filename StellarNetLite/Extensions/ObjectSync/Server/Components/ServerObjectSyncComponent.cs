@@ -87,7 +87,7 @@ namespace StellarNet.Lite.Server.Components
             }
 
             int index = 0;
-            float currentServerTime = Time.realtimeSinceStartup;
+            float currentServerTime = Room.CurrentRealtimeSinceStartup;
 
             foreach (var kvp in _entities)
             {

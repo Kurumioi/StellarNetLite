@@ -81,6 +81,87 @@ namespace StellarNet.Lite.Shared.Infrastructure
     {
         public const string ConfigFolderName = "NetConfig";
         public const string ConfigFileName = "netconfig.json";
+        public const string RuntimeRootFileName = "netconfig_root.json";
+
+        [Serializable]
+        private sealed class RuntimeRootConfig
+        {
+            public ConfigRootPath ActiveRoot = ConfigRootPath.StreamingAssets;
+        }
+
+        /// <summary>
+        /// 按当前运行时根目录加载配置。
+        /// 根目录选择由 StreamingAssets 下的引导文件决定。
+        /// </summary>
+        public static async Task<NetConfig> LoadRuntimeConfigAsync()
+        {
+            ConfigRootPath rootPath = await LoadRuntimeRootAsync();
+            return await LoadAsync(rootPath);
+        }
+
+        /// <summary>
+        /// 按当前运行时根目录同步加载配置。
+        /// 根目录选择由 StreamingAssets 下的引导文件决定。
+        /// </summary>
+        public static NetConfig LoadRuntimeConfigSync()
+        {
+            ConfigRootPath rootPath = LoadRuntimeRootSync();
+            return LoadServerConfigSync(rootPath);
+        }
+
+        /// <summary>
+        /// 异步读取当前运行时配置根目录。
+        /// </summary>
+        public static async Task<ConfigRootPath> LoadRuntimeRootAsync()
+        {
+            string bootstrapPath = GetRuntimeRootFullPath();
+            if (string.IsNullOrEmpty(bootstrapPath))
+            {
+                return ConfigRootPath.StreamingAssets;
+            }
+
+            if (Application.platform == RuntimePlatform.Android)
+            {
+                string bootstrapJson = await ReadViaWebRequestAsync(bootstrapPath);
+                return DeserializeRuntimeRootOrDefault(bootstrapJson, bootstrapPath, "Android 运行时根目录异步读取");
+            }
+
+            if (!File.Exists(bootstrapPath))
+            {
+                return ConfigRootPath.StreamingAssets;
+            }
+
+            string jsonContent = File.ReadAllText(bootstrapPath);
+            return DeserializeRuntimeRootOrDefault(jsonContent, bootstrapPath, "运行时根目录异步读取");
+        }
+
+        /// <summary>
+        /// 同步读取当前运行时配置根目录。
+        /// </summary>
+        public static ConfigRootPath LoadRuntimeRootSync()
+        {
+            string bootstrapPath = GetRuntimeRootFullPath();
+            if (string.IsNullOrEmpty(bootstrapPath))
+            {
+                return ConfigRootPath.StreamingAssets;
+            }
+
+            if (Application.platform == RuntimePlatform.Android)
+            {
+                NetLogger.LogWarning(
+                    "NetConfigLoader",
+                    "Android 平台禁止同步读取 StreamingAssets 根目录引导文件，已回退默认根目录 StreamingAssets。");
+                return ConfigRootPath.StreamingAssets;
+            }
+
+            if (!File.Exists(bootstrapPath))
+            {
+                return ConfigRootPath.StreamingAssets;
+            }
+
+            string jsonContent = File.ReadAllText(bootstrapPath);
+            return DeserializeRuntimeRootOrDefault(jsonContent, bootstrapPath, "运行时根目录同步读取");
+        }
 
         /// <summary>
         /// 异步加载配置。
@@ -166,6 +247,40 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
 
             return Path.Combine(basePath, ConfigFolderName, ConfigFileName).Replace("\\", "/");
+        }
+
+        private static string GetRuntimeRootFullPath()
+        {
+            if (string.IsNullOrEmpty(Application.streamingAssetsPath))
+            {
+                return string.Empty;
+            }
+
+            return Path.Combine(Application.streamingAssetsPath, ConfigFolderName, RuntimeRootFileName).Replace("\\", "/");
+        }
+
+        private static ConfigRootPath DeserializeRuntimeRootOrDefault(string jsonContent, string fullPath, string stage)
+        {
+            if (string.IsNullOrWhiteSpace(jsonContent))
+            {
+                return ConfigRootPath.StreamingAssets;
+            }
+
+            try
+            {
+                RuntimeRootConfig rootConfig = JsonConvert.DeserializeObject<RuntimeRootConfig>(jsonContent);
+                if (rootConfig == null)
+                {
+                    return ConfigRootPath.StreamingAssets;
+                }
+
+                return rootConfig.ActiveRoot;
+            }
+            catch (Exception ex)
+            {
+                NetLogger.LogWarning("NetConfigLoader", $"运行时根目录解析失败，已回退 StreamingAssets。Stage:{stage}, Path:{fullPath}, Error:{ex.Message}");
+                return ConfigRootPath.StreamingAssets;
+            }
         }
 
         private static NetConfig DeserializeOrDefault(string jsonContent, string fullPath, string stage)
@@ -292,6 +407,36 @@ namespace StellarNet.Lite.Shared.Infrastructure
         }
 
 #if UNITY_EDITOR
+        public static void SaveRuntimeRootSelection(ConfigRootPath rootPath)
+        {
+            string bootstrapPath = GetRuntimeRootFullPath();
+            if (string.IsNullOrEmpty(bootstrapPath))
+            {
+                NetLogger.LogError("NetConfigLoader", $"保存运行时根目录失败: bootstrapPath 为空, Root:{rootPath}");
+                return;
+            }
+
+            string folderPath = Path.GetDirectoryName(bootstrapPath);
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                NetLogger.LogError("NetConfigLoader", $"保存运行时根目录失败: folderPath 为空, Path:{bootstrapPath}, Root:{rootPath}");
+                return;
+            }
+
+            if (!Directory.Exists(folderPath))
+            {
+                Directory.CreateDirectory(folderPath);
+            }
+
+            var rootConfig = new RuntimeRootConfig
+            {
+                ActiveRoot = rootPath
+            };
+
+            string json = JsonConvert.SerializeObject(rootConfig, Formatting.Indented);
+            File.WriteAllText(bootstrapPath, json);
+        }
+
         public static NetConfig LoadEditorSync(ConfigRootPath rootPath)
         {
             return LoadServerConfigSync(rootPath);

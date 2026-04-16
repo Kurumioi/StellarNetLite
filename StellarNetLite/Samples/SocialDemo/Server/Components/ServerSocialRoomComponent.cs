@@ -98,7 +98,7 @@ namespace StellarNet.Lite.Game.Server.Components
             if (Room.State != RoomState.Playing || _syncService == null) return;
 
             float deltaTime = 1f / _app.Config.TickRate;
-            float currentTime = Time.realtimeSinceStartup;
+            float currentTime = Room.CurrentRealtimeSinceStartup;
 
             foreach (var kvp in _sessionToNetId)
             {
@@ -187,13 +187,13 @@ namespace StellarNet.Lite.Game.Server.Components
             {
                 playerSync.AnimStateHash = AnimHash_Wave;
                 playerSync.AnimNormalizedTime = 0f;
-                _actionEndTimes[netId] = Time.realtimeSinceStartup + 2.5f;
+                _actionEndTimes[netId] = Room.CurrentRealtimeSinceStartup + 2.5f;
             }
             else if (msg.ActionId == 2)
             {
                 playerSync.AnimStateHash = AnimHash_Dance;
                 playerSync.AnimNormalizedTime = 0f;
-                _actionEndTimes[netId] = Time.realtimeSinceStartup + 4.0f;
+                _actionEndTimes[netId] = Room.CurrentRealtimeSinceStartup + 4.0f;
             }
         }
 

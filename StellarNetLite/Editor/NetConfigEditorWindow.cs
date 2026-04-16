@@ -40,6 +40,7 @@ namespace StellarNet.Lite.Editor
 
         private void OnEnable()
         {
+            _targetRoot = NetConfigLoader.LoadRuntimeRootSync();
             // 打开窗口时按当前根目录读取一次配置。
             LoadFromCurrentRoot();
         }
@@ -50,7 +51,7 @@ namespace StellarNet.Lite.Editor
 
             GUILayout.Space(10);
             GUILayout.Label("StellarNet Lite 全局网络配置", _headerStyle);
-            EditorGUILayout.HelpBox("修改后点击保存，将自动写入到对应目录下的 NetConfig/netconfig.json 文件中。", MessageType.Info);
+            EditorGUILayout.HelpBox("这里的根目录不仅决定编辑哪个 netconfig.json，也决定运行时默认从哪个根目录读取配置。", MessageType.Info);
 
             DrawToolbar();
             DrawResolvedPathInfo();
@@ -93,7 +94,7 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.BeginVertical("box");
 
             EditorGUI.BeginChangeCheck();
-            ConfigRootPath nextRoot = (ConfigRootPath)EditorGUILayout.EnumPopup("存储目录 (Root Path):", _targetRoot);
+            ConfigRootPath nextRoot = (ConfigRootPath)EditorGUILayout.EnumPopup("运行时读取根目录 (Root Path):", _targetRoot);
             if (EditorGUI.EndChangeCheck())
             {
                 if (IsDirty())
@@ -111,6 +112,7 @@ namespace StellarNet.Lite.Editor
                 }
 
                 _targetRoot = nextRoot;
+                ApplyRuntimeRootSelection();
                 LoadFromCurrentRoot();
             }
 
@@ -134,11 +136,20 @@ namespace StellarNet.Lite.Editor
             }
 
             EditorGUILayout.SelectableLabel(_currentResolvedPath, _pathStyle, GUILayout.Height(34f));
+            EditorGUILayout.LabelField($"当前运行时激活根目录: {_targetRoot}", EditorStyles.miniBoldLabel);
+            string runtimeRootBootstrapPath = Path.Combine(Application.streamingAssetsPath, NetConfigLoader.ConfigFolderName, NetConfigLoader.RuntimeRootFileName)
+                .Replace("\\", "/");
+            EditorGUILayout.SelectableLabel(runtimeRootBootstrapPath, _pathStyle, GUILayout.Height(34f));
 
             bool configExists = File.Exists(_currentResolvedPath);
             EditorGUILayout.HelpBox(
-                configExists ? "当前目标文件已存在" : "当前目标文件不存在，首次保存时将自动创建",
+                configExists ? "当前目标文件已存在；切换根目录后运行时会按这里的选择读取。" : "当前目标文件不存在，首次保存时将自动创建；若直接运行，将回退默认配置。",
                 configExists ? MessageType.None : MessageType.Warning);
+
+            if (_targetRoot == ConfigRootPath.PersistentDataPath)
+            {
+                EditorGUILayout.HelpBox("注意：PersistentDataPath 是当前设备/当前 Unity 实例自己的沙盒目录。Editor 中保存到这里的文件，不会自动跟随 Build 发布到别的机器。", MessageType.Warning);
+            }
 
             EditorGUILayout.EndVertical();
         }
@@ -275,8 +286,15 @@ namespace StellarNet.Lite.Editor
             _loadedSnapshotJson = SerializeConfigSnapshot(_currentConfig);
             Repaint();
 
+            ApplyRuntimeRootSelection();
             NetLogger.LogInfo("NetConfigEditorWindow", $"配置保存成功, Root:{_targetRoot}, Path:{_currentResolvedPath}");
             EditorUtility.DisplayDialog("保存成功", $"配置已写入:\n{_currentResolvedPath}", "确定");
+        }
+
+        private void ApplyRuntimeRootSelection()
+        {
+            NetConfigLoader.SaveRuntimeRootSelection(_targetRoot);
+            AssetDatabase.Refresh();
         }
 
         private SaveResultState SaveConfigToCurrentRoot(NetConfig config)

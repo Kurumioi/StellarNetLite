@@ -55,7 +55,7 @@ namespace StellarNet.Lite.Transports.TCP
         private bool _isClientActive;
         private bool _isPhysicalConnected;
 
-        private readonly ConcurrentQueue<Action> _mainThreadActions = new ConcurrentQueue<Action>();
+        private readonly ConcurrentQueue<Action> _clientMainThreadActions = new ConcurrentQueue<Action>();
 
         public void ApplyConfig(NetConfig config)
         {
@@ -64,7 +64,7 @@ namespace StellarNet.Lite.Transports.TCP
 
         private void Update()
         {
-            while (_mainThreadActions.TryDequeue(out Action action))
+            while (_clientMainThreadActions.TryDequeue(out Action action))
             {
                 action?.Invoke();
             }
@@ -93,7 +93,7 @@ namespace StellarNet.Lite.Transports.TCP
                 _ = AcceptClientsAsync(_serverCts.Token);
 
                 NetLogger.LogInfo("TcpTransportProvider", $"TCP 服务端已启动，监听端口: {_appConfig.Port}");
-                _mainThreadActions.Enqueue(() => OnServerStartedEvent?.Invoke());
+                OnServerStartedEvent?.Invoke();
             }
             catch (Exception ex)
             {
@@ -118,7 +118,7 @@ namespace StellarNet.Lite.Transports.TCP
             _serverConnections.Clear();
 
             NetLogger.LogInfo("TcpTransportProvider", "TCP 服务端已停止");
-            _mainThreadActions.Enqueue(() => OnServerStoppedEvent?.Invoke());
+            OnServerStoppedEvent?.Invoke();
         }
 
         private async Task AcceptClientsAsync(CancellationToken token)
@@ -134,7 +134,7 @@ namespace StellarNet.Lite.Transports.TCP
                     var connection = new TcpConnection { Id = connId, Client = client, Stream = client.GetStream() };
                     _serverConnections.TryAdd(connId, connection);
 
-                    _mainThreadActions.Enqueue(() => OnServerClientConnectedEvent?.Invoke(connId));
+                    OnServerClientConnectedEvent?.Invoke(connId);
 
                     _ = ReceiveDataAsync(connection, token);
                 }
@@ -171,7 +171,7 @@ namespace StellarNet.Lite.Transports.TCP
                             Buffer.BlockCopy(packet.Payload, packet.PayloadOffset, safePayload, 0, packet.PayloadLength);
                             Packet safePacket = new Packet(packet.Seq, packet.MsgId, packet.Scope, packet.RoomId, safePayload, packet.PayloadLength);
 
-                            _mainThreadActions.Enqueue(() => OnServerReceivePacketEvent?.Invoke(connection.Id, safePacket));
+                            OnServerReceivePacketEvent?.Invoke(connection.Id, safePacket);
                         }
                     }
                     finally
@@ -221,7 +221,7 @@ namespace StellarNet.Lite.Transports.TCP
 
                 NetLogger.LogInfo("TcpTransportProvider", $"TCP 客户端已连接到 {_appConfig.Ip}:{_appConfig.Port}");
 
-                _mainThreadActions.Enqueue(() =>
+                _clientMainThreadActions.Enqueue(() =>
                 {
                     if (!_isClientActive)
                     {
@@ -255,7 +255,7 @@ namespace StellarNet.Lite.Transports.TCP
             _client = null;
 
             NetLogger.LogInfo("TcpTransportProvider", "TCP 客户端已停止");
-            _mainThreadActions.Enqueue(() =>
+            _clientMainThreadActions.Enqueue(() =>
             {
                 OnClientDisconnectedEvent?.Invoke();
                 OnClientStoppedEvent?.Invoke();
@@ -274,7 +274,7 @@ namespace StellarNet.Lite.Transports.TCP
             _clientStream = null;
             _client = null;
 
-            _mainThreadActions.Enqueue(() => { OnClientDisconnectedEvent?.Invoke(); });
+            _clientMainThreadActions.Enqueue(() => { OnClientDisconnectedEvent?.Invoke(); });
         }
 
         private async Task ReceiveClientDataAsync(CancellationToken token)
@@ -300,7 +300,7 @@ namespace StellarNet.Lite.Transports.TCP
                             Buffer.BlockCopy(packet.Payload, packet.PayloadOffset, safePayload, 0, packet.PayloadLength);
                             Packet safePacket = new Packet(packet.Seq, packet.MsgId, packet.Scope, packet.RoomId, safePayload, packet.PayloadLength);
 
-                            _mainThreadActions.Enqueue(() => OnClientReceivePacketEvent?.Invoke(safePacket));
+                            _clientMainThreadActions.Enqueue(() => OnClientReceivePacketEvent?.Invoke(safePacket));
                         }
                     }
                     finally
@@ -371,7 +371,7 @@ namespace StellarNet.Lite.Transports.TCP
             if (_serverConnections.TryRemove(connectionId, out TcpConnection conn))
             {
                 conn.Client?.Close();
-                _mainThreadActions.Enqueue(() => OnServerClientDisconnectedEvent?.Invoke(connectionId));
+                OnServerClientDisconnectedEvent?.Invoke(connectionId);
             }
         }
 

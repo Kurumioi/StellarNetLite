@@ -127,8 +127,9 @@ public class GameLauncher : MonoSingleton<GameLauncher>
             return;
         }
 
-        NetLogger.LogInfo("GameLauncher", $"加载配置: Root:{ConfigRootPath.StreamingAssets}");
-        NetConfig config = await NetConfigLoader.LoadAsync(ConfigRootPath.StreamingAssets);
+        ConfigRootPath activeRoot = NetConfigLoader.LoadRuntimeRootSync();
+        NetLogger.LogInfo("GameLauncher", $"加载配置: Root:{activeRoot}");
+        NetConfig config = await NetConfigLoader.LoadRuntimeConfigAsync();
         if (config == null)
         {
             NetLogger.LogError("GameLauncher", "启动失败: 配置加载为空");
@@ -164,7 +165,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
             return;
         }
 
-        appManager.Transport.StartClient();
+        appManager.StartClient();
         NetLogger.LogInfo("GameLauncher", "启动网络模式: Client");
     }
 
@@ -179,7 +180,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
             return;
         }
 
-        appManager.Transport.StartServer();
+        appManager.StartServer();
         NetLogger.LogInfo("GameLauncher", "启动网络模式: Server");
     }
 
@@ -194,7 +195,7 @@ public class GameLauncher : MonoSingleton<GameLauncher>
             return;
         }
 
-        appManager.Transport.StartHost();
+        appManager.StartHost();
         NetLogger.LogInfo("GameLauncher", "启动网络模式: Host");
     }
 }

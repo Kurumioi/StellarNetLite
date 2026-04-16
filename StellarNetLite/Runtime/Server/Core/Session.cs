@@ -1,6 +1,5 @@
 using System;
 using StellarNet.Lite.Shared.Infrastructure;
-using UnityEngine;
 
 namespace StellarNet.Lite.Server.Core
 {
@@ -72,7 +71,7 @@ namespace StellarNet.Lite.Server.Core
         /// <summary>
         /// 创建一个在线会话。
         /// </summary>
-        public Session(string sessionId, string accountId, int connectionId)
+        public Session(string sessionId, string accountId, int connectionId, float initialRealtimeSinceStartup = 0f)
         {
             SessionId = sessionId;
             AccountId = accountId;
@@ -83,28 +82,28 @@ namespace StellarNet.Lite.Server.Core
             LastOfflineTime = DateTime.UtcNow;
             LastReceivedSeq = 0;
             IsRoomReady = false;
-            LastActiveRealtime = Time.realtimeSinceStartup;
-            LastRoomActiveRealtime = Time.realtimeSinceStartup;
+            LastActiveRealtime = initialRealtimeSinceStartup;
+            LastRoomActiveRealtime = initialRealtimeSinceStartup;
         }
 
         /// <summary>
         /// 绑定新的物理连接并重置在线态。
         /// </summary>
-        public void UpdateConnection(int newConnectionId)
+        public void UpdateConnection(int newConnectionId, float currentRealtimeSinceStartup)
         {
             ConnectionId = newConnectionId;
             IsOnline = true;
-            LastActiveRealtime = Time.realtimeSinceStartup;
-            LastRoomActiveRealtime = Time.realtimeSinceStartup;
+            LastActiveRealtime = currentRealtimeSinceStartup;
+            LastRoomActiveRealtime = currentRealtimeSinceStartup;
         }
 
         /// <summary>
         /// 标记当前会话已离线。
         /// </summary>
-        public void MarkOffline()
+        public void MarkOffline(DateTime? offlineUtc = null)
         {
             IsOnline = false;
-            LastOfflineTime = DateTime.UtcNow;
+            LastOfflineTime = offlineUtc ?? DateTime.UtcNow;
             IsRoomReady = false;
         }
 

@@ -377,36 +377,44 @@ namespace StellarNet.Lite.Server.Infrastructure
                     PrintLine("No tracked persistence tasks require shutdown wait.");
                 }
 
-                Room[] rooms = serverApp.Rooms.Values.Where(room => room != null).ToArray();
-                Session[] sessions = serverApp.Sessions.Values.Where(session => session != null).ToArray();
-                int playingRoomCount = rooms.Count(room => room.State == RoomState.Playing);
-                int onlineSessionCount = sessions.Count(session => session.IsOnline);
+                Room[] rooms;
+                Session[] sessions;
+                int playingRoomCount;
+                int onlineSessionCount;
 
-                PrintTable(
-                    new[] { "Step", "Value" },
-                    new List<string[]>
-                    {
-                        new[] { "Rooms", rooms.Length.ToString() },
-                        new[] { "PlayingRooms", playingRoomCount.ToString() },
-                        new[] { "Sessions", sessions.Length.ToString() },
-                        new[] { "OnlineSessions", onlineSessionCount.ToString() }
-                    });
-
-                for (int i = 0; i < rooms.Length; i++)
+                lock (serverApp.SyncRoot)
                 {
-                    Room room = rooms[i];
-                    if (room.State == RoomState.Playing)
+                    rooms = serverApp.Rooms.Values.Where(room => room != null).ToArray();
+                    sessions = serverApp.Sessions.Values.Where(session => session != null).ToArray();
+                    playingRoomCount = rooms.Count(room => room.State == RoomState.Playing);
+                    onlineSessionCount = sessions.Count(session => session.IsOnline);
+
+                    PrintTable(
+                        new[] { "Step", "Value" },
+                        new List<string[]>
+                        {
+                            new[] { "Rooms", rooms.Length.ToString() },
+                            new[] { "PlayingRooms", playingRoomCount.ToString() },
+                            new[] { "Sessions", sessions.Length.ToString() },
+                            new[] { "OnlineSessions", onlineSessionCount.ToString() }
+                        });
+
+                    for (int i = 0; i < rooms.Length; i++)
                     {
-                        room.EndGame("Server shutdown");
+                        Room room = rooms[i];
+                        if (room.State == RoomState.Playing)
+                        {
+                            room.EndGame("Server shutdown");
+                        }
                     }
-                }
 
-                for (int i = 0; i < sessions.Length; i++)
-                {
-                    Session session = sessions[i];
-                    if (session.IsOnline)
+                    for (int i = 0; i < sessions.Length; i++)
                     {
-                        serverApp.SendMessageToSession(session, new S2C_KickOut { Reason = "Server shutting down." });
+                        Session session = sessions[i];
+                        if (session.IsOnline)
+                        {
+                            serverApp.SendMessageToSession(session, new S2C_KickOut { Reason = "Server shutting down." });
+                        }
                     }
                 }
 
@@ -420,8 +428,8 @@ namespace StellarNet.Lite.Server.Infrastructure
                 manager.StopServer();
                 manager.StopClient();
 
-                float timeoutAt = Time.realtimeSinceStartup + 5f;
-                while (manager.ServerApp != null && Time.realtimeSinceStartup < timeoutAt)
+                DateTime timeoutAtUtc = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+                while (manager.ServerApp != null && DateTime.UtcNow < timeoutAtUtc)
                 {
                     yield return null;
                 }
@@ -572,7 +580,11 @@ namespace StellarNet.Lite.Server.Infrastructure
                 case "gc":
                     if (TryEnsureServerApp(out StellarNetAppManager gcManager, out ServerApp gcApp))
                     {
-                        gcApp.Tick();
+                        lock (gcApp.SyncRoot)
+                        {
+                            gcApp.Tick();
+                        }
+
                         PrintLine("Manual GC tick executed.");
                         PrintStatusTable(gcManager, gcApp);
                     }
@@ -645,94 +657,103 @@ namespace StellarNet.Lite.Server.Infrastructure
 
         private void ExecuteKick(StellarNetAppManager manager, ServerApp serverApp, string identifier, string reason)
         {
-            if (!TryFindSession(serverApp, identifier, out Session targetSession))
+            lock (serverApp.SyncRoot)
             {
-                return;
-            }
-
-            string roomId = targetSession.CurrentRoomId;
-            Room room = string.IsNullOrEmpty(roomId) ? null : serverApp.GetRoom(roomId);
-            if (room != null)
-            {
-                room.RemoveMember(targetSession);
-                if (room.MemberCount == 0)
+                if (!TryFindSession(serverApp, identifier, out Session targetSession))
                 {
-                    serverApp.DestroyRoom(roomId);
+                    return;
                 }
-            }
 
-            if (targetSession.IsOnline)
-            {
-                serverApp.SendMessageToSession(targetSession, new S2C_KickOut { Reason = reason });
-                manager.Transport?.DisconnectClient(targetSession.ConnectionId);
-            }
-
-            serverApp.RemoveSession(targetSession.SessionId);
-            ServerLobbyModule.BroadcastOnlinePlayerList(serverApp);
-
-            PrintTable(
-                new[] { "Action", "SessionId", "AccountId", "RoomId", "Online", "Reason" },
-                new List<string[]>
+                string roomId = targetSession.CurrentRoomId;
+                Room room = string.IsNullOrEmpty(roomId) ? null : serverApp.GetRoom(roomId);
+                if (room != null)
                 {
-                    new[]
+                    room.RemoveMember(targetSession);
+                    if (room.MemberCount == 0)
                     {
-                        "Kicked",
-                        targetSession.SessionId,
-                        string.IsNullOrEmpty(targetSession.AccountId) ? "-" : targetSession.AccountId,
-                        string.IsNullOrEmpty(roomId) ? "-" : roomId,
-                        targetSession.IsOnline ? "Yes" : "No",
-                        string.IsNullOrWhiteSpace(reason) ? "-" : reason
+                        serverApp.DestroyRoom(roomId);
                     }
-                });
+                }
+
+                if (targetSession.IsOnline)
+                {
+                    serverApp.SendMessageToSession(targetSession, new S2C_KickOut { Reason = reason });
+                    manager.Transport?.DisconnectClient(targetSession.ConnectionId);
+                }
+
+                serverApp.RemoveSession(targetSession.SessionId);
+                ServerLobbyModule.BroadcastOnlinePlayerList(serverApp);
+
+                PrintTable(
+                    new[] { "Action", "SessionId", "AccountId", "RoomId", "Online", "Reason" },
+                    new List<string[]>
+                    {
+                        new[]
+                        {
+                            "Kicked",
+                            targetSession.SessionId,
+                            string.IsNullOrEmpty(targetSession.AccountId) ? "-" : targetSession.AccountId,
+                            string.IsNullOrEmpty(roomId) ? "-" : roomId,
+                            targetSession.IsOnline ? "Yes" : "No",
+                            string.IsNullOrWhiteSpace(reason) ? "-" : reason
+                        }
+                    });
+            }
         }
 
         private void PrintStatusTable(StellarNetAppManager manager, ServerApp serverApp)
         {
-            Session[] sessions = serverApp.Sessions.Values.Where(session => session != null).ToArray();
-            int onlineCount = sessions.Count(session => session.IsOnline);
-            int offlineCount = sessions.Length - onlineCount;
-            TimeSpan uptime = DateTime.UtcNow - _startupTimeUtc;
-            FileInfo[] retainedFiles = GetRetainedLogFiles();
-            ServerPersistenceRuntime persistenceRuntime = serverApp.PersistenceRuntime;
-
-            var rows = new List<string[]>
+            lock (serverApp.SyncRoot)
             {
-                new[] { "StartedUtc", _startupTimeUtc.ToString("yyyy-MM-dd HH:mm:ss") },
-                new[] { "Uptime", uptime.ToString(@"dd\.hh\:mm\:ss") },
-                new[] { "NowLocal", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") },
-                new[] { "Transport", manager != null && manager.Transport != null ? manager.Transport.GetType().Name : "-" },
-                new[] { "Port", serverApp.Config != null ? serverApp.Config.Port.ToString() : "-" },
-                new[] { "TickRate", serverApp.Config != null ? serverApp.Config.TickRate.ToString() : "-" },
-                new[] { "Rooms", serverApp.Rooms.Count.ToString() },
-                new[] { "Sessions", sessions.Length.ToString() },
-                new[] { "Online", onlineCount.ToString() },
-                new[] { "Offline", offlineCount.ToString() },
-                new[] { "EmptyRoomTimeoutMin", serverApp.Config != null ? serverApp.Config.EmptyRoomTimeoutMinutes.ToString() : "-" },
-                new[] { "OfflineLobbyTimeoutMin", serverApp.Config != null ? serverApp.Config.OfflineTimeoutLobbyMinutes.ToString() : "-" },
-                new[] { "OfflineRoomTimeoutMin", serverApp.Config != null ? serverApp.Config.OfflineTimeoutRoomMinutes.ToString() : "-" },
-                new[] { "PersistencePending", persistenceRuntime.PendingCount.ToString() },
-                new[] { "PersistenceJoinOnShutdown", persistenceRuntime.JoinOnShutdownPendingCount.ToString() },
-                new[] { "PersistenceShutdownMode", persistenceRuntime.IsShuttingDown ? "Yes" : "No" },
-                new[] { "CurrentLogFile", string.IsNullOrEmpty(_logFilePath) ? "-" : _logFilePath },
-                new[] { "RetainedLogFiles", retainedFiles.Length.ToString() },
-                new[] { "RecentLogCache", $"{Volatile.Read(ref _recentLogCount)}/{MaxCachedLogEntries}" }
-            };
+                Session[] sessions = serverApp.Sessions.Values.Where(session => session != null).ToArray();
+                int onlineCount = sessions.Count(session => session.IsOnline);
+                int offlineCount = sessions.Length - onlineCount;
+                TimeSpan uptime = DateTime.UtcNow - _startupTimeUtc;
+                FileInfo[] retainedFiles = GetRetainedLogFiles();
+                ServerPersistenceRuntime persistenceRuntime = serverApp.PersistenceRuntime;
 
-            PrintTable(new[] { "Metric", "Value" }, rows);
+                var rows = new List<string[]>
+                {
+                    new[] { "StartedUtc", _startupTimeUtc.ToString("yyyy-MM-dd HH:mm:ss") },
+                    new[] { "Uptime", uptime.ToString(@"dd\.hh\:mm\:ss") },
+                    new[] { "NowLocal", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") },
+                    new[] { "Transport", manager != null && manager.Transport != null ? manager.Transport.GetType().Name : "-" },
+                    new[] { "Port", serverApp.Config != null ? serverApp.Config.Port.ToString() : "-" },
+                    new[] { "TickRate", serverApp.Config != null ? serverApp.Config.TickRate.ToString() : "-" },
+                    new[] { "Rooms", serverApp.Rooms.Count.ToString() },
+                    new[] { "Sessions", sessions.Length.ToString() },
+                    new[] { "Online", onlineCount.ToString() },
+                    new[] { "Offline", offlineCount.ToString() },
+                    new[] { "EmptyRoomTimeoutMin", serverApp.Config != null ? serverApp.Config.EmptyRoomTimeoutMinutes.ToString() : "-" },
+                    new[] { "OfflineLobbyTimeoutMin", serverApp.Config != null ? serverApp.Config.OfflineTimeoutLobbyMinutes.ToString() : "-" },
+                    new[] { "OfflineRoomTimeoutMin", serverApp.Config != null ? serverApp.Config.OfflineTimeoutRoomMinutes.ToString() : "-" },
+                    new[] { "PersistencePending", persistenceRuntime.PendingCount.ToString() },
+                    new[] { "PersistenceJoinOnShutdown", persistenceRuntime.JoinOnShutdownPendingCount.ToString() },
+                    new[] { "PersistenceShutdownMode", persistenceRuntime.IsShuttingDown ? "Yes" : "No" },
+                    new[] { "CurrentLogFile", string.IsNullOrEmpty(_logFilePath) ? "-" : _logFilePath },
+                    new[] { "RetainedLogFiles", retainedFiles.Length.ToString() },
+                    new[] { "RecentLogCache", $"{Volatile.Read(ref _recentLogCount)}/{MaxCachedLogEntries}" }
+                };
+
+                PrintTable(new[] { "Metric", "Value" }, rows);
+            }
         }
 
         private void PrintPersistenceStatus(ServerApp serverApp)
         {
-            ServerPersistenceRuntime persistenceRuntime = serverApp.PersistenceRuntime;
-            var summaryRows = new List<string[]>
+            lock (serverApp.SyncRoot)
             {
-                new[] { "ShutdownMode", persistenceRuntime.IsShuttingDown ? "Yes" : "No" },
-                new[] { "Pending", persistenceRuntime.PendingCount.ToString() },
-                new[] { "JoinOnShutdownPending", persistenceRuntime.JoinOnShutdownPendingCount.ToString() }
-            };
+                ServerPersistenceRuntime persistenceRuntime = serverApp.PersistenceRuntime;
+                var summaryRows = new List<string[]>
+                {
+                    new[] { "ShutdownMode", persistenceRuntime.IsShuttingDown ? "Yes" : "No" },
+                    new[] { "Pending", persistenceRuntime.PendingCount.ToString() },
+                    new[] { "JoinOnShutdownPending", persistenceRuntime.JoinOnShutdownPendingCount.ToString() }
+                };
 
-            PrintTable(new[] { "Metric", "Value" }, summaryRows);
-            PrintPersistenceEntries(persistenceRuntime.SnapshotPending());
+                PrintTable(new[] { "Metric", "Value" }, summaryRows);
+                PrintPersistenceEntries(persistenceRuntime.SnapshotPending());
+            }
         }
 
         private void PrintPersistenceEntries(IReadOnlyList<PersistencePendingInfo> pendingInfos)
@@ -769,181 +790,193 @@ namespace StellarNet.Lite.Server.Infrastructure
 
         private void PrintRoomsTable(ServerApp serverApp)
         {
-            Dictionary<int, RoomComponentMeta> componentMetaMap = BuildComponentMetaMap();
-            Room[] rooms = serverApp.Rooms.Values.Where(room => room != null).OrderBy(room => room.RoomId).ToArray();
-            var rows = new List<string[]>();
-
-            for (int i = 0; i < rooms.Length; i++)
+            lock (serverApp.SyncRoot)
             {
-                Room room = rooms[i];
-                int onlineMembers = room.Members.Values.Count(session => session != null && session.IsOnline);
-                string componentSummary = room.ComponentIds == null || room.ComponentIds.Length == 0
-                    ? "-"
-                    : string.Join(", ", room.ComponentIds.Select(id =>
-                    {
-                        if (componentMetaMap.TryGetValue(id, out RoomComponentMeta meta))
-                        {
-                            return meta.DisplayName;
-                        }
+                Dictionary<int, RoomComponentMeta> componentMetaMap = BuildComponentMetaMap();
+                Room[] rooms = serverApp.Rooms.Values.Where(room => room != null).OrderBy(room => room.RoomId).ToArray();
+                var rows = new List<string[]>();
 
-                        return id.ToString();
-                    }).ToArray());
-
-                rows.Add(new[]
+                for (int i = 0; i < rooms.Length; i++)
                 {
-                    room.RoomId,
-                    string.IsNullOrEmpty(room.RoomName) ? "-" : room.RoomName,
-                    room.State.ToString(),
-                    $"{room.MemberCount}/{room.Config.MaxMembers}",
-                    onlineMembers.ToString(),
-                    room.CurrentTick.ToString(),
-                    ((DateTime.UtcNow - room.CreateTime).TotalMinutes).ToString("F1"),
-                    componentSummary
-                });
-            }
+                    Room room = rooms[i];
+                    int onlineMembers = room.Members.Values.Count(session => session != null && session.IsOnline);
+                    string componentSummary = room.ComponentIds == null || room.ComponentIds.Length == 0
+                        ? "-"
+                        : string.Join(", ", room.ComponentIds.Select(id =>
+                        {
+                            if (componentMetaMap.TryGetValue(id, out RoomComponentMeta meta))
+                            {
+                                return meta.DisplayName;
+                            }
 
-            if (rows.Count == 0)
-            {
-                rows.Add(new[] { "-", "-", "-", "0/0", "0", "0", "0.0", "-" });
-            }
+                            return id.ToString();
+                        }).ToArray());
 
-            PrintTable(new[] { "RoomId", "Name", "State", "Members", "Online", "Tick", "AgeMin", "Components" }, rows);
+                    rows.Add(new[]
+                    {
+                        room.RoomId,
+                        string.IsNullOrEmpty(room.RoomName) ? "-" : room.RoomName,
+                        room.State.ToString(),
+                        $"{room.MemberCount}/{room.Config.MaxMembers}",
+                        onlineMembers.ToString(),
+                        room.CurrentTick.ToString(),
+                        ((DateTime.UtcNow - room.CreateTime).TotalMinutes).ToString("F1"),
+                        componentSummary
+                    });
+                }
+
+                if (rows.Count == 0)
+                {
+                    rows.Add(new[] { "-", "-", "-", "0/0", "0", "0", "0.0", "-" });
+                }
+
+                PrintTable(new[] { "RoomId", "Name", "State", "Members", "Online", "Tick", "AgeMin", "Components" }, rows);
+            }
         }
 
         private void PrintRoomDetail(ServerApp serverApp, string roomId)
         {
-            Room room = serverApp.GetRoom(roomId);
-            if (room == null)
+            lock (serverApp.SyncRoot)
             {
-                PrintLine($"Room not found: {roomId}");
-                return;
-            }
-
-            Dictionary<int, RoomComponentMeta> componentMetaMap = BuildComponentMetaMap();
-            var summaryRows = new List<string[]>
-            {
-                new[] { "RoomId", room.RoomId },
-                new[] { "RoomName", string.IsNullOrEmpty(room.RoomName) ? "-" : room.RoomName },
-                new[] { "State", room.State.ToString() },
-                new[] { "Members", $"{room.MemberCount}/{room.Config.MaxMembers}" },
-                new[] { "IsPrivate", room.Config.IsPrivate ? "Yes" : "No" },
-                new[] { "CreateUtc", room.CreateTime.ToString("yyyy-MM-dd HH:mm:ss") },
-                new[] { "EmptySinceUtc", room.EmptySince == DateTime.MaxValue ? "-" : room.EmptySince.ToString("yyyy-MM-dd HH:mm:ss") },
-                new[] { "CurrentTick", room.CurrentTick.ToString() },
-                new[] { "Recording", room.IsRecording ? "Yes" : "No" },
-                new[] { "LastReplayId", string.IsNullOrEmpty(room.LastReplayId) ? "-" : room.LastReplayId },
-                new[] { "CustomProps", room.Config.CustomProperties != null ? room.Config.CustomProperties.Count.ToString() : "0" }
-            };
-            PrintTable(new[] { "Field", "Value" }, summaryRows);
-
-            var componentRows = new List<string[]>();
-            int[] componentIds = room.ComponentIds ?? Array.Empty<int>();
-            for (int i = 0; i < componentIds.Length; i++)
-            {
-                int componentId = componentIds[i];
-                if (componentMetaMap.TryGetValue(componentId, out RoomComponentMeta meta))
+                Room room = serverApp.GetRoom(roomId);
+                if (room == null)
                 {
-                    componentRows.Add(new[] { meta.Id.ToString(), meta.Name, meta.DisplayName });
+                    PrintLine($"Room not found: {roomId}");
+                    return;
                 }
-                else
+
+                Dictionary<int, RoomComponentMeta> componentMetaMap = BuildComponentMetaMap();
+                var summaryRows = new List<string[]>
                 {
-                    componentRows.Add(new[] { componentId.ToString(), "-", componentId.ToString() });
+                    new[] { "RoomId", room.RoomId },
+                    new[] { "RoomName", string.IsNullOrEmpty(room.RoomName) ? "-" : room.RoomName },
+                    new[] { "State", room.State.ToString() },
+                    new[] { "Members", $"{room.MemberCount}/{room.Config.MaxMembers}" },
+                    new[] { "IsPrivate", room.Config.IsPrivate ? "Yes" : "No" },
+                    new[] { "CreateUtc", room.CreateTime.ToString("yyyy-MM-dd HH:mm:ss") },
+                    new[] { "EmptySinceUtc", room.EmptySince == DateTime.MaxValue ? "-" : room.EmptySince.ToString("yyyy-MM-dd HH:mm:ss") },
+                    new[] { "CurrentTick", room.CurrentTick.ToString() },
+                    new[] { "Recording", room.IsRecording ? "Yes" : "No" },
+                    new[] { "LastReplayId", string.IsNullOrEmpty(room.LastReplayId) ? "-" : room.LastReplayId },
+                    new[] { "CustomProps", room.Config.CustomProperties != null ? room.Config.CustomProperties.Count.ToString() : "0" }
+                };
+                PrintTable(new[] { "Field", "Value" }, summaryRows);
+
+                var componentRows = new List<string[]>();
+                int[] componentIds = room.ComponentIds ?? Array.Empty<int>();
+                for (int i = 0; i < componentIds.Length; i++)
+                {
+                    int componentId = componentIds[i];
+                    if (componentMetaMap.TryGetValue(componentId, out RoomComponentMeta meta))
+                    {
+                        componentRows.Add(new[] { meta.Id.ToString(), meta.Name, meta.DisplayName });
+                    }
+                    else
+                    {
+                        componentRows.Add(new[] { componentId.ToString(), "-", componentId.ToString() });
+                    }
                 }
-            }
 
-            if (componentRows.Count == 0)
-            {
-                componentRows.Add(new[] { "-", "-", "-" });
-            }
-
-            PrintTable(new[] { "ComponentId", "CodeName", "DisplayName" }, componentRows);
-
-            var memberRows = new List<string[]>();
-            Session[] members = room.Members.Values.Where(session => session != null).OrderBy(session => session.AccountId).ThenBy(session => session.SessionId).ToArray();
-            float realtimeNow = Time.realtimeSinceStartup;
-            for (int i = 0; i < members.Length; i++)
-            {
-                Session session = members[i];
-                memberRows.Add(new[]
+                if (componentRows.Count == 0)
                 {
-                    session.SessionId,
-                    string.IsNullOrEmpty(session.AccountId) ? "-" : session.AccountId,
-                    session.ConnectionId.ToString(),
-                    session.IsOnline ? "Yes" : "No",
-                    session.IsRoomReady ? "Yes" : "No",
-                    (realtimeNow - session.LastActiveRealtime).ToString("F1"),
-                    (realtimeNow - session.LastRoomActiveRealtime).ToString("F1")
-                });
-            }
+                    componentRows.Add(new[] { "-", "-", "-" });
+                }
 
-            if (memberRows.Count == 0)
-            {
-                memberRows.Add(new[] { "-", "-", "-", "-", "-", "-", "-" });
-            }
+                PrintTable(new[] { "ComponentId", "CodeName", "DisplayName" }, componentRows);
 
-            PrintTable(new[] { "SessionId", "AccountId", "ConnId", "Online", "Ready", "ActiveAgoSec", "RoomActiveAgoSec" }, memberRows);
+                var memberRows = new List<string[]>();
+                Session[] members = room.Members.Values.Where(session => session != null).OrderBy(session => session.AccountId).ThenBy(session => session.SessionId).ToArray();
+                float realtimeNow = serverApp.CurrentRealtimeSinceStartup;
+                for (int i = 0; i < members.Length; i++)
+                {
+                    Session session = members[i];
+                    memberRows.Add(new[]
+                    {
+                        session.SessionId,
+                        string.IsNullOrEmpty(session.AccountId) ? "-" : session.AccountId,
+                        session.ConnectionId.ToString(),
+                        session.IsOnline ? "Yes" : "No",
+                        session.IsRoomReady ? "Yes" : "No",
+                        (realtimeNow - session.LastActiveRealtime).ToString("F1"),
+                        (realtimeNow - session.LastRoomActiveRealtime).ToString("F1")
+                    });
+                }
+
+                if (memberRows.Count == 0)
+                {
+                    memberRows.Add(new[] { "-", "-", "-", "-", "-", "-", "-" });
+                }
+
+                PrintTable(new[] { "SessionId", "AccountId", "ConnId", "Online", "Ready", "ActiveAgoSec", "RoomActiveAgoSec" }, memberRows);
+            }
         }
 
         private void PrintSessionsTable(ServerApp serverApp)
         {
-            Session[] sessions = serverApp.Sessions.Values
-                .Where(session => session != null)
-                .OrderByDescending(session => session.IsOnline)
-                .ThenBy(session => session.AccountId)
-                .ThenBy(session => session.SessionId)
-                .ToArray();
-
-            var rows = new List<string[]>();
-            float realtimeNow = Time.realtimeSinceStartup;
-            for (int i = 0; i < sessions.Length; i++)
+            lock (serverApp.SyncRoot)
             {
-                Session session = sessions[i];
-                rows.Add(new[]
+                Session[] sessions = serverApp.Sessions.Values
+                    .Where(session => session != null)
+                    .OrderByDescending(session => session.IsOnline)
+                    .ThenBy(session => session.AccountId)
+                    .ThenBy(session => session.SessionId)
+                    .ToArray();
+
+                var rows = new List<string[]>();
+                float realtimeNow = serverApp.CurrentRealtimeSinceStartup;
+                for (int i = 0; i < sessions.Length; i++)
                 {
-                    session.SessionId,
-                    string.IsNullOrEmpty(session.AccountId) ? "-" : session.AccountId,
-                    session.ConnectionId.ToString(),
-                    session.IsOnline ? "Yes" : "No",
-                    string.IsNullOrEmpty(session.CurrentRoomId) ? "-" : session.CurrentRoomId,
-                    session.IsRoomReady ? "Yes" : "No",
-                    session.LastReceivedSeq.ToString(),
-                    (realtimeNow - session.LastActiveRealtime).ToString("F1"),
-                    session.IsOnline ? "-" : (DateTime.UtcNow - session.LastOfflineTime).TotalMinutes.ToString("F1")
-                });
-            }
+                    Session session = sessions[i];
+                    rows.Add(new[]
+                    {
+                        session.SessionId,
+                        string.IsNullOrEmpty(session.AccountId) ? "-" : session.AccountId,
+                        session.ConnectionId.ToString(),
+                        session.IsOnline ? "Yes" : "No",
+                        string.IsNullOrEmpty(session.CurrentRoomId) ? "-" : session.CurrentRoomId,
+                        session.IsRoomReady ? "Yes" : "No",
+                        session.LastReceivedSeq.ToString(),
+                        (realtimeNow - session.LastActiveRealtime).ToString("F1"),
+                        session.IsOnline ? "-" : (DateTime.UtcNow - session.LastOfflineTime).TotalMinutes.ToString("F1")
+                    });
+                }
 
-            if (rows.Count == 0)
-            {
-                rows.Add(new[] { "-", "-", "-", "-", "-", "-", "-", "-", "-" });
-            }
+                if (rows.Count == 0)
+                {
+                    rows.Add(new[] { "-", "-", "-", "-", "-", "-", "-", "-", "-" });
+                }
 
-            PrintTable(new[] { "SessionId", "AccountId", "ConnId", "Online", "RoomId", "Ready", "LastSeq", "ActiveAgoSec", "OfflineMin" }, rows);
+                PrintTable(new[] { "SessionId", "AccountId", "ConnId", "Online", "RoomId", "Ready", "LastSeq", "ActiveAgoSec", "OfflineMin" }, rows);
+            }
         }
 
         private void PrintSessionDetail(ServerApp serverApp, string identifier)
         {
-            if (!TryFindSession(serverApp, identifier, out Session session))
+            lock (serverApp.SyncRoot)
             {
-                return;
+                if (!TryFindSession(serverApp, identifier, out Session session))
+                {
+                    return;
+                }
+
+                float realtimeNow = serverApp.CurrentRealtimeSinceStartup;
+                var rows = new List<string[]>
+                {
+                    new[] { "SessionId", session.SessionId },
+                    new[] { "AccountId", string.IsNullOrEmpty(session.AccountId) ? "-" : session.AccountId },
+                    new[] { "ConnectionId", session.ConnectionId.ToString() },
+                    new[] { "Online", session.IsOnline ? "Yes" : "No" },
+                    new[] { "CurrentRoomId", string.IsNullOrEmpty(session.CurrentRoomId) ? "-" : session.CurrentRoomId },
+                    new[] { "AuthorizedRoomId", string.IsNullOrEmpty(session.AuthorizedRoomId) ? "-" : session.AuthorizedRoomId },
+                    new[] { "RoomReady", session.IsRoomReady ? "Yes" : "No" },
+                    new[] { "LastReceivedSeq", session.LastReceivedSeq.ToString() },
+                    new[] { "LastOfflineUtc", session.LastOfflineTime == default(DateTime) ? "-" : session.LastOfflineTime.ToString("yyyy-MM-dd HH:mm:ss") },
+                    new[] { "LastActiveAgoSec", (realtimeNow - session.LastActiveRealtime).ToString("F1") },
+                    new[] { "LastRoomActiveAgoSec", (realtimeNow - session.LastRoomActiveRealtime).ToString("F1") }
+                };
+
+                PrintTable(new[] { "Field", "Value" }, rows);
             }
-
-            float realtimeNow = Time.realtimeSinceStartup;
-            var rows = new List<string[]>
-            {
-                new[] { "SessionId", session.SessionId },
-                new[] { "AccountId", string.IsNullOrEmpty(session.AccountId) ? "-" : session.AccountId },
-                new[] { "ConnectionId", session.ConnectionId.ToString() },
-                new[] { "Online", session.IsOnline ? "Yes" : "No" },
-                new[] { "CurrentRoomId", string.IsNullOrEmpty(session.CurrentRoomId) ? "-" : session.CurrentRoomId },
-                new[] { "AuthorizedRoomId", string.IsNullOrEmpty(session.AuthorizedRoomId) ? "-" : session.AuthorizedRoomId },
-                new[] { "RoomReady", session.IsRoomReady ? "Yes" : "No" },
-                new[] { "LastReceivedSeq", session.LastReceivedSeq.ToString() },
-                new[] { "LastOfflineUtc", session.LastOfflineTime == default(DateTime) ? "-" : session.LastOfflineTime.ToString("yyyy-MM-dd HH:mm:ss") },
-                new[] { "LastActiveAgoSec", (realtimeNow - session.LastActiveRealtime).ToString("F1") },
-                new[] { "LastRoomActiveAgoSec", (realtimeNow - session.LastRoomActiveRealtime).ToString("F1") }
-            };
-
-            PrintTable(new[] { "Field", "Value" }, rows);
         }
 
         private bool TryFindSession(ServerApp serverApp, string identifier, out Session targetSession)

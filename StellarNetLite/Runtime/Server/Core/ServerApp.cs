@@ -5,8 +5,6 @@ using System.Linq;
 using StellarNet.Lite.Server.Infrastructure;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
-using UnityEngine;
-
 namespace StellarNet.Lite.Server.Core
 {
     /// <summary>
@@ -19,6 +17,9 @@ namespace StellarNet.Lite.Server.Core
         public IReadOnlyDictionary<string, Room> Rooms => _rooms;
         public IReadOnlyDictionary<string, Session> Sessions => _sessions;
         public NetConfig Config { get; }
+        public object SyncRoot { get; } = new object();
+        public float CurrentRealtimeSinceStartup { get; private set; }
+        public DateTime CurrentUtcNow { get; private set; }
 
         private readonly INetworkTransport _transport;
         private readonly INetSerializer _serializer;
@@ -41,6 +42,14 @@ namespace StellarNet.Lite.Server.Core
             _transport = transport;
             _serializer = serializer;
             Config = config;
+            CurrentRealtimeSinceStartup = 0f;
+            CurrentUtcNow = DateTime.UtcNow;
+        }
+
+        public void UpdateRuntimeContext(float realtimeSinceStartup, DateTime utcNow)
+        {
+            CurrentRealtimeSinceStartup = realtimeSinceStartup;
+            CurrentUtcNow = utcNow;
         }
 
         #region 生命周期与 GC
@@ -73,12 +82,13 @@ namespace StellarNet.Lite.Server.Core
 
             _gcRoomCache.Clear();
             _gcSessionCache.Clear();
-            DateTime now = DateTime.UtcNow;
+            DateTime now = CurrentUtcNow == default ? DateTime.UtcNow : CurrentUtcNow;
 
             foreach (var kvp in _rooms)
             {
                 Room room = kvp.Value;
                 if (room == null) continue;
+                room.UpdateRuntimeContext(CurrentRealtimeSinceStartup, now);
                 room.Tick();
 
                 if ((now - room.CreateTime).TotalHours >= Config.MaxRoomLifetimeHours)
@@ -140,12 +150,12 @@ namespace StellarNet.Lite.Server.Core
             Session session = TryGetSessionByConnectionId(connectionId);
             if (session == null)
             {
-                session = new Session(Guid.NewGuid().ToString("N"), "UNAUTH", connectionId);
+                session = new Session(Guid.NewGuid().ToString("N"), "UNAUTH", connectionId, CurrentRealtimeSinceStartup);
                 RegisterSession(session);
                 NetLogger.LogInfo("ServerApp", "接收到新连接，已分配匿名会话", "-", session.SessionId);
             }
 
-            session.MarkActive(Time.realtimeSinceStartup);
+            session.MarkActive(CurrentRealtimeSinceStartup);
 
             if (packet.Seq > 0 && !session.TryConsumeSeq(packet.Seq))
             {
@@ -186,7 +196,7 @@ namespace StellarNet.Lite.Server.Core
             if (packet.Scope == NetScope.Room)
             {
                 // 只有收到房间业务包时才刷新房间活跃时间。
-                session.MarkRoomActive(Time.realtimeSinceStartup);
+                session.MarkRoomActive(CurrentRealtimeSinceStartup);
 
                 if (string.IsNullOrEmpty(packet.RoomId) || packet.RoomId != session.CurrentRoomId)
                 {
@@ -415,11 +425,11 @@ namespace StellarNet.Lite.Server.Core
             if (_connectionToSession.TryGetValue(connectionId, out Session oldSession) && oldSession != null && oldSession != session)
             {
                 NetLogger.LogWarning("ServerApp", $"物理连接顶号: ConnId:{connectionId}, OldSession:{oldSession.SessionId}", "-", session.SessionId);
-                oldSession.MarkOffline();
+                oldSession.MarkOffline(CurrentUtcNow);
             }
 
             _connectionToSession.Remove(session.ConnectionId);
-            session.UpdateConnection(connectionId);
+            session.UpdateConnection(connectionId, CurrentRealtimeSinceStartup);
 
             if (session.IsOnline)
             {
@@ -437,7 +447,7 @@ namespace StellarNet.Lite.Server.Core
             if (_isDisposed || session == null || !session.IsOnline) return;
 
             _connectionToSession.Remove(session.ConnectionId);
-            session.MarkOffline();
+            session.MarkOffline(CurrentUtcNow);
 
             if (!string.IsNullOrEmpty(session.CurrentRoomId))
             {
