@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
 using StellarNet.Lite.Game.Shared.Protocol;
 using StellarNet.Lite.Server.Components;
 using StellarNet.Lite.Server.Core;
@@ -6,6 +7,7 @@ using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.Protocol;
 using UnityEngine;
+using Random = System.Random;
 
 namespace StellarNet.Lite.Game.Server.Components
 {
@@ -20,12 +22,13 @@ namespace StellarNet.Lite.Game.Server.Components
         private ServerObjectSyncComponent _syncService;
         private readonly Dictionary<string, int> _sessionToNetId = new Dictionary<string, int>();
         private readonly Dictionary<int, float> _actionEndTimes = new Dictionary<int, float>();
+        private readonly Random _random = new Random(Guid.NewGuid().GetHashCode());
 
         private const int PlayerPrefabHash = NetPrefabConsts.NetPrefabs_SocialPlayer;
-        private static readonly int AnimHash_Idle = Animator.StringToHash("Idle");
-        private static readonly int AnimHash_Walk = Animator.StringToHash("Walk");
-        private static readonly int AnimHash_Wave = Animator.StringToHash("Wave");
-        private static readonly int AnimHash_Dance = Animator.StringToHash("Dance");
+        private static readonly int AnimHash_Idle = GetStableStringHash("Idle");
+        private static readonly int AnimHash_Walk = GetStableStringHash("Walk");
+        private static readonly int AnimHash_Wave = GetStableStringHash("Wave");
+        private static readonly int AnimHash_Dance = GetStableStringHash("Dance");
 
         private const float PlayerMoveSpeed = 4.0f;
 
@@ -39,19 +42,40 @@ namespace StellarNet.Lite.Game.Server.Components
             _sessionToNetId.Clear();
             _actionEndTimes.Clear();
             _syncService = Room.GetComponent<ServerObjectSyncComponent>();
+            if (_syncService == null)
+            {
+                NetLogger.LogError("ServerSocialRoomComponent", "初始化失败: 缺少 ServerObjectSyncComponent", Room.RoomId);
+            }
         }
 
         public override void OnGameStart()
         {
-            if (_syncService == null) return;
+            if (_syncService == null)
+            {
+                NetLogger.LogError("ServerSocialRoomComponent", "开局生成跳过: _syncService 为空", Room.RoomId);
+                return;
+            }
+
+            if (PlayerPrefabHash == 0)
+            {
+                NetLogger.LogError("ServerSocialRoomComponent", "开局生成失败: PlayerPrefabHash 为 0，请检查 NetPrefabConsts 是否已重新生成", Room.RoomId);
+                return;
+            }
+
             _sessionToNetId.Clear();
             _actionEndTimes.Clear();
-            foreach (var kvp in Room.Members) SpawnPlayerForSession(kvp.Value);
+            foreach (var kvp in Room.Members)
+            {
+                SpawnPlayerForSession(kvp.Value);
+            }
         }
 
         public override void OnMemberJoined(Session session)
         {
-            if (Room.State == RoomState.Playing) SpawnPlayerForSession(session);
+            if (Room.State == RoomState.Playing)
+            {
+                SpawnPlayerForSession(session);
+            }
         }
 
         public override void OnMemberLeft(Session session)
@@ -68,7 +92,10 @@ namespace StellarNet.Lite.Game.Server.Components
         {
             if (_syncService != null)
             {
-                foreach (var kvp in _sessionToNetId) _syncService.DestroyObject(kvp.Value);
+                foreach (var kvp in _sessionToNetId)
+                {
+                    _syncService.DestroyObject(kvp.Value);
+                }
             }
 
             _sessionToNetId.Clear();
@@ -77,11 +104,18 @@ namespace StellarNet.Lite.Game.Server.Components
 
         private void SpawnPlayerForSession(Session session)
         {
-            if (_syncService == null || _sessionToNetId.ContainsKey(session.SessionId)) return;
+            if (_syncService == null || _sessionToNetId.ContainsKey(session.SessionId))
+            {
+                return;
+            }
 
-            Vector2 randomCircle = Random.insideUnitCircle * 3f;
-            Vector3 spawnPos = new Vector3(randomCircle.x, 0f, randomCircle.y);
+            if (PlayerPrefabHash == 0)
+            {
+                NetLogger.LogError("ServerSocialRoomComponent", $"角色生成失败: PlayerPrefabHash 为 0, SessionId:{session.SessionId}", Room.RoomId, session.SessionId);
+                return;
+            }
 
+            Vector3 spawnPos = GetRandomSpawnPosition(3f);
             ServerSyncEntity syncEntity = _syncService.SpawnObject(
                 PlayerPrefabHash, EntitySyncMask.All, spawnPos, Vector3.zero, Vector3.zero, session.SessionId);
 
@@ -91,11 +125,46 @@ namespace StellarNet.Lite.Game.Server.Components
                 syncEntity.AnimNormalizedTime = 0f;
                 _sessionToNetId.Add(session.SessionId, syncEntity.NetId);
             }
+            else
+            {
+                NetLogger.LogError("ServerSocialRoomComponent", $"角色生成失败: SpawnObject 返回 null, PrefabHash:{PlayerPrefabHash}", Room.RoomId, session.SessionId);
+            }
+        }
+
+        private Vector3 GetRandomSpawnPosition(float radius)
+        {
+            double angle = _random.NextDouble() * Math.PI * 2.0d;
+            double distance = Math.Sqrt(_random.NextDouble()) * radius;
+            float x = (float)(Math.Cos(angle) * distance);
+            float z = (float)(Math.Sin(angle) * distance);
+            return new Vector3(x, 0f, z);
+        }
+
+        private static int GetStableStringHash(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return 0;
+            }
+
+            unchecked
+            {
+                int hash = 23;
+                for (int i = 0; i < value.Length; i++)
+                {
+                    hash = hash * 31 + value[i];
+                }
+
+                return hash;
+            }
         }
 
         public void OnTick()
         {
-            if (Room.State != RoomState.Playing || _syncService == null) return;
+            if (Room.State != RoomState.Playing || _syncService == null)
+            {
+                return;
+            }
 
             float deltaTime = 1f / _app.Config.TickRate;
             float currentTime = Room.CurrentRealtimeSinceStartup;
@@ -103,22 +172,22 @@ namespace StellarNet.Lite.Game.Server.Components
             foreach (var kvp in _sessionToNetId)
             {
                 ServerSyncEntity playerSync = _syncService.GetEntity(kvp.Value);
-                if (playerSync == null) continue;
+                if (playerSync == null)
+                {
+                    continue;
+                }
 
                 // 服务端按速度积分位置，降低广播坐标与客户端真实位置的偏差。
                 if (playerSync.Velocity.sqrMagnitude > 0.01f)
                 {
                     playerSync.Position += playerSync.Velocity * deltaTime;
                 }
-                else
+                else if (playerSync.AnimStateHash == AnimHash_Wave || playerSync.AnimStateHash == AnimHash_Dance)
                 {
-                    if (playerSync.AnimStateHash == AnimHash_Wave || playerSync.AnimStateHash == AnimHash_Dance)
+                    if (_actionEndTimes.TryGetValue(playerSync.NetId, out float endTime) && currentTime > endTime)
                     {
-                        if (_actionEndTimes.TryGetValue(playerSync.NetId, out float endTime) && currentTime > endTime)
-                        {
-                            playerSync.AnimStateHash = AnimHash_Idle;
-                            playerSync.AnimNormalizedTime = 0f;
-                        }
+                        playerSync.AnimStateHash = AnimHash_Idle;
+                        playerSync.AnimNormalizedTime = 0f;
                     }
                 }
             }
@@ -127,11 +196,21 @@ namespace StellarNet.Lite.Game.Server.Components
         [NetHandler]
         public void OnC2S_SocialMoveReq(Session session, C2S_SocialMoveReq msg)
         {
-            if (Room.State != RoomState.Playing || _syncService == null) return;
-            if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId)) return;
+            if (Room.State != RoomState.Playing || _syncService == null)
+            {
+                return;
+            }
+
+            if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId))
+            {
+                return;
+            }
 
             ServerSyncEntity playerSync = _syncService.GetEntity(netId);
-            if (playerSync == null) return;
+            if (playerSync == null)
+            {
+                return;
+            }
 
             Vector3 newPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             Vector3 newVel = new Vector3(msg.VelX, msg.VelY, msg.VelZ);
@@ -162,24 +241,31 @@ namespace StellarNet.Lite.Game.Server.Components
                     playerSync.AnimNormalizedTime = 0f;
                 }
             }
-            else
+            else if (playerSync.AnimStateHash == AnimHash_Walk)
             {
-                if (playerSync.AnimStateHash == AnimHash_Walk)
-                {
-                    playerSync.AnimStateHash = AnimHash_Idle;
-                    playerSync.AnimNormalizedTime = 0f;
-                }
+                playerSync.AnimStateHash = AnimHash_Idle;
+                playerSync.AnimNormalizedTime = 0f;
             }
         }
 
         [NetHandler]
         public void OnC2S_SocialActionReq(Session session, C2S_SocialActionReq msg)
         {
-            if (Room.State != RoomState.Playing || _syncService == null) return;
-            if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId)) return;
+            if (Room.State != RoomState.Playing || _syncService == null)
+            {
+                return;
+            }
+
+            if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId))
+            {
+                return;
+            }
 
             ServerSyncEntity playerSync = _syncService.GetEntity(netId);
-            if (playerSync == null) return;
+            if (playerSync == null)
+            {
+                return;
+            }
 
             playerSync.Velocity = Vector3.zero;
 
@@ -200,8 +286,15 @@ namespace StellarNet.Lite.Game.Server.Components
         [NetHandler]
         public void OnC2S_SocialBubbleReq(Session session, C2S_SocialBubbleReq msg)
         {
-            if (string.IsNullOrWhiteSpace(msg.Content) || Room.State != RoomState.Playing) return;
-            if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId)) return;
+            if (string.IsNullOrWhiteSpace(msg.Content) || Room.State != RoomState.Playing)
+            {
+                return;
+            }
+
+            if (!_sessionToNetId.TryGetValue(session.SessionId, out int netId))
+            {
+                return;
+            }
 
             string safeContent = msg.Content.Length > 30 ? msg.Content.Substring(0, 30) + "..." : msg.Content;
             Room.BroadcastMessage(new S2C_SocialBubbleSync { NetId = netId, Content = safeContent }, false);

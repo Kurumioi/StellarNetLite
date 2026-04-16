@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Threading;
 using StellarNet.Lite.Server.Core;
 using StellarNet.Lite.Shared.Core;
+using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Infrastructure
 {
@@ -123,7 +124,15 @@ namespace StellarNet.Lite.Server.Infrastructure
                     lock (_serverApp.SyncRoot)
                     {
                         _serverApp.UpdateRuntimeContext((float)nowSeconds, nowUtc);
-                        _serverTransportPump?.PumpServer();
+                        try
+                        {
+                            _serverTransportPump?.PumpServer();
+                        }
+                        catch (Exception ex)
+                        {
+                            NetLogger.LogError("ServerRuntimeHost", $"服务端网络泵异常: {ex.GetType().Name}, {ex.Message}");
+                        }
+
                         DrainPendingActions();
                     }
 
@@ -133,7 +142,14 @@ namespace StellarNet.Lite.Server.Infrastructure
                         lock (_serverApp.SyncRoot)
                         {
                             _serverApp.UpdateRuntimeContext((float)nextTickAt, DateTime.UtcNow);
-                            _serverApp.Tick();
+                            try
+                            {
+                                _serverApp.Tick();
+                            }
+                            catch (Exception ex)
+                            {
+                                NetLogger.LogError("ServerRuntimeHost", $"服务端 Tick 异常: {ex.GetType().Name}, {ex.Message}");
+                            }
                         }
 
                         nextTickAt += tickIntervalSeconds;
@@ -170,7 +186,14 @@ namespace StellarNet.Lite.Server.Infrastructure
         {
             while (_pendingActions.TryDequeue(out Action action))
             {
-                action?.Invoke();
+                try
+                {
+                    action?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    NetLogger.LogError("ServerRuntimeHost", $"服务端队列动作异常: {ex.GetType().Name}, {ex.Message}");
+                }
             }
         }
 

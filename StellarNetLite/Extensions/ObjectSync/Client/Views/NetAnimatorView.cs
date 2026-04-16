@@ -58,6 +58,13 @@ namespace StellarNet.Lite.Client.Components.Views
         /// </summary>
         public string FloatParam3Name = "";
 
+        /// <summary>
+        /// 服务端逻辑动画状态名列表。
+        /// 服务端使用纯 C# 稳定哈希，客户端在这里把逻辑哈希映射回 Animator 真正的状态 Hash。
+        /// </summary>
+        [Header("服务端逻辑状态映射")]
+        public List<string> SyncedStateNames = new List<string> { "Idle", "Walk", "Wave", "Dance" };
+
         // 当前实体身份组件。
         private NetIdentity _identity;
 
@@ -69,6 +76,12 @@ namespace StellarNet.Lite.Client.Components.Views
 
         // 防滑冰来源状态 Hash 集合。
         private readonly HashSet<int> _antiIceSourceHashes = new HashSet<int>();
+
+        // 服务端逻辑状态 Hash -> Animator 状态 Hash 映射。
+        private readonly Dictionary<int, int> _serverToAnimatorStateHashes = new Dictionary<int, int>();
+
+        // 已经提示过的未知逻辑状态 Hash。
+        private readonly HashSet<int> _unknownSyncedStateHashes = new HashSet<int>();
 
         // 三个浮点参数对应的 Animator Hash。
         private int _param1Hash;
@@ -120,6 +133,8 @@ namespace StellarNet.Lite.Client.Components.Views
                 }
             }
 
+            BuildSyncedStateHashMap();
+
             _param1Hash = string.IsNullOrEmpty(FloatParam1Name) ? 0 : Animator.StringToHash(FloatParam1Name);
             _param2Hash = string.IsNullOrEmpty(FloatParam2Name) ? 0 : Animator.StringToHash(FloatParam2Name);
             _param3Hash = string.IsNullOrEmpty(FloatParam3Name) ? 0 : Animator.StringToHash(FloatParam3Name);
@@ -130,16 +145,17 @@ namespace StellarNet.Lite.Client.Components.Views
         /// </summary>
         public void HardSetInitialState(int animHash, float normalizedTime, float p1, float p2, float p3)
         {
-            _lastAnimStateHash = animHash;
+            int resolvedAnimHash = ResolveAnimatorStateHash(animHash);
+            _lastAnimStateHash = resolvedAnimHash;
             _currentParam1 = p1;
             _currentParam2 = p2;
             _currentParam3 = p3;
 
             if (TargetAnimator != null)
             {
-                if (animHash != 0)
+                if (resolvedAnimHash != 0)
                 {
-                    TargetAnimator.Play(animHash, 0, normalizedTime);
+                    TargetAnimator.Play(resolvedAnimHash, 0, normalizedTime);
                 }
 
                 if (_param1Hash != 0)
@@ -182,7 +198,7 @@ namespace StellarNet.Lite.Client.Components.Views
         /// </summary>
         private void ProcessAnimatorSync(ref PredictedAnimatorData syncData)
         {
-            int targetHash = syncData.AnimStateHash;
+            int targetHash = ResolveAnimatorStateHash(syncData.AnimStateHash);
 
             if (EnableAntiIceSkating)
             {
@@ -278,6 +294,80 @@ namespace StellarNet.Lite.Client.Components.Views
             }
 
             TargetAnimator.speed = Mathf.Clamp(baseSpeed, 0f, 3f);
+        }
+
+        private void BuildSyncedStateHashMap()
+        {
+            _serverToAnimatorStateHashes.Clear();
+            RegisterStateNames(SyncedStateNames);
+            RegisterStateNames(AntiIceTargetStates);
+            RegisterStateNames(AntiIceSourceStates);
+        }
+
+        private void RegisterStateNames(List<string> stateNames)
+        {
+            if (stateNames == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < stateNames.Count; i++)
+            {
+                string stateName = stateNames[i];
+                if (string.IsNullOrWhiteSpace(stateName))
+                {
+                    continue;
+                }
+
+                string safeStateName = stateName.Trim();
+                int serverHash = GetStableStringHash(safeStateName);
+                int animatorHash = Animator.StringToHash(safeStateName);
+                _serverToAnimatorStateHashes[serverHash] = animatorHash;
+            }
+        }
+
+        private int ResolveAnimatorStateHash(int serverOrAnimatorHash)
+        {
+            if (serverOrAnimatorHash == 0)
+            {
+                return 0;
+            }
+
+            if (TargetAnimator != null && TargetAnimator.HasState(0, serverOrAnimatorHash))
+            {
+                return serverOrAnimatorHash;
+            }
+
+            if (_serverToAnimatorStateHashes.TryGetValue(serverOrAnimatorHash, out int animatorHash))
+            {
+                return animatorHash;
+            }
+
+            if (_unknownSyncedStateHashes.Add(serverOrAnimatorHash))
+            {
+                Debug.LogWarning($"[NetAnimatorView] 未找到服务端逻辑状态映射，AnimStateHash:{serverOrAnimatorHash}，Object:{name}");
+            }
+
+            return 0;
+        }
+
+        private static int GetStableStringHash(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return 0;
+            }
+
+            unchecked
+            {
+                int hash = 23;
+                for (int i = 0; i < value.Length; i++)
+                {
+                    hash = hash * 31 + value[i];
+                }
+
+                return hash;
+            }
         }
     }
 }

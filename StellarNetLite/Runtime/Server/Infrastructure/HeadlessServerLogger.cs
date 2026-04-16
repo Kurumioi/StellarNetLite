@@ -44,7 +44,6 @@ namespace StellarNet.Lite.Server.Infrastructure
         private StreamWriter _logWriter;
         private readonly ConcurrentQueue<LogRecord> _logQueue = new ConcurrentQueue<LogRecord>();
         private readonly ConcurrentQueue<LogRecord> _recentLogQueue = new ConcurrentQueue<LogRecord>();
-        private readonly ConcurrentQueue<string> _commandQueue = new ConcurrentQueue<string>();
         private int _recentLogCount;
         private bool _isRunning;
         private bool _isShutdownInProgress;
@@ -55,6 +54,7 @@ namespace StellarNet.Lite.Server.Infrastructure
 
         private void Awake()
         {
+            UnityPlayerLoopDispatcher.EnsureInstalled();
             bool isHeadless = SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null || Application.isBatchMode;
             _startupTimeUtc = DateTime.UtcNow;
             _appManager = GetComponent<StellarNetAppManager>() ?? FindObjectOfType<StellarNetAppManager>();
@@ -152,21 +152,21 @@ namespace StellarNet.Lite.Server.Infrastructure
 
                     if (!string.IsNullOrWhiteSpace(input))
                     {
-                        _commandQueue.Enqueue(input.Trim());
+                        string safeCommand = input.Trim();
+                        // 输入读取允许在后台阻塞，但真正改动运行时状态仍统一回到主线程阶段执行。
+                        UnityPlayerLoopDispatcher.ExecuteOrPost(() =>
+                        {
+                            if (_isRunning)
+                            {
+                                ExecuteCommand(safeCommand);
+                            }
+                        });
                     }
                 }
                 catch (Exception)
                 {
                     break;
                 }
-            }
-        }
-
-        private void Update()
-        {
-            while (_commandQueue.TryDequeue(out string cmd))
-            {
-                ExecuteCommand(cmd);
             }
         }
 

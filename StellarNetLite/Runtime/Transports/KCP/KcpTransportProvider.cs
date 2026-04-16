@@ -57,6 +57,7 @@ namespace StellarNet.Lite.Transports.KCP
 
         // 独立追踪物理层的真实连接状态，避免强依赖底层库内部属性，确保状态机流转清晰。
         private bool _isPhysicalConnected;
+        private int _clientPumpRegistrationId;
 
         public void ApplyConfig(NetConfig config)
         {
@@ -67,18 +68,10 @@ namespace StellarNet.Lite.Transports.KCP
 
         private void Awake()
         {
+            UnityPlayerLoopDispatcher.EnsureInstalled();
             Log.Info = (msg) => NetLogger.LogInfo("kcp2k", msg);
             Log.Warning = (msg) => NetLogger.LogWarning("kcp2k", msg);
             Log.Error = (msg) => NetLogger.LogError("kcp2k", msg);
-        }
-
-        private void Update()
-        {
-            if (_isClientActive && _client != null)
-            {
-                _client.TickIncoming();
-                _client.TickOutgoing();
-            }
         }
 
         public void PumpServer()
@@ -160,6 +153,7 @@ namespace StellarNet.Lite.Transports.KCP
         public void StartClient()
         {
             if (_appConfig == null) return;
+            UnityPlayerLoopDispatcher.EnsureInstalled();
 
             // 允许在逻辑层活跃但物理层断开的场景下，重新发起物理连接，保障断线重连机制的可靠性。
             if (_isClientActive)
@@ -187,7 +181,12 @@ namespace StellarNet.Lite.Transports.KCP
             if (!_isClientActive)
             {
                 _isClientActive = true;
+                EnsureClientPumpRegistered();
                 OnClientStartedEvent?.Invoke();
+            }
+            else
+            {
+                EnsureClientPumpRegistered();
             }
         }
 
@@ -196,6 +195,7 @@ namespace StellarNet.Lite.Transports.KCP
             if (!_isClientActive) return;
             _isClientActive = false;
             _isPhysicalConnected = false;
+            UnregisterClientPump();
 
             _client?.Disconnect();
             _client = null;
@@ -207,20 +207,24 @@ namespace StellarNet.Lite.Transports.KCP
         private void OnClientConnected()
         {
             _isPhysicalConnected = true;
-            OnClientConnectedEvent?.Invoke();
+            UnityPlayerLoopDispatcher.ExecuteOrPost(() => { OnClientConnectedEvent?.Invoke(); });
         }
 
         private void OnClientDisconnected()
         {
             _isPhysicalConnected = false;
-            OnClientDisconnectedEvent?.Invoke();
+            UnityPlayerLoopDispatcher.ExecuteOrPost(() => { OnClientDisconnectedEvent?.Invoke(); });
         }
 
         private void OnClientDataReceived(ArraySegment<byte> message, KcpChannel channel)
         {
             if (LitePacketFormatter.TryDeserialize(message.Array, message.Offset, message.Count, out Packet packet))
             {
-                OnClientReceivePacketEvent?.Invoke(packet);
+                // KCP 底层缓冲区可能会被后续 Tick 复用，这里先复制成安全载荷再跨阶段投递。
+                byte[] safePayload = new byte[packet.PayloadLength];
+                Buffer.BlockCopy(packet.Payload, packet.PayloadOffset, safePayload, 0, packet.PayloadLength);
+                Packet safePacket = new Packet(packet.Seq, packet.MsgId, packet.Scope, packet.RoomId, safePayload, packet.PayloadLength);
+                UnityPlayerLoopDispatcher.ExecuteOrPost(() => OnClientReceivePacketEvent?.Invoke(safePacket));
             }
         }
 
@@ -281,6 +285,46 @@ namespace StellarNet.Lite.Transports.KCP
         {
             if (_isClientActive && _client != null) return 0.05f;
             return 0f;
+        }
+
+        private void EnsureClientPumpRegistered()
+        {
+            if (_clientPumpRegistrationId != 0)
+            {
+                return;
+            }
+
+            // 客户端 KCP 泵统一挂到 PlayerLoop，避免依赖组件自己的 Update。
+            _clientPumpRegistrationId = UnityPlayerLoopDispatcher.RegisterRecurring(PumpClient);
+        }
+
+        private void UnregisterClientPump()
+        {
+            if (_clientPumpRegistrationId == 0)
+            {
+                return;
+            }
+
+            UnityPlayerLoopDispatcher.UnregisterRecurring(_clientPumpRegistrationId);
+            _clientPumpRegistrationId = 0;
+        }
+
+        private void PumpClient()
+        {
+            if (!_isClientActive || _client == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _client.TickIncoming();
+                _client.TickOutgoing();
+            }
+            catch (Exception ex)
+            {
+                NetLogger.LogError("KcpTransportProvider", $"KCP 客户端泵异常: {ex.GetType().Name}, {ex.Message}");
+            }
         }
 
         #endregion

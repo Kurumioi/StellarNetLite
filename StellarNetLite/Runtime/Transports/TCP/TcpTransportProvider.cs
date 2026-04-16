@@ -55,19 +55,14 @@ namespace StellarNet.Lite.Transports.TCP
         private bool _isClientActive;
         private bool _isPhysicalConnected;
 
-        private readonly ConcurrentQueue<Action> _clientMainThreadActions = new ConcurrentQueue<Action>();
-
         public void ApplyConfig(NetConfig config)
         {
             _appConfig = config;
         }
 
-        private void Update()
+        private void Awake()
         {
-            while (_clientMainThreadActions.TryDequeue(out Action action))
-            {
-                action?.Invoke();
-            }
+            UnityPlayerLoopDispatcher.EnsureInstalled();
         }
 
         private void OnDestroy()
@@ -196,6 +191,7 @@ namespace StellarNet.Lite.Transports.TCP
         public void StartClient()
         {
             if (_appConfig == null) return;
+            UnityPlayerLoopDispatcher.EnsureInstalled();
 
             if (_isClientActive)
             {
@@ -221,7 +217,8 @@ namespace StellarNet.Lite.Transports.TCP
 
                 NetLogger.LogInfo("TcpTransportProvider", $"TCP 客户端已连接到 {_appConfig.Ip}:{_appConfig.Port}");
 
-                _clientMainThreadActions.Enqueue(() =>
+                // 连接成功后的上层事件仍然回到 Unity 主线程触发，保持现有客户端线程边界。
+                UnityPlayerLoopDispatcher.ExecuteOrPost(() =>
                 {
                     if (!_isClientActive)
                     {
@@ -255,7 +252,7 @@ namespace StellarNet.Lite.Transports.TCP
             _client = null;
 
             NetLogger.LogInfo("TcpTransportProvider", "TCP 客户端已停止");
-            _clientMainThreadActions.Enqueue(() =>
+            UnityPlayerLoopDispatcher.ExecuteOrPost(() =>
             {
                 OnClientDisconnectedEvent?.Invoke();
                 OnClientStoppedEvent?.Invoke();
@@ -274,7 +271,7 @@ namespace StellarNet.Lite.Transports.TCP
             _clientStream = null;
             _client = null;
 
-            _clientMainThreadActions.Enqueue(() => { OnClientDisconnectedEvent?.Invoke(); });
+            UnityPlayerLoopDispatcher.ExecuteOrPost(() => { OnClientDisconnectedEvent?.Invoke(); });
         }
 
         private async Task ReceiveClientDataAsync(CancellationToken token)
@@ -300,7 +297,8 @@ namespace StellarNet.Lite.Transports.TCP
                             Buffer.BlockCopy(packet.Payload, packet.PayloadOffset, safePayload, 0, packet.PayloadLength);
                             Packet safePacket = new Packet(packet.Seq, packet.MsgId, packet.Scope, packet.RoomId, safePayload, packet.PayloadLength);
 
-                            _clientMainThreadActions.Enqueue(() => OnClientReceivePacketEvent?.Invoke(safePacket));
+                            // 后台线程只负责解包，真正进入客户端逻辑仍通过统一调度器回主线程。
+                            UnityPlayerLoopDispatcher.ExecuteOrPost(() => OnClientReceivePacketEvent?.Invoke(safePacket));
                         }
                     }
                     finally

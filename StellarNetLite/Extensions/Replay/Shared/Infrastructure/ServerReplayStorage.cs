@@ -17,6 +17,7 @@ namespace StellarNet.Lite.Server.Infrastructure
     {
         public const string ReplayFolderName = "Replays";
         private const int MessageFrameMsgIdPlaceholder = 0;
+        private static string _replayFolderPath = string.Empty;
 
         private sealed class RecordContext
         {
@@ -28,6 +29,29 @@ namespace StellarNet.Lite.Server.Infrastructure
 
         private static readonly Dictionary<string, RecordContext> ActiveRecords = new Dictionary<string, RecordContext>();
 
+        public static void InitializePaths(string persistentDataPath)
+        {
+            if (string.IsNullOrWhiteSpace(persistentDataPath))
+            {
+                NetLogger.LogError("ServerReplayStorage", "初始化路径失败: persistentDataPath 为空");
+                _replayFolderPath = string.Empty;
+                return;
+            }
+
+            _replayFolderPath = Path.Combine(persistentDataPath, ReplayFolderName).Replace("\\", "/");
+        }
+
+        public static string GetReplayFolderPath()
+        {
+            if (string.IsNullOrWhiteSpace(_replayFolderPath))
+            {
+                NetLogger.LogError("ServerReplayStorage", "录像目录尚未初始化，请先在主线程调用 InitializePaths");
+                return string.Empty;
+            }
+
+            return _replayFolderPath;
+        }
+
         public static void StartRecord(string roomId)
         {
             if (string.IsNullOrEmpty(roomId))
@@ -36,7 +60,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                 return;
             }
 
-            string folderPath = Path.Combine(Application.persistentDataPath, ReplayFolderName).Replace("\\", "/");
+            string folderPath = GetReplayFolderPath();
             if (string.IsNullOrEmpty(folderPath))
             {
                 NetLogger.LogError("ServerReplayStorage", $"启动录制失败: folderPath 为空, RoomId:{roomId}");
@@ -173,7 +197,7 @@ namespace StellarNet.Lite.Server.Infrastructure
             ctx.Writer?.Dispose();
             ctx.GZ?.Dispose();
             ctx.FS?.Dispose();
-            string folderPath = Path.Combine(Application.persistentDataPath, ReplayFolderName).Replace("\\", "/");
+            string folderPath = GetReplayFolderPath();
             if (string.IsNullOrEmpty(folderPath))
             {
                 NetLogger.LogError("ServerReplayStorage", $"结束录制失败: folderPath 为空, RoomId:{roomId}, ReplayId:{replayId}");

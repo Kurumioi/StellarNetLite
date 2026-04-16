@@ -43,6 +43,9 @@ namespace StellarNet.Lite.Runtime
 
         public void Awake()
         {
+            // 先安装统一调度器，确保后续 Transport / 无头控制台都能脱离 MonoBehaviour.Update。
+            UnityPlayerLoopDispatcher.EnsureInstalled();
+
             if (_persistentInstance != null && _persistentInstance != this)
             {
                 Destroy(gameObject);
@@ -62,6 +65,7 @@ namespace StellarNet.Lite.Runtime
             Serializer = new LiteNetSerializer();
             _netConfig = NetConfigLoader.LoadRuntimeConfigSync();
             Transport.ApplyConfig(_netConfig);
+            ServerReplayStorage.InitializePaths(Application.persistentDataPath);
 
             NetMessageMapper.Initialize();
 

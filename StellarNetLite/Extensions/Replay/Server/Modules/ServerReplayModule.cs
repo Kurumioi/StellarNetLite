@@ -67,7 +67,7 @@ namespace StellarNet.Lite.Server.Modules
         [NetHandler]
         public void OnC2S_GetReplayList(Session session, C2S_GetReplayList msg)
         {
-            string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
+            string folderPath = ServerReplayStorage.GetReplayFolderPath();
             var replayList = new List<ReplayBriefInfo>();
 
             if (Directory.Exists(folderPath))
@@ -116,7 +116,7 @@ namespace StellarNet.Lite.Server.Modules
         {
             if (string.IsNullOrEmpty(msg.ReplayId)) return;
 
-            string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
+            string folderPath = ServerReplayStorage.GetReplayFolderPath();
             if (!Directory.Exists(folderPath)) return;
 
             FileInfo[] files = new DirectoryInfo(folderPath).GetFiles($"{msg.ReplayId}@*.replay");
@@ -148,7 +148,7 @@ namespace StellarNet.Lite.Server.Modules
                 _downloadTasks.Remove(session.SessionId);
             }
 
-            string folderPath = Path.Combine(Application.persistentDataPath, ServerReplayStorage.ReplayFolderName).Replace("\\", "/");
+            string folderPath = ServerReplayStorage.GetReplayFolderPath();
             if (!Directory.Exists(folderPath))
             {
                 _app.SendMessageToSession(session, new S2C_DownloadReplayStart { Success = false, ReplayId = msg.ReplayId, Reason = "录像目录不存在" });
