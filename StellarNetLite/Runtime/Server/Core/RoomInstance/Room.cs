@@ -535,6 +535,20 @@ namespace StellarNet.Lite.Server.Core
                 return;
             }
 
+            if (_netConfig != null && !_netConfig.EnableReplayRecording)
+            {
+                IsRecording = false;
+                _hasWrittenInitialReplaySnapshot = false;
+                return;
+            }
+
+            if (!Config.EnableReplayRecording)
+            {
+                IsRecording = false;
+                _hasWrittenInitialReplaySnapshot = false;
+                return;
+            }
+
             IsRecording = true;
             _recordStartTick = CurrentTick;
             _hasWrittenInitialReplaySnapshot = false;

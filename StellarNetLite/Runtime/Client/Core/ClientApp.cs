@@ -261,7 +261,6 @@ namespace StellarNet.Lite.Client.Core
             {
                 CurrentRoom.Destroy();
                 CurrentRoom = null;
-                GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSuspended = false, IsSilent = silent });
             }
 
             _isCurrentRoomConfirmed = false;
@@ -288,7 +287,6 @@ namespace StellarNet.Lite.Client.Core
             {
                 CurrentRoom.Destroy();
                 CurrentRoom = null;
-                GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSuspended = true, IsSilent = false });
             }
 
             _isCurrentRoomConfirmed = false;
@@ -311,7 +309,6 @@ namespace StellarNet.Lite.Client.Core
             {
                 CurrentRoom.Destroy();
                 CurrentRoom = null;
-                GlobalTypeNetEvent.Broadcast(new Local_RoomLeft { IsSuspended = false, IsSilent = false });
             }
 
             _isCurrentRoomConfirmed = false;

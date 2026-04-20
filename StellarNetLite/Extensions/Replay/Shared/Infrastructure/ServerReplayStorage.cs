@@ -1,11 +1,14 @@
 ﻿using System;
+using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.Replay;
-using UnityEngine;
 
 namespace StellarNet.Lite.Server.Infrastructure
 {
@@ -17,7 +20,17 @@ namespace StellarNet.Lite.Server.Infrastructure
     {
         public const string ReplayFolderName = "Replays";
         private const int MessageFrameMsgIdPlaceholder = 0;
+        private const int FrameHeaderBytes = sizeof(byte) + sizeof(int) + sizeof(int) + sizeof(int);
         private static string _replayFolderPath = string.Empty;
+
+        private sealed class ReplayWriteItem
+        {
+            public ReplayFrameKind FrameKind;
+            public int Tick;
+            public int MsgId;
+            public byte[] PayloadBuffer;
+            public int PayloadLength;
+        }
 
         private sealed class RecordContext
         {
@@ -25,6 +38,10 @@ namespace StellarNet.Lite.Server.Infrastructure
             public GZipStream GZ;
             public BinaryWriter Writer;
             public string TempFilePath;
+            public BlockingCollection<ReplayWriteItem> PendingWrites;
+            public Task WorkerTask;
+            public Exception WorkerException;
+            public long PendingBytes;
         }
 
         private static readonly Dictionary<string, RecordContext> ActiveRecords = new Dictionary<string, RecordContext>();
@@ -74,9 +91,8 @@ namespace StellarNet.Lite.Server.Infrastructure
 
             if (ActiveRecords.TryGetValue(roomId, out RecordContext oldContext) && oldContext != null)
             {
-                oldContext.Writer?.Dispose();
-                oldContext.GZ?.Dispose();
-                oldContext.FS?.Dispose();
+                CloseRecordContext(roomId, oldContext);
+                TryDeleteTempFile(oldContext.TempFilePath);
                 ActiveRecords.Remove(roomId);
             }
 
@@ -90,13 +106,16 @@ namespace StellarNet.Lite.Server.Infrastructure
             FileStream fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
             GZipStream gz = new GZipStream(fs, CompressionMode.Compress, true);
             BinaryWriter writer = new BinaryWriter(gz);
-            ActiveRecords[roomId] = new RecordContext
+            var context = new RecordContext
             {
                 FS = fs,
                 GZ = gz,
                 Writer = writer,
-                TempFilePath = tempPath
+                TempFilePath = tempPath,
+                PendingWrites = new BlockingCollection<ReplayWriteItem>(new ConcurrentQueue<ReplayWriteItem>())
             };
+            context.WorkerTask = Task.Run(() => ProcessWriteQueue(roomId, context));
+            ActiveRecords[roomId] = context;
         }
 
         public static void RecordFrame(string roomId, int tick, int msgId, byte[] payloadBuffer, int payloadLength)
@@ -133,11 +152,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                 return;
             }
 
-            WriteFrameHeader(ctx.Writer, ReplayFrameKind.Message, tick, msgId, payloadLength);
-            if (payloadLength > 0)
-            {
-                ctx.Writer.Write(payloadBuffer, 0, payloadLength);
-            }
+            TryEnqueueFrame(ctx, roomId, ReplayFrameKind.Message, tick, msgId, payloadBuffer, payloadLength);
         }
 
         public static void RecordSnapshotFrame(string roomId, ReplaySnapshotFrame snapshotFrame)
@@ -172,11 +187,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                 return;
             }
 
-            WriteFrameHeader(ctx.Writer, ReplayFrameKind.ObjectSnapshot, snapshotFrame.Tick, MessageFrameMsgIdPlaceholder, payload.Length);
-            if (payload.Length > 0)
-            {
-                ctx.Writer.Write(payload, 0, payload.Length);
-            }
+            TryEnqueueFrame(ctx, roomId, ReplayFrameKind.ObjectSnapshot, snapshotFrame.Tick, MessageFrameMsgIdPlaceholder, payload, payload.Length);
         }
 
         public static void StopRecordAndSave(string roomId, string replayId, string displayName, int[] componentIds, NetConfig config, int totalTicks)
@@ -194,9 +205,14 @@ namespace StellarNet.Lite.Server.Infrastructure
             }
 
             ActiveRecords.Remove(roomId);
-            ctx.Writer?.Dispose();
-            ctx.GZ?.Dispose();
-            ctx.FS?.Dispose();
+            CloseRecordContext(roomId, ctx);
+            if (ctx.WorkerException != null)
+            {
+                NetLogger.LogError("ServerReplayStorage", $"结束录制失败: 后台写入线程异常, RoomId:{roomId}, ReplayId:{replayId}, Error:{ctx.WorkerException.Message}");
+                TryDeleteTempFile(ctx.TempFilePath);
+                return;
+            }
+
             string folderPath = GetReplayFolderPath();
             if (string.IsNullOrEmpty(folderPath))
             {
@@ -282,10 +298,142 @@ namespace StellarNet.Lite.Server.Infrastructure
             }
 
             ActiveRecords.Remove(roomId);
+            CloseRecordContext(roomId, ctx);
+            TryDeleteTempFile(ctx.TempFilePath);
+        }
+
+        private static void TryEnqueueFrame(RecordContext ctx, string roomId, ReplayFrameKind frameKind, int tick, int msgId, byte[] payloadBuffer,
+            int payloadLength)
+        {
+            if (ctx == null || ctx.PendingWrites == null)
+            {
+                return;
+            }
+
+            if (ctx.WorkerException != null)
+            {
+                return;
+            }
+
+            byte[] payloadCopy = null;
+            if (payloadLength > 0)
+            {
+                payloadCopy = ArrayPool<byte>.Shared.Rent(payloadLength);
+                Buffer.BlockCopy(payloadBuffer, 0, payloadCopy, 0, payloadLength);
+            }
+
+            var item = new ReplayWriteItem
+            {
+                FrameKind = frameKind,
+                Tick = tick,
+                MsgId = msgId,
+                PayloadBuffer = payloadCopy,
+                PayloadLength = payloadLength
+            };
+
+            try
+            {
+                ctx.PendingWrites.Add(item);
+                Interlocked.Add(ref ctx.PendingBytes, FrameHeaderBytes + payloadLength);
+            }
+            catch (Exception ex)
+            {
+                if (payloadCopy != null)
+                {
+                    ArrayPool<byte>.Shared.Return(payloadCopy);
+                }
+
+                NetLogger.LogError("ServerReplayStorage", $"录像入队失败: RoomId:{roomId}, Tick:{tick}, MsgId:{msgId}, Error:{ex.Message}");
+            }
+        }
+
+        private static void ProcessWriteQueue(string roomId, RecordContext ctx)
+        {
+            if (ctx == null || ctx.PendingWrites == null || ctx.Writer == null)
+            {
+                return;
+            }
+
+            try
+            {
+                foreach (ReplayWriteItem item in ctx.PendingWrites.GetConsumingEnumerable())
+                {
+                    try
+                    {
+                        WriteFrameHeader(ctx.Writer, item.FrameKind, item.Tick, item.MsgId, item.PayloadLength);
+                        if (item.PayloadLength > 0)
+                        {
+                            ctx.Writer.Write(item.PayloadBuffer, 0, item.PayloadLength);
+                        }
+                    }
+                    finally
+                    {
+                        if (item.PayloadBuffer != null)
+                        {
+                            ArrayPool<byte>.Shared.Return(item.PayloadBuffer);
+                        }
+
+                        Interlocked.Add(ref ctx.PendingBytes, -(FrameHeaderBytes + item.PayloadLength));
+                    }
+                }
+
+                ctx.Writer.Flush();
+                ctx.GZ?.Flush();
+                ctx.FS?.Flush(true);
+            }
+            catch (Exception ex)
+            {
+                ctx.WorkerException = ex;
+                NetLogger.LogError("ServerReplayStorage", $"后台写入录像失败: RoomId:{roomId}, Error:{ex.Message}");
+                try
+                {
+                    ctx.PendingWrites.CompleteAdding();
+                }
+                catch
+                {
+                }
+            }
+            finally
+            {
+                while (ctx.PendingWrites.TryTake(out ReplayWriteItem remaining))
+                {
+                    if (remaining.PayloadBuffer != null)
+                    {
+                        ArrayPool<byte>.Shared.Return(remaining.PayloadBuffer);
+                    }
+                }
+            }
+        }
+
+        private static void CloseRecordContext(string roomId, RecordContext ctx)
+        {
+            if (ctx == null)
+            {
+                return;
+            }
+
+            try
+            {
+                ctx.PendingWrites?.CompleteAdding();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                ctx.WorkerTask?.Wait();
+            }
+            catch (AggregateException ex)
+            {
+                ctx.WorkerException = ex.Flatten().InnerException ?? ex;
+                NetLogger.LogError("ServerReplayStorage", $"等待录像后台线程结束失败: RoomId:{roomId}, Error:{ctx.WorkerException.Message}");
+            }
+
             ctx.Writer?.Dispose();
             ctx.GZ?.Dispose();
             ctx.FS?.Dispose();
-            TryDeleteTempFile(ctx.TempFilePath);
+            ctx.PendingWrites?.Dispose();
         }
 
         private static void WriteFrameHeader(BinaryWriter writer, ReplayFrameKind frameKind, int tick, int msgId, int payloadLength)

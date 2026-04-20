@@ -24,6 +24,12 @@ namespace StellarNet.Lite.Server.Core
         public string Password { get; set; } = string.Empty;
 
         /// <summary>
+        /// 当前房间是否允许录制录像。
+        /// 默认关闭，由建房请求显式开启。
+        /// </summary>
+        public bool EnableReplayRecording { get; set; } = false;
+
+        /// <summary>
         /// 是否为私密房间
         /// </summary>
         public bool IsPrivate => !string.IsNullOrEmpty(Password);

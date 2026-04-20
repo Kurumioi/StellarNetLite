@@ -23,8 +23,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
                 return;
             }
 
-            GlobalTypeNetEvent.Register<Local_RoomEntered>(OnRoomEntered).UnRegisterWhenGameObjectDestroyed(gameObject);
-            GlobalTypeNetEvent.Register<Local_RoomLeft>(OnRoomLeft).UnRegisterWhenGameObjectDestroyed(gameObject);
+            GlobalTypeNetEvent.Register<S2C_RoomSetupResult>(OnRoomSetupResult).UnRegisterWhenGameObjectDestroyed(gameObject);
             GlobalTypeNetEvent.Register<S2C_LoginResult>(OnLoginResult).UnRegisterWhenGameObjectDestroyed(gameObject);
             GlobalTypeNetEvent.Register<S2C_ReconnectResult>(OnReconnectResult)
                 .UnRegisterWhenGameObjectDestroyed(gameObject);
@@ -54,12 +53,14 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
             bool isDroppedFromRoom =
                 (_lastClientState == ClientAppState.OnlineRoom ||
-                 _lastClientState == ClientAppState.ConnectionSuspended) &&
+                 _lastClientState == ClientAppState.ConnectionSuspended ||
+                 _lastClientState == ClientAppState.ReplayRoom) &&
                 currentState == ClientAppState.InLobby;
 
             if (isDroppedFromRoom)
             {
                 NetLogger.LogWarning("GlobalUIRouter", "检测到状态跌落，执行 UI 回退");
+                UIKit.ClosePanel<Panel_StellarNetReplay>();
                 UIKit.ClosePanel<Panel_SetRoomConfig>();
                 UIKit.ClosePanel<Panel_StellarNetRoom>();
                 UIKit.ClosePanel<Panel_StellarNetGameOver>();
@@ -121,6 +122,9 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
 
             if (msg.Success)
             {
+                UIKit.ClosePanel<Panel_StellarNetLogin>();
+                UIKit.ClosePanel<Panel_StellarNetLobby>();
+                UIKit.ClosePanel<Panel_SetRoomConfig>();
                 return;
             }
 
@@ -144,40 +148,16 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             UIKit.OpenPanel<Panel_StellarNetLogin>();
         }
 
-        private void OnRoomEntered(Local_RoomEntered evt)
+        private void OnRoomSetupResult(S2C_RoomSetupResult evt)
         {
+            if (evt == null || !evt.Success)
+            {
+                return;
+            }
+
             UIKit.ClosePanel<Panel_StellarNetLogin>();
             UIKit.ClosePanel<Panel_StellarNetLobby>();
             UIKit.ClosePanel<Panel_SetRoomConfig>();
-        }
-
-        private void OnRoomLeft(Local_RoomLeft evt)
-        {
-            if (evt.IsSilent)
-            {
-                return;
-            }
-
-            if (evt.IsSuspended)
-            {
-                return;
-            }
-
-            NetLogger.LogInfo("GlobalUIRouter", "离开房间，回退至大厅");
-            UIKit.ClosePanel<Panel_StellarNetReplay>();
-            UIKit.ClosePanel<Panel_StellarNetRoom>();
-            UIKit.ClosePanel<Panel_StellarNetGameOver>();
-            UIKit.ClosePanel<Panel_SetRoomConfig>();
-
-            if (NetClient.Session != null && NetClient.Session.IsLoggedIn)
-            {
-                UIKit.OpenPanel<Panel_StellarNetLobby>(new Panel_StellarNetLobbyData
-                    { accountId = NetClient.Session.AccountId });
-            }
-            else
-            {
-                UIKit.OpenPanel<Panel_StellarNetLogin>();
-            }
         }
 
         private void OnReplayDownloaded(S2C_DownloadReplayResult msg)

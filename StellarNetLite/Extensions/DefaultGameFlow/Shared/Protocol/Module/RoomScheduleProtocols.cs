@@ -24,6 +24,12 @@ namespace StellarNet.Lite.Shared.Protocol
         public int MaxMembers;
 
         /// <summary>
+        /// 本次房间是否启用录像录制。
+        /// 默认 false，仅在客户端明确开启时才录制。
+        /// </summary>
+        public bool EnableReplayRecording;
+
+        /// <summary>
         /// 房间密码。
         /// </summary>
         public string Password;

@@ -14,7 +14,10 @@ namespace StellarNet.Lite.Server.Infrastructure
     /// </summary>
     public sealed class ServerRuntimeHost : IDisposable
     {
-        private const int MaxWaitMilliseconds = 2;
+        // KCP 默认 interval 是 10ms。
+        // 这里把宿主线程的最大阻塞等待提升到 10ms，避免在 Linux 无头模式下以 2ms 频率高频空转。
+        private const int MaxWaitMilliseconds = 10;
+        private const int NearDeadlineWaitMilliseconds = 1;
 
         private readonly ServerApp _serverApp;
         private readonly IServerTransportPump _serverTransportPump;
@@ -160,6 +163,11 @@ namespace StellarNet.Lite.Server.Infrastructure
                     if (waitMilliseconds > 0 && _pendingActions.IsEmpty)
                     {
                         _workSignal.WaitOne(waitMilliseconds);
+                    }
+                    else if (_pendingActions.IsEmpty)
+                    {
+                        // 临近 Tick 截止时间时做极短等待，避免在 Linux 上退化成高频 Yield 空转。
+                        _workSignal.WaitOne(NearDeadlineWaitMilliseconds);
                     }
                     else
                     {

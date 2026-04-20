@@ -43,8 +43,6 @@ namespace StellarNet.Lite.Server.Components
 
         // 无配置开发态默认优先保证在线观感，在线同步默认每 Tick 广播一次。
         private const int SyncIntervalTicks = 1;
-        // 回放录制频率必须和在线同步频率保持一致，否则录像观感会比局内更稀疏。
-        private const int RecordIntervalTicks = SyncIntervalTicks;
 
         private ObjectSyncState[] _syncStateBuffer = new ObjectSyncState[64];
         private readonly S2C_ObjectSync _reusableSyncMsg = new S2C_ObjectSync();
@@ -78,7 +76,8 @@ namespace StellarNet.Lite.Server.Components
             if (Room.State != RoomState.Playing || _entities.Count == 0) return;
 
             bool shouldSyncOnline = Room.CurrentTick % SyncIntervalTicks == 0;
-            bool shouldRecord = Room.CurrentTick % RecordIntervalTicks == 0;
+            int recordIntervalTicks = ResolveReplayRecordIntervalTicks();
+            bool shouldRecord = recordIntervalTicks > 0 && Room.CurrentTick % recordIntervalTicks == 0;
 
             if (!shouldSyncOnline && !shouldRecord) return;
 
@@ -125,6 +124,16 @@ namespace StellarNet.Lite.Server.Components
 
             _reusableSyncMsg.ValidCount = index;
             Room.BroadcastMessage(_reusableSyncMsg, shouldRecord);
+        }
+
+        private int ResolveReplayRecordIntervalTicks()
+        {
+            if (_app == null || _app.Config == null)
+            {
+                return 3;
+            }
+
+            return _app.Config.ReplayObjectSyncRecordIntervalTicks;
         }
 
         public override void OnMemberJoined(Session session)

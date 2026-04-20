@@ -21,6 +21,7 @@ namespace StellarNet.Lite.Runtime
     [RequireComponent(typeof(INetworkTransport))]
     public class StellarNetAppManager : MonoBehaviour
     {
+        private const int HeadlessMainLoopFrameRate = 30;
         private static StellarNetAppManager _persistentInstance;
 
         /// <summary>
@@ -45,6 +46,7 @@ namespace StellarNet.Lite.Runtime
         {
             // 先安装统一调度器，确保后续 Transport / 无头控制台都能脱离 MonoBehaviour.Update。
             UnityPlayerLoopDispatcher.EnsureInstalled();
+            OptimizeHeadlessMainLoop();
 
             if (_persistentInstance != null && _persistentInstance != this)
             {
@@ -88,6 +90,22 @@ namespace StellarNet.Lite.Runtime
             Transport.OnClientConnectedEvent += HandleClientConnected;
             Transport.OnClientDisconnectedEvent += HandleClientDisconnected;
             Transport.OnClientReceivePacketEvent += HandleClientReceivePacket;
+        }
+
+        private static void OptimizeHeadlessMainLoop()
+        {
+            bool isHeadless = Application.isBatchMode ||
+                              SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null;
+            if (!isHeadless)
+            {
+                return;
+            }
+
+            // 服务端核心 Tick 已经运行在独立线程中，限制 Unity 主线程帧率只会降低宿主空转，
+            // 不会改变协议同步、房间 Tick 计数或回放录制节奏。
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = HeadlessMainLoopFrameRate;
+            NetLogger.LogInfo("StellarNetAppManager", $"检测到无头模式，已限制 Unity 主线程帧率为 {HeadlessMainLoopFrameRate} FPS");
         }
 
         private void OnDestroy()

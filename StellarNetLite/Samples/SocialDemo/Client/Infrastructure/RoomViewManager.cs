@@ -6,6 +6,7 @@ using StellarNet.Lite.Client.Components;
 using StellarNet.Lite.Game.Client.Components;
 using StellarNet.Lite.Client.Components.Views;
 using StellarNet.Lite.Game.Client.Views;
+using StellarNet.Lite.Shared.Protocol;
 using UnityEngine;
 
 namespace StellarNet.Lite.Game.Client.Infrastructure
@@ -22,30 +23,60 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
         public void Init()
         {
             if (_isInitialized) return;
-            GlobalTypeNetEvent.Register<Local_RoomEntered>(OnRoomEntered).UnRegisterWhenGameObjectDestroyed(gameObject);
-            GlobalTypeNetEvent.Register<Local_RoomLeft>(OnRoomLeft).UnRegisterWhenGameObjectDestroyed(gameObject);
+            GlobalTypeNetEvent.Register<S2C_RoomSetupResult>(OnRoomSetupResult).UnRegisterWhenGameObjectDestroyed(gameObject);
+            GlobalTypeNetEvent.Register<S2C_ReconnectResult>(OnReconnectResult).UnRegisterWhenGameObjectDestroyed(gameObject);
             _isInitialized = true;
         }
 
-        private void OnRoomEntered(Local_RoomEntered evt)
+        private void Update()
         {
-            if (evt.Room == null) return;
+            if (_currentRoomViewRoot == null &&
+                NetClient.State == ClientAppState.ReplayRoom &&
+                NetClient.CurrentRoom != null)
+            {
+                BuildRoomView(NetClient.CurrentRoom);
+                return;
+            }
+
+            if (_currentRoomViewRoot != null && NetClient.State == ClientAppState.InLobby)
+            {
+                CleanupCurrentRoomView();
+            }
+        }
+
+        private void OnRoomSetupResult(S2C_RoomSetupResult evt)
+        {
+            if (evt == null || !evt.Success || NetClient.CurrentRoom == null) return;
+            BuildRoomView(NetClient.CurrentRoom);
+        }
+
+        private void OnReconnectResult(S2C_ReconnectResult evt)
+        {
+            if (evt == null || !evt.Success || NetClient.CurrentRoom == null) return;
+            BuildRoomView(NetClient.CurrentRoom);
+        }
+
+        private void BuildRoomView(ClientRoom room)
+        {
+            if (room == null) return;
+
+            CleanupCurrentRoomView();
 
             // 1. 创建表现层根节点
-            _currentRoomViewRoot = new GameObject($"[View] Room_{evt.Room.RoomId}");
+            _currentRoomViewRoot = new GameObject($"[View] Room_{room.RoomId}");
             DontDestroyOnLoad(_currentRoomViewRoot);
 
             // 2. 装配通用表现层服务 (实体生成器)
-            if (evt.Room.GetComponent<ClientObjectSyncComponent>() != null)
+            if (room.GetComponent<ClientObjectSyncComponent>() != null)
             {
                 var spawner = _currentRoomViewRoot.AddComponent<ObjectSpawnerView>();
-                spawner.Init(evt.Room);
+                spawner.Init(room);
             }
 
             // 3. 动态装配各业务组件的 UI 路由与控制器
             bool isOnline = NetClient.State == ClientAppState.OnlineRoom;
 
-            var settingsComp = evt.Room.GetComponent<ClientRoomSettingsComponent>();
+            var settingsComp = room.GetComponent<ClientRoomSettingsComponent>();
             if (settingsComp != null)
             {
                 if (isOnline)
@@ -60,13 +91,13 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
                 }
             }
 
-            var socialComp = evt.Room.GetComponent<ClientSocialRoomComponent>();
+            var socialComp = room.GetComponent<ClientSocialRoomComponent>();
             if (socialComp != null)
             {
                 if (isOnline)
                 {
                     var inputCtrl = _currentRoomViewRoot.AddComponent<SocialRoomInputController>();
-                    inputCtrl.Init(evt.Room);
+                    inputCtrl.Init(room);
 
                     var router = _currentRoomViewRoot.AddComponent<SocialOnlineUIRouter>();
                     router.Bind(socialComp);
@@ -79,7 +110,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             }
         }
 
-        private void OnRoomLeft(Local_RoomLeft evt)
+        private void CleanupCurrentRoomView()
         {
             // 销毁所有动态挂载的表现层组件 (Spawner, Routers, InputController)
             if (_currentRoomViewRoot != null)

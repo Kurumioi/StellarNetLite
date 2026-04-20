@@ -71,6 +71,7 @@ namespace StellarNet.Lite.Server.Modules
 
             room.Config.RoomName = string.IsNullOrWhiteSpace(msg.RoomConfig.RoomName) ? $"房间_{roomId}" : msg.RoomConfig.RoomName.Trim();
             room.Config.MaxMembers = msg.RoomConfig.MaxMembers <= 0 ? 4 : msg.RoomConfig.MaxMembers;
+            room.Config.EnableReplayRecording = msg.RoomConfig.EnableReplayRecording;
             room.Config.Password = msg.RoomConfig.Password ?? string.Empty;
 
             if (msg.RoomConfig.CustomProperties != null)
@@ -184,6 +185,7 @@ namespace StellarNet.Lite.Server.Modules
 
             newRoom.Config.RoomName = string.IsNullOrWhiteSpace(msg.RoomConfig.RoomName) ? $"房间_{msg.RoomId}" : msg.RoomConfig.RoomName.Trim();
             newRoom.Config.MaxMembers = msg.RoomConfig.MaxMembers <= 0 ? 4 : msg.RoomConfig.MaxMembers;
+            newRoom.Config.EnableReplayRecording = msg.RoomConfig.EnableReplayRecording;
             newRoom.Config.Password = msg.RoomConfig.Password ?? string.Empty;
 
             if (msg.RoomConfig.CustomProperties != null)

@@ -53,6 +53,17 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public int MaxReplayFiles = 100;
 
         /// <summary>
+        /// 是否启用服务端录像录制。
+        /// </summary>
+        public bool EnableReplayRecording = true;
+
+        /// <summary>
+        /// 对象同步消息写入录像的 Tick 间隔。
+        /// 0 表示不记录高频对象同步消息，仅保留关键帧和其它业务消息。
+        /// </summary>
+        public int ReplayObjectSyncRecordIntervalTicks = 3;
+
+        /// <summary>
         /// 大厅态离线保留时间，单位分钟。
         /// </summary>
         public int OfflineTimeoutLobbyMinutes = 5;
@@ -346,6 +357,13 @@ namespace StellarNet.Lite.Shared.Infrastructure
             {
                 NetLogger.LogWarning("NetConfigLoader", $"配置修正: MaxReplayFiles 非法，已回退默认值 100。Path:{fullPath}, Value:{config.MaxReplayFiles}");
                 config.MaxReplayFiles = 100;
+            }
+
+            if (config.ReplayObjectSyncRecordIntervalTicks < 0)
+            {
+                NetLogger.LogWarning("NetConfigLoader",
+                    $"配置修正: ReplayObjectSyncRecordIntervalTicks 非法，已回退默认值 3。Path:{fullPath}, Value:{config.ReplayObjectSyncRecordIntervalTicks}");
+                config.ReplayObjectSyncRecordIntervalTicks = 3;
             }
 
             if (config.OfflineTimeoutLobbyMinutes < 0)

@@ -68,7 +68,6 @@ namespace StellarNet.Lite.Client.Modules
                     return;
                 }
 
-                GlobalTypeNetEvent.Broadcast(new Local_RoomEntered { Room = _app.CurrentRoom });
                 _app.SendMessage(new C2S_ReconnectReady());
             }
             else

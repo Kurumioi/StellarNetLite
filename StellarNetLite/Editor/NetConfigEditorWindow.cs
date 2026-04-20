@@ -173,6 +173,9 @@ namespace StellarNet.Lite.Editor
 
             _currentConfig.MaxRoomLifetimeHours = EditorGUILayout.IntField("房间最大存活(小时):", _currentConfig.MaxRoomLifetimeHours);
             _currentConfig.MaxReplayFiles = EditorGUILayout.IntField("最大录像保留数:", _currentConfig.MaxReplayFiles);
+            _currentConfig.EnableReplayRecording = EditorGUILayout.Toggle("启用录像录制:", _currentConfig.EnableReplayRecording);
+            _currentConfig.ReplayObjectSyncRecordIntervalTicks =
+                EditorGUILayout.IntField("对象同步录像间隔Tick(0=仅关键帧):", _currentConfig.ReplayObjectSyncRecordIntervalTicks);
             _currentConfig.OfflineTimeoutLobbyMinutes = EditorGUILayout.IntField("大厅离线GC(分钟):", _currentConfig.OfflineTimeoutLobbyMinutes);
             _currentConfig.OfflineTimeoutRoomMinutes = EditorGUILayout.IntField("房间离线GC(分钟):", _currentConfig.OfflineTimeoutRoomMinutes);
             _currentConfig.EmptyRoomTimeoutMinutes = EditorGUILayout.IntField("空房间熔断(分钟):", _currentConfig.EmptyRoomTimeoutMinutes);
@@ -386,6 +389,11 @@ namespace StellarNet.Lite.Editor
             if (_currentConfig.MaxReplayFiles < 0)
             {
                 _currentConfig.MaxReplayFiles = 100;
+            }
+
+            if (_currentConfig.ReplayObjectSyncRecordIntervalTicks < 0)
+            {
+                _currentConfig.ReplayObjectSyncRecordIntervalTicks = 3;
             }
 
             if (_currentConfig.OfflineTimeoutLobbyMinutes < 0)

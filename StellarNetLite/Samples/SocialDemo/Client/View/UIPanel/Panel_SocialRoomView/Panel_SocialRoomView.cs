@@ -49,7 +49,7 @@ public class Panel_SocialRoomView : UIPanelBase
             _inputController.Init(NetClient.CurrentRoom);
 
             NetClient.CurrentRoom.NetEventSystem.Register<S2C_SocialBubbleSync>(HandleBubbleSync).UnRegisterWhenMonoDisable(this);
-            NetClient.CurrentRoom.NetEventSystem.Register<Local_ObjectSpawned>(HandleObjectSpawned).UnRegisterWhenMonoDisable(this);
+            NetClient.CurrentRoom.NetEventSystem.Register<S2C_ObjectSpawn>(HandleObjectSpawned).UnRegisterWhenMonoDisable(this);
             // 监听房间快照，用于房主顺位时的 UI 动态刷新
             NetClient.CurrentRoom.NetEventSystem.Register<S2C_RoomSnapshot>(HandleRoomSnapshot).UnRegisterWhenMonoDisable(this);
 
@@ -91,9 +91,9 @@ public class Panel_SocialRoomView : UIPanelBase
         chatInput?.onSubmit.RemoveListener(OnChatInputSubmit);
     }
 
-    private void HandleObjectSpawned(Local_ObjectSpawned evt)
+    private void HandleObjectSpawned(S2C_ObjectSpawn evt)
     {
-        if (NetClient.Session != null && evt.State.OwnerSessionId == NetClient.Session.SessionId)
+        if (evt != null && NetClient.Session != null && evt.State.OwnerSessionId == NetClient.Session.SessionId)
         {
             _localNetId = evt.State.NetId;
         }

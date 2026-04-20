@@ -114,12 +114,29 @@ namespace StellarNet.Lite.Client.Components
         }
 
         [NetHandler]
-        public void OnS2C_ObjectSpawn(S2C_ObjectSpawn msg) => ApplySpawnState(msg.State, true);
+        public void OnS2C_ObjectSpawn(S2C_ObjectSpawn msg)
+        {
+            if (msg == null)
+            {
+                return;
+            }
+
+            ApplySpawnState(msg.State);
+            Room?.NetEventSystem.Broadcast(msg);
+        }
 
         [NetHandler]
         public void OnS2C_ObjectDestroy(S2C_ObjectDestroy msg)
         {
-            if (_entities.Remove(msg.NetId)) Room.NetEventSystem.Broadcast(new Local_ObjectDestroyed { NetId = msg.NetId });
+            if (msg == null)
+            {
+                return;
+            }
+
+            if (_entities.Remove(msg.NetId))
+            {
+                Room?.NetEventSystem.Broadcast(msg);
+            }
         }
 
         [NetHandler]
@@ -218,13 +235,17 @@ namespace StellarNet.Lite.Client.Components
             foreach (var netId in toDestroy)
             {
                 _entities.Remove(netId);
-                Room.NetEventSystem.Broadcast(new Local_ObjectDestroyed { NetId = netId });
+                Room?.NetEventSystem.Broadcast(new S2C_ObjectDestroy { NetId = netId });
             }
 
             for (int i = 0; i < states.Length; i++)
             {
                 bool isNew = !_entities.ContainsKey(states[i].NetId);
-                ApplySpawnState(states[i], isNew);
+                ApplySpawnState(states[i]);
+                if (isNew)
+                {
+                    Room?.NetEventSystem.Broadcast(new S2C_ObjectSpawn { State = states[i] });
+                }
             }
         }
 
@@ -233,7 +254,10 @@ namespace StellarNet.Lite.Client.Components
             if (_entities.Count == 0) return;
             if (broadcastDestroyEvent)
             {
-                foreach (int netId in _entities.Keys) Room.NetEventSystem.Broadcast(new Local_ObjectDestroyed { NetId = netId });
+                foreach (int netId in _entities.Keys)
+                {
+                    Room?.NetEventSystem.Broadcast(new S2C_ObjectDestroy { NetId = netId });
+                }
             }
 
             _entities.Clear();
@@ -356,7 +380,7 @@ namespace StellarNet.Lite.Client.Components
             return true;
         }
 
-        private void ApplySpawnState(ObjectSpawnState state, bool broadcastLocalEvent)
+        private void ApplySpawnState(ObjectSpawnState state)
         {
             if (state.NetId <= 0) return;
 
@@ -381,8 +405,6 @@ namespace StellarNet.Lite.Client.Components
             data.FloatParam3 = state.FloatParam3;
             data.LocalReceiveTime = Time.realtimeSinceStartup;
             data.ServerTime = 0f;
-
-            if (broadcastLocalEvent) Room.NetEventSystem.Broadcast(new Local_ObjectSpawned { State = state });
         }
 
         private ObjectSpawnState BuildSpawnState(int netId, SyncEntityData data)

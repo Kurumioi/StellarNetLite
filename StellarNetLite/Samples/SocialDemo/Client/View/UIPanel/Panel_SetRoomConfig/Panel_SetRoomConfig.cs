@@ -19,6 +19,7 @@ public class Panel_SetRoomConfig : UIPanelBase
     [SerializeField] private TMP_Text memberCountText;
 
     [Header("高级配置 (可选)")] [SerializeField] private TMP_InputField customRoomIdIpt;
+    [SerializeField] private Toggle enableReplayRecordingTog;
 
     [Header("组件模板")] [SerializeField] private Transform roomComContent;
     [SerializeField] private GameObject roomComPrefab;
@@ -136,6 +137,7 @@ public class Panel_SetRoomConfig : UIPanelBase
             RoomName = roomName,
             ComponentIds = roomComIds.ToArray(),
             MaxMembers = memberCount,
+            EnableReplayRecording = enableReplayRecordingTog != null && enableReplayRecordingTog.isOn,
             Password = string.Empty,
             CustomProperties = null
         };

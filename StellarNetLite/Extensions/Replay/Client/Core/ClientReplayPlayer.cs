@@ -471,7 +471,6 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
-            GlobalTypeNetEvent.Broadcast(new Local_RoomEntered { Room = _app.CurrentRoom });
             CurrentTick = 0;
             _tickAccumulator = 0f;
             ResetStreamToStart();

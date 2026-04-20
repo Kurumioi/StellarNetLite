@@ -4,9 +4,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using StellarNet.Lite.Client.Components.Runtime;
 using StellarNet.Lite.Client.Core;
-using StellarNet.Lite.Client.Core.Events;
 using StellarNet.Lite.Shared.Infrastructure;
 using StellarNet.Lite.Shared.ObjectSync;
+using StellarNet.Lite.Shared.Protocol;
 using UnityEngine;
 
 namespace StellarNet.Lite.Client.Components.Views
@@ -68,8 +68,8 @@ namespace StellarNet.Lite.Client.Components.Views
                 return false;
             }
 
-            _room.NetEventSystem.Register<Local_ObjectSpawned>(OnLocalObjectSpawned);
-            _room.NetEventSystem.Register<Local_ObjectDestroyed>(OnLocalObjectDestroyed);
+            _room.NetEventSystem.Register<S2C_ObjectSpawn>(OnObjectSpawned);
+            _room.NetEventSystem.Register<S2C_ObjectDestroy>(OnObjectDestroyed);
 
             _isInitialized = true;
             BootstrapExistingEntities();
@@ -85,8 +85,8 @@ namespace StellarNet.Lite.Client.Components.Views
             string roomId = _room != null ? _room.RoomId : "-";
             if (_room != null)
             {
-                _room.NetEventSystem.UnRegister<Local_ObjectSpawned>(OnLocalObjectSpawned);
-                _room.NetEventSystem.UnRegister<Local_ObjectDestroyed>(OnLocalObjectDestroyed);
+                _room.NetEventSystem.UnRegister<S2C_ObjectSpawn>(OnObjectSpawned);
+                _room.NetEventSystem.UnRegister<S2C_ObjectDestroy>(OnObjectDestroyed);
             }
 
             List<int> netIds = new List<int>(_spawnEntries.Keys);
@@ -149,14 +149,24 @@ namespace StellarNet.Lite.Client.Components.Views
             }
         }
 
-        private void OnLocalObjectSpawned(Local_ObjectSpawned evt)
+        private void OnObjectSpawned(S2C_ObjectSpawn evt)
         {
+            if (evt == null)
+            {
+                return;
+            }
+
             TrackOrStartSpawn(evt.State);
         }
 
-        private void OnLocalObjectDestroyed(Local_ObjectDestroyed evt)
+        private void OnObjectDestroyed(S2C_ObjectDestroy evt)
         {
             if (!_isInitialized)
+            {
+                return;
+            }
+
+            if (evt == null)
             {
                 return;
             }
