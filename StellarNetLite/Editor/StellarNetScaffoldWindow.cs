@@ -53,7 +53,7 @@ namespace StellarNet.Lite.Editor
         // 当前 S2C 协议 Id。
         private int _s2cMsgId = 10001;
 
-        [MenuItem("StellarNetLite/业务脚手架生成器")]
+        [MenuItem("StellarNetLite/业务脚手架生成器", false, 3)]
         public static void Open()
         {
             var window = GetWindow<StellarNetScaffoldWindow>("业务脚手架生成器");

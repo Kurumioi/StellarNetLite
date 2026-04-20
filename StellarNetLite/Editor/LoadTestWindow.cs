@@ -60,7 +60,7 @@ namespace StellarNet.Lite.Editor
         private GUIStyle _outputStyle;
         private bool _stylesInitialized;
 
-        [MenuItem("StellarNetLite/压测工具 (Load Test)")]
+        [MenuItem("StellarNetLite/压测工具", false, 5)]
         public static void Open()
         {
             LoadTestWindow window = GetWindow<LoadTestWindow>("压测工具");
@@ -322,7 +322,8 @@ namespace StellarNet.Lite.Editor
             try
             {
                 _outputBuilder.Clear();
-                AppendOutput($"[Editor] 启动压测: 传输层={_transport}, 地址={_host}:{_port}, 房间数={_roomCount}, 每房机器人={_clientsPerRoom}, 每房冗余={_redundantClientsPerRoom}, 总机器人={_roomCount * _clientsPerRoom}, 时长={(_duration > 0 ? _duration + "s" : "直到手动停止")}");
+                AppendOutput(
+                    $"[Editor] 启动压测: 传输层={_transport}, 地址={_host}:{_port}, 房间数={_roomCount}, 每房机器人={_clientsPerRoom}, 每房冗余={_redundantClientsPerRoom}, 总机器人={_roomCount * _clientsPerRoom}, 时长={(_duration > 0 ? _duration + "s" : "直到手动停止")}");
 
                 _runningProcess = new Process
                 {
@@ -492,7 +493,8 @@ namespace StellarNet.Lite.Editor
                 return false;
             }
 
-            if (_port <= 0 || _roomCount <= 0 || _clientsPerRoom <= 0 || _redundantClientsPerRoom < 0 || _connectRate <= 0 || _duration < 0 || _moveRate <= 0 || _logInterval <= 0)
+            if (_port <= 0 || _roomCount <= 0 || _clientsPerRoom <= 0 || _redundantClientsPerRoom < 0 || _connectRate <= 0 || _duration < 0 ||
+                _moveRate <= 0 || _logInterval <= 0)
             {
                 EditorUtility.DisplayDialog("参数错误", "端口、房间数、每房客户端数、建连速率、移动频率、日志间隔必须大于 0；冗余成员数与压测时长必须大于等于 0。", "确定");
                 return false;
@@ -525,7 +527,8 @@ namespace StellarNet.Lite.Editor
 
         private static string ResolvePowerShellExecutable()
         {
-            string systemPowerShell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
+            string systemPowerShell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0",
+                "powershell.exe");
             if (File.Exists(systemPowerShell))
             {
                 return systemPowerShell;

@@ -22,7 +22,7 @@ namespace StellarNet.Lite.Editor
         /// </summary>
         private const string OutputConstFilePath = "Assets/StellarNetLiteGenerated/NetPrefabConsts.cs";
 
-        [MenuItem("StellarNetLite/生成网络预制体常量表 (Net Prefabs)")]
+        [MenuItem("StellarNetLite/生成网络预制体常量表", false, 2)]
         public static void ManualRun()
         {
             RunScanAndGenerate();

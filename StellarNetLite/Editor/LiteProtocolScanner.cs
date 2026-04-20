@@ -105,10 +105,9 @@ namespace StellarNet.Lite.Editor
 
         #region 菜单入口
 
-        [MenuItem("StellarNetLite/重新生成协议与组件常量表")]
         public static void ManualRun() => RunScanAndGenerate(false);
 
-        [MenuItem("StellarNetLite/强制重新生成协议与组件常量表")]
+        [MenuItem("StellarNetLite/强制重新生成协议与组件常量表", false, 1)]
         public static void ForceRun() => RunScanAndGenerate(true);
 
         #endregion

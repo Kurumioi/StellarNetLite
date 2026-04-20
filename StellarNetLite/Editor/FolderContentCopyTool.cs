@@ -13,7 +13,7 @@ namespace StellarNet.Editor
     /// </summary>
     public class FolderContentCopyTool : EditorWindow
     {
-        [MenuItem("StellarNetLite/Folder Content Copy Tool")]
+        [MenuItem("StellarNetLite/脚本复制工具")]
         public static void ShowWindow()
         {
             var wnd = GetWindow<FolderContentCopyTool>("Copy Code Tool");
@@ -23,7 +23,9 @@ namespace StellarNet.Editor
 
         // 根目录和滚动状态。
         private string _rootFolder = "";
+
         private Vector2 _scroll;
+
         // 根目录下的一级子目录与选中结果。
         private readonly List<string> _subFolders = new List<string>(128);
         private readonly HashSet<string> _selectedFolders = new HashSet<string>();

@@ -14,7 +14,9 @@ namespace StellarNet.Lite.Editor
     {
         // 当前编辑中的配置对象和目标根目录。
         private NetConfig _currentConfig = new NetConfig();
+
         private ConfigRootPath _targetRoot = ConfigRootPath.StreamingAssets;
+
         // GUI 状态缓存。
         private string _loadedSnapshotJson = string.Empty;
         private string _currentResolvedPath = string.Empty;
@@ -30,7 +32,7 @@ namespace StellarNet.Lite.Editor
             Failed = 2
         }
 
-        [MenuItem("StellarNetLite/网络配置 (NetConfig)")]
+        [MenuItem("StellarNetLite/网络配置", false, 0)]
         public static void ShowWindow()
         {
             NetConfigEditorWindow window = GetWindow<NetConfigEditorWindow>("NetConfig Editor");
@@ -137,7 +139,8 @@ namespace StellarNet.Lite.Editor
 
             EditorGUILayout.SelectableLabel(_currentResolvedPath, _pathStyle, GUILayout.Height(34f));
             EditorGUILayout.LabelField($"当前运行时激活根目录: {_targetRoot}", EditorStyles.miniBoldLabel);
-            string runtimeRootBootstrapPath = Path.Combine(Application.streamingAssetsPath, NetConfigLoader.ConfigFolderName, NetConfigLoader.RuntimeRootFileName)
+            string runtimeRootBootstrapPath = Path
+                .Combine(Application.streamingAssetsPath, NetConfigLoader.ConfigFolderName, NetConfigLoader.RuntimeRootFileName)
                 .Replace("\\", "/");
             EditorGUILayout.SelectableLabel(runtimeRootBootstrapPath, _pathStyle, GUILayout.Height(34f));
 

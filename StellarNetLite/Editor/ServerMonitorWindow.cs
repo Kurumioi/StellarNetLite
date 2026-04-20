@@ -17,7 +17,7 @@ namespace StellarNet.Lite.Editor
         private Vector2 _sessionScroll;
         private string _selectedRoomId = string.Empty;
 
-        [MenuItem("StellarNetLite/服务端运行时监控 (Server Monitor)")]
+        [MenuItem("StellarNetLite/服务端运行时监控", false, 4)]
         public static void ShowWindow()
         {
             var window = GetWindow<ServerMonitorWindow>("Server Monitor");

@@ -1,0 +1,14 @@
+{
+  "Ip": "127.0.0.1",
+  "Port": 5888,
+  "MaxConnections": 200,
+  "TickRate": 60,
+  "MaxRoomLifetimeHours": 24,
+  "MaxReplayFiles": 100,
+  "EnableReplayRecording": true,
+  "ReplayObjectSyncRecordIntervalTicks": 3,
+  "OfflineTimeoutLobbyMinutes": 5,
+  "OfflineTimeoutRoomMinutes": 60,
+  "EmptyRoomTimeoutMinutes": 5,
+  "MinClientVersion": "0.0.1"
+}

@@ -1,0 +1,17 @@
+Quick examples
+
+Default KCP test:
+
+powershell -ExecutionPolicy Bypass -File .\Assets\StreamingAssets\StellarNetLiteLoadTest\run-loadtest.ps1
+
+5 rooms, 20 clients per room, KCP, run until stopped:
+
+powershell -ExecutionPolicy Bypass -File .\Assets\StreamingAssets\StellarNetLiteLoadTest\run-loadtest.ps1 -Transport kcp -ServerHost 127.0.0.1 -Port 7777 -Rooms 5 -ClientsPerRoom 20 -Duration 0 -MoveRate 8
+
+10 rooms, 30 clients per room, slower connect rate:
+
+powershell -ExecutionPolicy Bypass -File .\Assets\StreamingAssets\StellarNetLiteLoadTest\run-loadtest.ps1 -Transport kcp -ServerHost 127.0.0.1 -Port 7777 -Rooms 10 -ClientsPerRoom 30 -ConnectRate 20 -Duration 0 -MoveRate 8
+
+TCP comparison:
+
+powershell -ExecutionPolicy Bypass -File .\Assets\StreamingAssets\StellarNetLiteLoadTest\run-loadtest.ps1 -Transport tcp -ServerHost 127.0.0.1 -Port 7777 -Rooms 5 -ClientsPerRoom 20 -Duration 0 -MoveRate 8
