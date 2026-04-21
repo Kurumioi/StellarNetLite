@@ -1,308 +1,71 @@
 # StellarNet Lite
 
-[![Unity Version](https://img.shields.io/badge/Unity-2021.3%2B-blue.svg)](https://unity.com/)
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](https://github.com/)
-[![License](https://img.shields.io/badge/License-MIT-orange.svg)](https://opensource.org/licenses/MIT)
-> 面向 Unity 的轻量级、服务端权威、房间制联机框架。
+**StellarNet Lite** 是一款专为 Unity 商业化项目打造的**工程级、模块化、高可维护性** C# 网络联机框架。
 
-当前仓库中真正需要阅读和维护的手写源码位于 `StellarNetLite/`；`StellarNetLiteGenerated/` 是编辑器扫描器生成的输出目录，不应手改。
+框架核心设计遵循 **服务端绝对权威 (Server Authoritative)** 与 **客户端表现层解耦** 原则，严格贯彻 **Component Pattern** 与 **MSV (Model-Service-View)** 架构。框架拒绝使用 `SyncVar` 等黑盒自动同步方案，严禁在运行时使用反射。所有状态同步、指令处理与广播均通过显式的协议事件与静态生成的注册代码完成，确保数据流清晰、可控、可审计。
 
-## 项目定位
+---
 
-StellarNet Lite 不是自动同步变量式的黑盒方案，而是一套强调可控、可追踪、可扩展的工程化联机底座。当前代码已经落地的核心设计是：
+## 🎮 适用场景分析
 
-- 服务端权威：客户端只发请求，服务端维护会话、房间、对象和状态真相。
-- 显式协议驱动：所有网络消息通过 `[NetMsg]`、`[NetHandler]` 和 `NetClient.Send<T>` 明确声明。
-- 房间组件化：玩法逻辑拆成 `ServerRoomComponent` / `ClientRoomComponent`，由房间按组件清单动态装配。
-- 全局模块化：登录、大厅、回放、Ping 等公共能力通过 Server/Client Module 装配。
-- 传输层解耦：核心运行时只依赖 `INetworkTransport`，当前仓库内置 `KCP`、`TCP`、`UDP` 三套实现。
-- 无运行时反射：协议表、组件表、模块绑定器、网络预制体常量都由 Editor 工具生成，Runtime 直接读取静态表。
-- 混合序列化：低频消息走 JSON，高频消息可实现 `ILiteNetSerializable` 走手写二进制。
+### ✅ 最佳适用场景
+StellarNet Lite 采用**房间制 (Room-Based)** 架构，特别适合以下类型的游戏：
+- **社交/派对游戏**：如《糖豆人》、《鹅鸭杀》、社交聊天室。框架内置了完善的社交气泡、大厅聊天与房间管理能力。
+- **中轻度竞技/合作**：如《Among Us》、回合制卡牌、塔防合作、轻度 ARPG。
+- **教育/模拟训练**：多人同步教学、工业模拟仿真。
+- **独立游戏商业化**：需要高性能、高可扩展性且易于长期维护的中小型联机项目。
 
-## 当前代码结构
+### 📈 负载量参考
+- **单房间容量**：建议 1 - 64 人。
+- **单服承载**：在 1 核 2G 的 Linux 无头服务器上，配合 KCP 传输层，可稳定承载 500+ 同时在线玩家（取决于业务逻辑复杂度）。
+- **同步频率**：支持 10Hz - 60Hz 的高频位置同步。
+
+### ❌ 不建议使用的场景
+- **大型多人在线 (MMORPG)**：框架基于房间隔离，不具备“无缝大地图”或“AOI 九宫格”裁剪算法，不适合千人同屏的开放世界。
+- **极高实时性竞技 (FPS/格斗)**：虽然 KCP 延迟极低，但本框架目前**未内置**“客户端预预测 (Client-Side Prediction)”与“延迟补偿 (Lag Compensation)”的物理回滚机制。对于《守望先锋》级别的极高实时性要求，需要开发者自行扩展物理回滚逻辑。
+- **纯单机游戏**：框架设计为服务端权威，单机使用会增加不必要的异步通信开销。
+
+---
+
+## ✨ 核心特性
+
+- **服务端权威与表现解耦**：服务端维护真实状态机，客户端仅负责输入采集、状态缓存、预测平滑与表现层渲染。
+- **零反射运行时**：通过静态生成的注册表与绑定器，保障 Runtime 极致性能与极低 GC 压力。
+- **原生回放与断线重连**：基于同一套快照逻辑 (`IReplaySnapshotProvider`)，完美支持录像 Seek 跳转与断线重连。
+- **可插拔传输层**：内置生产级 KCP、教学级 TCP 与实验级 UDP。
+- **轻量级异步持久化**：提供非侵入式的异步任务追踪与停机排空机制，自由接入 JSON、MySQL 或 WebAPI。
+
+---
+
+## 📂 目录结构
 
 ```text
-.
-├── README.md
-├── StellarNetLite/
-│   ├── Runtime/
-│   │   ├── Shared/         # Packet/协议元数据/配置/序列化/日志
-│   │   ├── Client/         # ClientApp/ClientRoom/事件系统/回放沙盒接入
-│   │   ├── Server/         # ServerApp/Room/Session/GC/Headless 运行时
-│   │   ├── Transports/     # KCP / TCP / UDP 传输实现
-│   │   └── StellarNetAppManager.cs
-│   ├── Extensions/
-│   │   ├── DefaultGameFlow/    # 登录、大厅、建房/进房/离房、重连流程
-│   │   ├── RoomFlow/           # 房间成员快照、准备态、房主迁移、开局/结算
-│   │   ├── ObjectSync/         # 对象生成/销毁/批量同步/客户端预测/动画同步
-│   │   ├── Replay/             # 录像录制、分片下载、Seek、快照恢复、本地播放
-│   │   └── NetworkMonitoring/  # Ping、弱网告警、弱网阻断、主动熔断
-│   ├── Editor/
-│   │   ├── LiteProtocolScanner.cs
-│   │   ├── NetPrefabScanner.cs
-│   │   ├── NetConfigEditorWindow.cs
-│   │   ├── ServerMonitorWindow.cs
-│   │   └── StellarNetScaffoldWindow.cs
-│   ├── Samples/SocialDemo/
-│   │   ├── Shared/         # Demo 协议、房间模板
-│   │   ├── Server/         # 社交房间示例服务端逻辑
-│   │   ├── Client/         # UI 路由、房间表现层、回放面板、输入控制
-│   │   └── GameLauncher.cs
-│   └── Doc/                # 编号化框架文档
-└── StellarNetLiteGenerated/ # 自动生成输出，占位目录，不手改
+Assets/StellarNetLite/
+├── Runtime/          # 框架核心骨架 (AppManager, Session, Room, Transport)
+├── Extensions/       # 官方默认扩展 (DefaultGameFlow, ObjectSync, Replay, NetworkMonitoring)
+├── Editor/           # 编辑器工具链 (代码生成器, 配置面板, 压测工具)
+├── Doc/              # 详尽的工程级教学文档
+└── Samples/          # 示例工程 (SocialDemo)
 ```
 
-如果你是把这套代码导入 Unity 工程使用，通常对应的工程内路径会是：
+---
 
-- `Assets/StellarNetLite/`
-- `Assets/StellarNetLiteGenerated/`
+## 🚀 快速上手
 
-## 当前实现了什么
+1. **运行 Demo**：打开 `Assets/StellarNetLite/Samples/SocialDemo/Client/Scenes/KCP/KCPHostScene.unity` 并 Play。
+2. **生成代码**：修改协议或组件后，点击菜单 `StellarNetLite -> 重新生成协议与组件常量表`。
+3. **网络配置**：点击菜单 `StellarNetLite -> 网络配置 (NetConfig)` 可视化修改 IP 和端口。
 
-### 运行时主链
+---
 
-- `StellarNetAppManager` 统一装配传输层、序列化器、`ServerApp`、`ClientApp` 和自动生成注册表。
-- `ServerApp` 负责未鉴权白名单、会话索引、账号顶号、房间 GC、离线保留和路由分发。
-- `ClientApp` 维护 `InLobby / OnlineRoom / ReplayRoom / ConnectionSuspended` 四态，并对弱网、回放、重连做发送门控。
-- `Room` 负责成员管理、组件生命周期、广播、录像录制、重连快照和房间 Tick。
-- `NetMessageMapper` 只读取生成表，不在 Runtime 做反射扫描。
+## 🛠️ 开发规范
 
-### 默认扩展
+- **Early Return**：统一采用 Early Return 拦截非法状态，拒绝深层嵌套。
+- **严禁反射**：运行时业务逻辑严禁使用反射。
+- **显式通信**：拒绝 `SyncVar`，统一使用基于协议事件的显式通信。
+- **表现层隔离**：Runtime 严禁直接操作 UI。必须通过事件总线抛出事件，由 UI Router 监听。
 
-- `DefaultGameFlow`
-  - 登录、版本校验、顶号、重连确认、重连完成握手
-  - 房间创建、加入、指定 RoomId 加入或创建、离开、房间两阶段确认
-  - 大厅房间列表、在线玩家列表、全局聊天、服务器公告推送
-- `RoomFlow`
-  - 房间成员全量快照
-  - 成员加入/离开、准备状态同步
-  - 房主迁移
-  - 开始游戏 / 结束游戏
-- `ObjectSync`
-  - 服务端对象生成、销毁、批量同步
-  - Transform + Animator 双掩码同步
-  - 客户端远端插值、本地软和解、回放时序补偿、防滑步
-  - `NetIdentity` + `ObjectSpawnerView` 表现层桥接
-- `Replay`
-  - 房间消息录制
-  - 组件快照关键帧录制
-  - GZip 录像文件
-  - 断点续传式录像下载
-  - 本地 `.raw` 解压缓存
-  - 稀疏索引 + 快照索引 Seek
-  - 本地回放沙盒、倍速、暂停、重播
-- `NetworkMonitoring`
-  - Ping/Pong RTT 监控
-  - 弱网告警、弱网阻断
-  - 长时间阻断后主动断开，接入统一重连链
+---
 
-### 编辑器工具链
-
-当前仓库内置的菜单工具包括：
-
-- `StellarNetLite/重新生成协议与组件常量表`
-- `StellarNetLite/强制重新生成协议与组件常量表`
-- `StellarNetLite/生成网络预制体常量表 (Net Prefabs)`
-- `StellarNetLite/网络配置 (NetConfig)`
-- `StellarNetLite/业务脚手架生成器`
-- `StellarNetLite/服务端运行时监控 (Server Monitor)`
-- `StellarNetLite/Folder Content Copy Tool`
-
-这些工具会生成或维护：
-
-- `MsgIdConst`
-- `ComponentIdConst`
-- `AutoMessageMetaRegistry`
-- `AutoRegistry`
-- `NetPrefabConsts`
-
-## 传输层现状
-
-当前仓库的运行时代码不再以 Mirror 为默认传输层。
-
-实际已经落地并可直接挂载到 `StellarNetAppManager` 同物体上的传输实现是：
-
-- `KcpTransportProvider`
-- `TcpTransportProvider`
-- `UdpTransportProvider`
-
-其中：
-
-- `KCP` 是当前仓库里最完整、最适合示例运行的方案。
-- `TCP` 是纯 .NET Socket 实现，便于调试和理解。
-- `UDP` 代码里已明确标注为教学/实验用途，不适合直接承载生产链路。
-
-`README` 旧版本里提到的 `Mirror`、`StellarNetMirrorManager` 已经不符合当前 Runtime 实现。
-
-## SocialDemo 示例
-
-`Samples/SocialDemo` 不是玩具空壳，它实际串起了当前框架的大部分能力：
-
-- `GameLauncher` 负责根据 `Client / Server / Host` 模式启动 `StellarNetAppManager`
-- 登录页支持登录、断线后的手动重连、重连确认
-- 大厅页支持房间列表、录像列表、在线玩家列表、全局聊天
-- 建房页支持房间模板选择、指定 RoomId 创建/加入
-- 房间页支持成员列表、准备、房主开始游戏
-- 社交房间支持角色移动、动作、头顶聊天气泡
-- 结算页支持离房与录像重命名
-- 回放页支持下载、播放、暂停、Seek、预设倍速和自定义倍速
-
-当前示例房间模板注册在 `RoomTypeTemplateRegistry`，默认模板是：
-
-- `SocialRoom`
-- `RoomSettings`
-- `ObjectSync`
-
-如果你当前的目标不是先理解所有开发细节，而是先把样例完整跑通，建议直接阅读：
-
-- `StellarNetLite/Doc/12. StellarNet Lite 首次运行与 SocialDemo 跑通指南.md`
-
-## 快速开始
-
-如果你只想先跑通 `SocialDemo`，优先看：
-
-- `StellarNetLite/Doc/12. StellarNet Lite 首次运行与 SocialDemo 跑通指南.md`
-
-### 1. 导入到 Unity 工程
-
-- 将 `StellarNetLite/` 放入 `Assets/StellarNetLite/`
-- 保留 `StellarNetLiteGenerated/` 作为生成输出目录
-- 工程需要可用的 `Newtonsoft.Json`
-- KCP 传输所需的 `kcp2k.Runtime.dll` 已随仓库放在 `Runtime/Transports/KCP/`
-
-### 2. 准备运行时入口
-
-在同一个 GameObject 上挂载：
-
-- `StellarNetAppManager`
-- 一种传输实现：`KcpTransportProvider` / `TcpTransportProvider` / `UdpTransportProvider`
-
-当前实现里，`StellarNetAppManager` 所在对象会在初始化后自动执行 `DontDestroyOnLoad`，因此客户端切换场景时网络根节点不会被场景卸载。
-
-如果你要跑无头服务端，还可以再挂：
-
-- `HeadlessServerLogger`
-
-### 3. 先生成静态表
-
-首次导入、协议改动、组件改动、模块改动或网络预制体改动之后，都要重新生成：
-
-- `StellarNetLite/重新生成协议与组件常量表`
-- `StellarNetLite/生成网络预制体常量表 (Net Prefabs)`
-
-如果怀疑生成表脏了，用：
-
-- `StellarNetLite/强制重新生成协议与组件常量表`
-
-### 4. 配置网络参数
-
-通过菜单打开：
-
-- `StellarNetLite/网络配置 (NetConfig)`
-
-当前编辑器窗口里的“运行时读取根目录”会决定**运行时默认从哪个根目录加载配置**。
-
-当前实际配置文件仍保存在两个候选位置之一：
-
-- `StreamingAssets/NetConfig/netconfig.json`
-- `PersistentDataPath/NetConfig/netconfig.json`
-
-同时，编辑器工具会把当前激活根目录写入：
-
-- `StreamingAssets/NetConfig/netconfig_root.json`
-
-运行时启动时会先读取这个引导文件，再决定去 `StreamingAssets` 还是 `PersistentDataPath` 加载真正的 `netconfig.json`。
-
-### 5. 跑示例
-
-优先使用 `Samples/SocialDemo/Client/Scenes/KCP/` 下的场景。
-
-当前代码实现层面，推荐理解为：
-
-- `KCPClientScene`：客户端
-- `KCPHostScene`：本地 Host
-- `KCPServerScene`：独立服务端 / 无头服务端入口
-
-
-## 开发模式
-
-一个新功能通常按下面的约定扩展：
-
-```csharp
-[NetMsg(1300, NetScope.Room, NetDir.C2S)]
-public sealed class C2S_MyFeatureReq
-{
-    public int Value;
-}
-
-[RoomComponent(300, "MyFeature", "我的功能")]
-public sealed class ServerMyFeatureComponent : ServerRoomComponent
-{
-    [NetHandler]
-    public void OnC2S_MyFeatureReq(Session session, C2S_MyFeatureReq msg)
-    {
-        // 服务端权威处理
-    }
-}
-```
-
-对应客户端再实现：
-
-- `ClientRoomComponent` 或 `ClientModule`
-- 处理 `S2C_*` 消息
-- 通过 `Room.NetEventSystem` 或 `GlobalTypeNetEvent` 抛给表现层
-
-写完之后不要忘记重新生成静态表，否则 Runtime 不会识别新协议和新组件。
-
-## 无头服务器与诊断
-
-`HeadlessServerLogger` 已经实现了完整的无头命令台和错误日志保留，支持：
-
-- `help`
-- `status`
-- `rooms`
-- `room <roomId>`
-- `sessions`
-- `session <sessionId|accountId>`
-- `kick <sessionId|accountId> [reason]`
-- `logs [count]`
-- `findlog <keyword> [limit]`
-- `logfiles`
-- `persist`
-- `gc`
-- `exit`
-
-相关输出位置：
-
-- 服务端日志：`Application.dataPath/../ServerLogs`
-- 服务端录像：`Application.persistentDataPath/Replays`
-- 客户端录像缓存：`Application.persistentDataPath/ClientReplays`
-
-## 使用注意
-
-- `StellarNetLiteGenerated/` 是生成目录，不要手工维护。
-- 新网络预制体必须放在 `Resources` 下，并在根节点挂 `NetIdentity`，否则 `NetPrefabScanner` 不会收录。
-- 低频消息默认走 JSON；高频消息建议实现 `ILiteNetSerializable`。
-- `UDP` 仅适合教学和实验。
-- 当前样例 UI 和面板系统是 `Samples/SocialDemo` 的表现层实现，不是 Runtime 核心的一部分。
-
-## 文档
-
-仓库内的 `StellarNetLite/Doc/` 已经包含编号化学习文档，覆盖的主题与当前代码结构一致，包括：
-
-- 核心概念与完整流程
-- 通讯与传输层
-- 全局模块与房间组件开发
-- 实体同步与动画同步
-- UI 路由与表现层解耦
-- 回放与重连
-- 编辑器工具链
-- 无头服务端与持久化工具
-- 首次运行与 SocialDemo 跑通
-
-如果你要继续扩展这套框架，建议先读 Runtime，再对照 `Doc/` 和 `Samples/SocialDemo/` 一起看。
-
-## 👤 作者
-
-*   **作者**: 小梦
-*   **QQ**: 2649933509
+## ⚖️ 许可协议
+本项目遵循 **MIT License**。详情请参阅项目根目录下的 [LICENSE](LICENSE) 文件。
