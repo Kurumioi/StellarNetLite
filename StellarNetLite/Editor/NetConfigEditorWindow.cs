@@ -172,6 +172,9 @@ namespace StellarNet.Lite.Editor
             _currentConfig.TickRate = EditorGUILayout.IntField("服务器帧率 (TickRate):", _currentConfig.TickRate);
             _currentConfig.RoomWorkerCount = EditorGUILayout.IntField("房间工作线程数(0=自动):", _currentConfig.RoomWorkerCount);
             _currentConfig.RoomWorkerReserveCpuCount = EditorGUILayout.IntField("自动模式预留CPU数:", _currentConfig.RoomWorkerReserveCpuCount);
+            _currentConfig.ObjectSyncOnlineIntervalTicks = EditorGUILayout.IntField("对象同步广播间隔Tick:", _currentConfig.ObjectSyncOnlineIntervalTicks);
+            _currentConfig.ObjectSyncFullResyncIntervalTicks = EditorGUILayout.IntField("对象同步全量校正间隔Tick:", _currentConfig.ObjectSyncFullResyncIntervalTicks);
+            _currentConfig.EnableAdaptiveObjectSync = EditorGUILayout.Toggle("按人数自动降频对象同步:", _currentConfig.EnableAdaptiveObjectSync);
 
             GUILayout.Space(6);
             EditorGUILayout.LabelField("生产环境防御配置 (GC & 熔断)", EditorStyles.boldLabel);
@@ -394,6 +397,16 @@ namespace StellarNet.Lite.Editor
             if (_currentConfig.RoomWorkerReserveCpuCount < 0)
             {
                 _currentConfig.RoomWorkerReserveCpuCount = 1;
+            }
+
+            if (_currentConfig.ObjectSyncOnlineIntervalTicks <= 0)
+            {
+                _currentConfig.ObjectSyncOnlineIntervalTicks = 2;
+            }
+
+            if (_currentConfig.ObjectSyncFullResyncIntervalTicks <= 0)
+            {
+                _currentConfig.ObjectSyncFullResyncIntervalTicks = 60;
             }
 
             if (_currentConfig.MaxRoomLifetimeHours <= 0)

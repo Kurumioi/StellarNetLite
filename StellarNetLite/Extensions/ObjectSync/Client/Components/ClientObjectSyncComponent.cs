@@ -147,7 +147,7 @@ namespace StellarNet.Lite.Client.Components
 
             if (_app.State == ClientAppState.ReplayRoom && msg.ValidCount > 0)
             {
-                float packetServerTime = msg.States[0].ServerTime;
+                float packetServerTime = msg.ServerTime;
                 if (_replayBaseLocalTime < 0f || packetServerTime < _replayBaseServerTime || packetServerTime > _replayBaseServerTime + 5f)
                 {
                     _replayBaseLocalTime = currentLocalTime;
@@ -161,32 +161,60 @@ namespace StellarNet.Lite.Client.Components
                 ObjectSyncState state = msg.States[i];
                 if (!_entities.TryGetValue(state.NetId, out SyncEntityData data)) continue;
 
-                if ((state.Mask & (byte)EntitySyncMask.Transform) != 0)
+                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Position) != 0)
                 {
                     data.RawPos.x = state.PosX;
                     data.RawPos.y = state.PosY;
                     data.RawPos.z = state.PosZ;
+                }
+
+                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Rotation) != 0)
+                {
                     data.RawRot.x = state.RotX;
                     data.RawRot.y = state.RotY;
                     data.RawRot.z = state.RotZ;
+                }
+
+                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Velocity) != 0)
+                {
                     data.RawVel.x = state.VelX;
                     data.RawVel.y = state.VelY;
                     data.RawVel.z = state.VelZ;
+                }
+
+                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Scale) != 0)
+                {
                     data.RawScale.x = state.ScaleX;
                     data.RawScale.y = state.ScaleY;
                     data.RawScale.z = state.ScaleZ;
                 }
 
-                if ((state.Mask & (byte)EntitySyncMask.Animator) != 0)
+                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.AnimState) != 0)
                 {
                     data.AnimStateHash = state.AnimStateHash;
+                }
+
+                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.AnimNormalizedTime) != 0)
+                {
                     data.AnimNormalizedTime = state.AnimNormalizedTime;
+                }
+
+                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam1) != 0)
+                {
                     data.FloatParam1 = state.FloatParam1;
+                }
+
+                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam2) != 0)
+                {
                     data.FloatParam2 = state.FloatParam2;
+                }
+
+                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam3) != 0)
+                {
                     data.FloatParam3 = state.FloatParam3;
                 }
 
-                data.ServerTime = state.ServerTime;
+                data.ServerTime = msg.ServerTime;
                 data.LocalReceiveTime = currentLocalTime;
             }
         }

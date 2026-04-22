@@ -19,6 +19,27 @@ namespace StellarNet.Lite.Shared.Protocol
     }
 
     /// <summary>
+    /// 对象同步脏字段掩码。
+    /// 只标记本帧真正变化的字段。
+    /// </summary>
+    [Flags]
+    public enum ObjectSyncDirtyMask : ushort
+    {
+        None = 0,
+        Position = 1 << 0,
+        Rotation = 1 << 1,
+        Velocity = 1 << 2,
+        Scale = 1 << 3,
+        AnimState = 1 << 4,
+        AnimNormalizedTime = 1 << 5,
+        FloatParam1 = 1 << 6,
+        FloatParam2 = 1 << 7,
+        FloatParam3 = 1 << 8,
+        AllTransform = Position | Rotation | Velocity | Scale,
+        AllAnimator = AnimState | AnimNormalizedTime | FloatParam1 | FloatParam2 | FloatParam3
+    }
+
+    /// <summary>
     /// 对象增量同步态。
     /// </summary>
     public struct ObjectSyncState
@@ -32,6 +53,11 @@ namespace StellarNet.Lite.Shared.Protocol
         /// 当前增量掩码。
         /// </summary>
         public byte Mask;
+
+        /// <summary>
+        /// 当前脏字段掩码。
+        /// </summary>
+        public ushort DirtyMask;
 
         /// <summary>
         /// 当前位置 X。
@@ -119,11 +145,6 @@ namespace StellarNet.Lite.Shared.Protocol
         public float FloatParam3;
 
         /// <summary>
-        /// 当前服务端时间戳。
-        /// </summary>
-        public float ServerTime;
-
-        /// <summary>
         /// 序列化增量同步态。
         /// </summary>
         public void Serialize(BinaryWriter writer)
@@ -136,36 +157,60 @@ namespace StellarNet.Lite.Shared.Protocol
 
             writer.Write(NetId);
             writer.Write(Mask);
+            writer.Write(DirtyMask);
 
-            if ((Mask & (byte)EntitySyncMask.Transform) != 0)
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.Position) != 0)
             {
                 writer.Write(PosX);
                 writer.Write(PosY);
                 writer.Write(PosZ);
+            }
 
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.Rotation) != 0)
+            {
                 writer.Write(RotX);
                 writer.Write(RotY);
                 writer.Write(RotZ);
+            }
 
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.Velocity) != 0)
+            {
                 writer.Write(VelX);
                 writer.Write(VelY);
                 writer.Write(VelZ);
+            }
 
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.Scale) != 0)
+            {
                 writer.Write(ScaleX);
                 writer.Write(ScaleY);
                 writer.Write(ScaleZ);
             }
 
-            if ((Mask & (byte)EntitySyncMask.Animator) != 0)
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.AnimState) != 0)
             {
                 writer.Write(AnimStateHash);
-                writer.Write(AnimNormalizedTime);
-                writer.Write(FloatParam1);
-                writer.Write(FloatParam2);
-                writer.Write(FloatParam3);
             }
 
-            writer.Write(ServerTime);
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.AnimNormalizedTime) != 0)
+            {
+                writer.Write(AnimNormalizedTime);
+            }
+
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam1) != 0)
+            {
+                writer.Write(FloatParam1);
+            }
+
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam2) != 0)
+            {
+                writer.Write(FloatParam2);
+            }
+
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam3) != 0)
+            {
+                writer.Write(FloatParam3);
+            }
         }
 
         /// <summary>
@@ -181,36 +226,60 @@ namespace StellarNet.Lite.Shared.Protocol
 
             NetId = reader.ReadInt32();
             Mask = reader.ReadByte();
+            DirtyMask = reader.ReadUInt16();
 
-            if ((Mask & (byte)EntitySyncMask.Transform) != 0)
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.Position) != 0)
             {
                 PosX = reader.ReadSingle();
                 PosY = reader.ReadSingle();
                 PosZ = reader.ReadSingle();
+            }
 
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.Rotation) != 0)
+            {
                 RotX = reader.ReadSingle();
                 RotY = reader.ReadSingle();
                 RotZ = reader.ReadSingle();
+            }
 
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.Velocity) != 0)
+            {
                 VelX = reader.ReadSingle();
                 VelY = reader.ReadSingle();
                 VelZ = reader.ReadSingle();
+            }
 
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.Scale) != 0)
+            {
                 ScaleX = reader.ReadSingle();
                 ScaleY = reader.ReadSingle();
                 ScaleZ = reader.ReadSingle();
             }
 
-            if ((Mask & (byte)EntitySyncMask.Animator) != 0)
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.AnimState) != 0)
             {
                 AnimStateHash = reader.ReadInt32();
-                AnimNormalizedTime = reader.ReadSingle();
-                FloatParam1 = reader.ReadSingle();
-                FloatParam2 = reader.ReadSingle();
-                FloatParam3 = reader.ReadSingle();
             }
 
-            ServerTime = reader.ReadSingle();
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.AnimNormalizedTime) != 0)
+            {
+                AnimNormalizedTime = reader.ReadSingle();
+            }
+
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam1) != 0)
+            {
+                FloatParam1 = reader.ReadSingle();
+            }
+
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam2) != 0)
+            {
+                FloatParam2 = reader.ReadSingle();
+            }
+
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam3) != 0)
+            {
+                FloatParam3 = reader.ReadSingle();
+            }
         }
     }
 
@@ -411,6 +480,11 @@ namespace StellarNet.Lite.Shared.Protocol
         public int ValidCount;
 
         /// <summary>
+        /// 当前批次统一服务端时间。
+        /// </summary>
+        public float ServerTime;
+
+        /// <summary>
         /// 当前同步状态数组。
         /// </summary>
         public ObjectSyncState[] States;
@@ -427,6 +501,7 @@ namespace StellarNet.Lite.Shared.Protocol
             }
 
             writer.Write(ValidCount);
+            writer.Write(ServerTime);
             if (States == null)
             {
                 NetLogger.LogError("S2C_ObjectSync", $"序列化失败: States 为空, ValidCount:{ValidCount}");
@@ -457,6 +532,7 @@ namespace StellarNet.Lite.Shared.Protocol
             }
 
             ValidCount = reader.ReadInt32();
+            ServerTime = reader.ReadSingle();
             if (ValidCount < 0)
             {
                 NetLogger.LogError("S2C_ObjectSync", $"反序列化失败: ValidCount 非法, ValidCount:{ValidCount}");

@@ -754,6 +754,40 @@ namespace StellarNet.Lite.Server.Core
             }
         }
 
+        public void RecordMessageToReplay<T>(T msg) where T : class
+        {
+            lock (_gate)
+            {
+                if (_isDestroyed || !IsRecording || msg == null || _serializer == null)
+                {
+                    return;
+                }
+
+                if (!NetMessageMapper.TryGetMeta(typeof(T), out NetMessageMeta meta))
+                {
+                    NetLogger.LogError("Room", $"回放记录失败: 未找到静态网络元数据, Type:{typeof(T).FullName}", RoomId);
+                    return;
+                }
+
+                byte[] buffer = ArrayPool<byte>.Shared.Rent(131072);
+                try
+                {
+                    int length = _serializer.Serialize(msg, buffer);
+                    if (length <= 0)
+                    {
+                        return;
+                    }
+
+                    int relativeTick = CurrentTick - _recordStartTick;
+                    ServerReplayStorage.RecordFrame(RoomId, relativeTick, meta.Id, buffer, length);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(buffer);
+                }
+            }
+        }
+
         public void StartRecord()
         {
             lock (_gate)

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -16,6 +17,7 @@ namespace StellarNet.Lite.Editor
     public sealed class LoadTestWindow : EditorWindow
     {
         private const string EditorPrefsPrefix = "StellarNetLite.LoadTest.";
+        private const string RunningPidPrefsKey = EditorPrefsPrefix + "runningPid";
         private const string DefaultHost = "127.0.0.1";
         private const int DefaultPort = 7777;
         private const int DefaultRoomCount = 1;
@@ -75,20 +77,20 @@ namespace StellarNet.Lite.Editor
         {
             LoadPrefs();
             EditorApplication.update += OnEditorUpdate;
+            EditorApplication.quitting += OnEditorQuitting;
+            RestoreTrackedProcess();
         }
 
         private void OnDisable()
         {
             SavePrefs();
             EditorApplication.update -= OnEditorUpdate;
+            EditorApplication.quitting -= OnEditorQuitting;
         }
 
         private void OnDestroy()
         {
-            if (_runningProcess != null && !_runningProcess.HasExited)
-            {
-                TryStopProcess();
-            }
+            TryStopProcess();
         }
 
         private void OnGUI()
@@ -275,6 +277,12 @@ namespace StellarNet.Lite.Editor
 
         private void StartLoadTest()
         {
+            if (TryGetTrackedProcess(out Process existingProcess))
+            {
+                EditorUtility.DisplayDialog("已有压测进程", $"已有压测进程正在运行 (PID: {existingProcess.Id})，请先停止当前进程。", "确定");
+                return;
+            }
+
             string scriptPath = GetLoadTestScriptPath();
             if (string.IsNullOrEmpty(scriptPath) || !File.Exists(scriptPath))
             {
@@ -341,34 +349,40 @@ namespace StellarNet.Lite.Editor
                 _runningProcess.ErrorDataReceived += OnProcessError;
                 _runningProcess.Exited += OnProcessExited;
                 _runningProcess.Start();
+                SetTrackedProcessId(_runningProcess.Id);
                 _runningProcess.BeginOutputReadLine();
                 _runningProcess.BeginErrorReadLine();
             }
             catch (Exception ex)
             {
                 _runningProcess = null;
+                ClearTrackedProcessId();
                 EditorUtility.DisplayDialog("启动失败", ex.Message, "确定");
             }
         }
 
         private void TryStopProcess()
         {
-            if (_runningProcess == null)
+            if (!TryGetTrackedProcess(out Process process))
             {
                 return;
             }
 
             try
             {
-                if (!_runningProcess.HasExited)
+                if (!process.HasExited)
                 {
-                    AppendOutput("[Editor] 正在停止压测进程...");
-                    KillProcessCompat(_runningProcess);
+                    AppendOutput($"[Editor] 正在停止压测进程... PID={process.Id}");
+                    KillProcessCompat(process);
                 }
             }
             catch (Exception ex)
             {
                 AppendOutput($"[Editor] 停止失败: {ex.GetType().Name} - {ex.Message}");
+            }
+            finally
+            {
+                CleanupProcess();
             }
         }
 
@@ -379,14 +393,57 @@ namespace StellarNet.Lite.Editor
                 return;
             }
 
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                try
+                {
+                    var taskKillStartInfo = new ProcessStartInfo
+                    {
+                        FileName = "taskkill.exe",
+                        Arguments = $"/PID {process.Id} /T /F",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+
+                    using (Process taskKillProcess = Process.Start(taskKillStartInfo))
+                    {
+                        taskKillProcess?.WaitForExit(5000);
+                    }
+
+                    process.WaitForExit(5000);
+                    if (process.HasExited)
+                    {
+                        return;
+                    }
+                }
+                catch
+                {
+                    // 回退到下方的 Kill 逻辑。
+                }
+            }
+
             System.Reflection.MethodInfo killProcessTree = typeof(Process).GetMethod("Kill", new[] { typeof(bool) });
             if (killProcessTree != null)
             {
-                killProcessTree.Invoke(process, new object[] { true });
-                return;
+                try
+                {
+                    killProcessTree.Invoke(process, new object[] { true });
+                    process.WaitForExit(5000);
+                    if (process.HasExited)
+                    {
+                        return;
+                    }
+                }
+                catch
+                {
+                    // 回退到最基础 Kill。
+                }
             }
 
             process.Kill();
+            process.WaitForExit(5000);
         }
 
         private void OnProcessOutput(object sender, DataReceivedEventArgs e)
@@ -408,6 +465,7 @@ namespace StellarNet.Lite.Editor
         private void OnProcessExited(object sender, EventArgs e)
         {
             AppendOutput("[Editor] 压测进程已退出。");
+            ClearTrackedProcessId();
         }
 
         private void SendRuntimeCommand(string command)
@@ -444,6 +502,7 @@ namespace StellarNet.Lite.Editor
         {
             if (_runningProcess == null)
             {
+                ClearTrackedProcessId();
                 return;
             }
 
@@ -452,6 +511,12 @@ namespace StellarNet.Lite.Editor
             _runningProcess.Exited -= OnProcessExited;
             _runningProcess.Dispose();
             _runningProcess = null;
+            ClearTrackedProcessId();
+        }
+
+        private void OnEditorQuitting()
+        {
+            TryStopProcess();
         }
 
         private void AppendOutput(string line)
@@ -586,6 +651,99 @@ namespace StellarNet.Lite.Editor
             EditorPrefs.SetString(EditorPrefsPrefix + "roomName", _roomName ?? DefaultRoomName);
             EditorPrefs.SetString(EditorPrefsPrefix + "accountPrefix", _accountPrefix ?? DefaultAccountPrefix);
             EditorPrefs.SetString(EditorPrefsPrefix + "clientVersion", _clientVersion ?? DefaultClientVersion);
+        }
+
+        private void RestoreTrackedProcess()
+        {
+            if (_runningProcess != null)
+            {
+                return;
+            }
+
+            int pid = GetTrackedProcessId();
+            if (pid <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                Process process = Process.GetProcessById(pid);
+                if (process == null || process.HasExited)
+                {
+                    ClearTrackedProcessId();
+                    return;
+                }
+
+                _runningProcess = process;
+                _runningProcess.EnableRaisingEvents = true;
+                _runningProcess.Exited -= OnProcessExited;
+                _runningProcess.Exited += OnProcessExited;
+                AppendOutput($"[Editor] 已恢复跟踪压测进程 PID={pid}");
+            }
+            catch
+            {
+                ClearTrackedProcessId();
+            }
+        }
+
+        private bool TryGetTrackedProcess(out Process process)
+        {
+            process = null;
+            if (_runningProcess != null)
+            {
+                if (_runningProcess.HasExited)
+                {
+                    CleanupProcess();
+                    return false;
+                }
+
+                process = _runningProcess;
+                return true;
+            }
+
+            int pid = GetTrackedProcessId();
+            if (pid <= 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                Process recovered = Process.GetProcessById(pid);
+                if (recovered == null || recovered.HasExited)
+                {
+                    ClearTrackedProcessId();
+                    return false;
+                }
+
+                _runningProcess = recovered;
+                _runningProcess.EnableRaisingEvents = true;
+                _runningProcess.Exited -= OnProcessExited;
+                _runningProcess.Exited += OnProcessExited;
+                process = _runningProcess;
+                return true;
+            }
+            catch
+            {
+                ClearTrackedProcessId();
+                return false;
+            }
+        }
+
+        private static int GetTrackedProcessId()
+        {
+            return EditorPrefs.GetInt(RunningPidPrefsKey, 0);
+        }
+
+        private static void SetTrackedProcessId(int pid)
+        {
+            EditorPrefs.SetInt(RunningPidPrefsKey, Mathf.Max(0, pid));
+        }
+
+        private static void ClearTrackedProcessId()
+        {
+            EditorPrefs.DeleteKey(RunningPidPrefsKey);
         }
     }
 }

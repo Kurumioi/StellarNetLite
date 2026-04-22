@@ -37,12 +37,35 @@ namespace StellarNet.Lite.Server.Components
     [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
     public sealed class ServerObjectSyncComponent : ServerRoomComponent, ITickableComponent, IReplaySnapshotProvider
     {
+        private struct SyncSnapshot
+        {
+            public Vector3 Position;
+            public Vector3 Rotation;
+            public Vector3 Velocity;
+            public Vector3 Scale;
+            public int AnimStateHash;
+            public float AnimNormalizedTime;
+            public float FloatParam1;
+            public float FloatParam2;
+            public float FloatParam3;
+            public byte Mask;
+        }
+
         private readonly ServerApp _app;
         private readonly Dictionary<int, ServerSyncEntity> _entities = new Dictionary<int, ServerSyncEntity>();
+        private readonly Dictionary<int, SyncSnapshot> _lastSentSnapshots = new Dictionary<int, SyncSnapshot>();
         private int _netIdCounter = 0;
 
-        // 无配置开发态默认优先保证在线观感，在线同步默认每 Tick 广播一次。
-        private const int SyncIntervalTicks = 1;
+        private const int MediumRoomMemberThreshold = 8;
+        private const int LargeRoomMemberThreshold = 16;
+        private const int MediumRoomIntervalTicks = 2;
+        private const int LargeRoomIntervalTicks = 4;
+        private const float PositionDirtyThresholdSqr = 0.0004f;
+        private const float RotationDirtyThreshold = 0.5f;
+        private const float VelocityDirtyThresholdSqr = 0.0004f;
+        private const float ScaleDirtyThresholdSqr = 0.0001f;
+        private const float FloatParamDirtyThreshold = 0.01f;
+        private const float AnimNormalizedTimeDirtyThreshold = 0.01f;
 
         private ObjectSyncState[] _syncStateBuffer = new ObjectSyncState[64];
         private readonly S2C_ObjectSync _reusableSyncMsg = new S2C_ObjectSync();
@@ -58,10 +81,15 @@ namespace StellarNet.Lite.Server.Components
         public override void OnInit()
         {
             _entities.Clear();
+            _lastSentSnapshots.Clear();
             _netIdCounter = 0;
         }
 
-        public override void OnDestroy() => _entities.Clear();
+        public override void OnDestroy()
+        {
+            _entities.Clear();
+            _lastSentSnapshots.Clear();
+        }
 
         public override void OnSendSnapshot(Session session)
         {
@@ -75,9 +103,10 @@ namespace StellarNet.Lite.Server.Components
         {
             if (Room.State != RoomState.Playing || _entities.Count == 0) return;
 
-            bool shouldSyncOnline = Room.CurrentTick % SyncIntervalTicks == 0;
-            int recordIntervalTicks = ResolveReplayRecordIntervalTicks();
-            bool shouldRecord = recordIntervalTicks > 0 && Room.CurrentTick % recordIntervalTicks == 0;
+            int onlineIntervalTicks = ResolveOnlineSyncIntervalTicks();
+            bool shouldSyncOnline = Room.CurrentTick % onlineIntervalTicks == 0;
+            bool shouldFullResync = ResolveFullResyncIntervalTicks() > 0 && Room.CurrentTick % ResolveFullResyncIntervalTicks() == 0;
+            bool shouldRecord = shouldSyncOnline && ResolveReplayRecordIntervalTicks() > 0;
 
             if (!shouldSyncOnline && !shouldRecord) return;
 
@@ -107,33 +136,98 @@ namespace StellarNet.Lite.Server.Components
                     }
                 }
 
+                if (!shouldFullResync && !HasMeaningfulChange(entity))
+                {
+                    continue;
+                }
+
+                ushort dirtyMask = BuildDirtyMask(entity, shouldFullResync);
                 _syncStateBuffer[index++] = new ObjectSyncState
                 {
                     NetId = entity.NetId,
                     Mask = entity.Mask,
-                    PosX = entity.Position.x, PosY = entity.Position.y, PosZ = entity.Position.z,
-                    RotX = entity.Rotation.x, RotY = entity.Rotation.y, RotZ = entity.Rotation.z,
-                    VelX = entity.Velocity.x, VelY = entity.Velocity.y, VelZ = entity.Velocity.z,
-                    ScaleX = entity.Scale.x, ScaleY = entity.Scale.y, ScaleZ = entity.Scale.z,
+                    DirtyMask = dirtyMask,
+                    PosX = entity.Position.x,
+                    PosY = entity.Position.y,
+                    PosZ = entity.Position.z,
+                    RotX = entity.Rotation.x,
+                    RotY = entity.Rotation.y,
+                    RotZ = entity.Rotation.z,
+                    VelX = entity.Velocity.x,
+                    VelY = entity.Velocity.y,
+                    VelZ = entity.Velocity.z,
+                    ScaleX = entity.Scale.x,
+                    ScaleY = entity.Scale.y,
+                    ScaleZ = entity.Scale.z,
                     AnimStateHash = entity.AnimStateHash,
                     AnimNormalizedTime = entity.AnimNormalizedTime,
-                    FloatParam1 = entity.FloatParam1, FloatParam2 = entity.FloatParam2, FloatParam3 = entity.FloatParam3,
-                    ServerTime = currentServerTime
+                    FloatParam1 = entity.FloatParam1,
+                    FloatParam2 = entity.FloatParam2,
+                    FloatParam3 = entity.FloatParam3
                 };
+
+                _lastSentSnapshots[entity.NetId] = CaptureSnapshot(entity);
             }
 
+            if (index <= 0)
+            {
+                return;
+            }
+
+            _reusableSyncMsg.ServerTime = currentServerTime;
             _reusableSyncMsg.ValidCount = index;
-            Room.BroadcastMessage(_reusableSyncMsg, shouldRecord);
+            if (shouldSyncOnline)
+            {
+                Room.BroadcastMessage(_reusableSyncMsg, shouldRecord);
+            }
+            else if (shouldRecord)
+            {
+                Room.RecordMessageToReplay(_reusableSyncMsg);
+            }
         }
 
         private int ResolveReplayRecordIntervalTicks()
         {
+            return ResolveOnlineSyncIntervalTicks();
+        }
+
+        private int ResolveFullResyncIntervalTicks()
+        {
             if (_app == null || _app.Config == null)
             {
-                return 3;
+                return 60;
             }
 
-            return _app.Config.ReplayObjectSyncRecordIntervalTicks;
+            return _app.Config.ObjectSyncFullResyncIntervalTicks <= 0 ? 60 : _app.Config.ObjectSyncFullResyncIntervalTicks;
+        }
+
+        private int ResolveOnlineSyncIntervalTicks()
+        {
+            int baseInterval = 2;
+            bool enableAdaptive = true;
+            if (_app != null && _app.Config != null)
+            {
+                baseInterval = _app.Config.ObjectSyncOnlineIntervalTicks <= 0 ? 2 : _app.Config.ObjectSyncOnlineIntervalTicks;
+                enableAdaptive = _app.Config.EnableAdaptiveObjectSync;
+            }
+
+            if (!enableAdaptive)
+            {
+                return baseInterval;
+            }
+
+            int memberCount = Room != null ? Room.MemberCount : 0;
+            if (memberCount >= LargeRoomMemberThreshold)
+            {
+                return Mathf.Max(baseInterval, LargeRoomIntervalTicks);
+            }
+
+            if (memberCount >= MediumRoomMemberThreshold)
+            {
+                return Mathf.Max(baseInterval, MediumRoomIntervalTicks);
+            }
+
+            return baseInterval;
         }
 
         public override void OnMemberJoined(Session session)
@@ -159,6 +253,7 @@ namespace StellarNet.Lite.Server.Components
                 OwnerSessionId = ownerSessionId ?? string.Empty
             };
             _entities.Add(entity.NetId, entity);
+            _lastSentSnapshots[entity.NetId] = CaptureSnapshot(entity);
             Room.BroadcastMessage(new S2C_ObjectSpawn { State = BuildSpawnState(entity) }, true);
             return entity;
         }
@@ -167,6 +262,7 @@ namespace StellarNet.Lite.Server.Components
         {
             if (_entities.Remove(netId))
             {
+                _lastSentSnapshots.Remove(netId);
                 Room.BroadcastMessage(new S2C_ObjectDestroy { NetId = netId }, true);
             }
         }
@@ -221,6 +317,157 @@ namespace StellarNet.Lite.Server.Components
                 FloatParam1 = entity.FloatParam1, FloatParam2 = entity.FloatParam2, FloatParam3 = entity.FloatParam3,
                 OwnerSessionId = entity.OwnerSessionId ?? string.Empty
             };
+        }
+
+        private SyncSnapshot CaptureSnapshot(ServerSyncEntity entity)
+        {
+            return new SyncSnapshot
+            {
+                Position = entity.Position,
+                Rotation = entity.Rotation,
+                Velocity = entity.Velocity,
+                Scale = entity.Scale,
+                AnimStateHash = entity.AnimStateHash,
+                AnimNormalizedTime = entity.AnimNormalizedTime,
+                FloatParam1 = entity.FloatParam1,
+                FloatParam2 = entity.FloatParam2,
+                FloatParam3 = entity.FloatParam3,
+                Mask = entity.Mask
+            };
+        }
+
+        private bool HasMeaningfulChange(ServerSyncEntity entity)
+        {
+            if (!_lastSentSnapshots.TryGetValue(entity.NetId, out SyncSnapshot snapshot))
+            {
+                return true;
+            }
+
+            if (snapshot.Mask != entity.Mask)
+            {
+                return true;
+            }
+
+            if ((entity.Position - snapshot.Position).sqrMagnitude > PositionDirtyThresholdSqr)
+            {
+                return true;
+            }
+
+            if ((entity.Velocity - snapshot.Velocity).sqrMagnitude > VelocityDirtyThresholdSqr)
+            {
+                return true;
+            }
+
+            if ((entity.Scale - snapshot.Scale).sqrMagnitude > ScaleDirtyThresholdSqr)
+            {
+                return true;
+            }
+
+            if (Mathf.Abs(entity.Rotation.x - snapshot.Rotation.x) > RotationDirtyThreshold ||
+                Mathf.Abs(entity.Rotation.y - snapshot.Rotation.y) > RotationDirtyThreshold ||
+                Mathf.Abs(entity.Rotation.z - snapshot.Rotation.z) > RotationDirtyThreshold)
+            {
+                return true;
+            }
+
+            if (entity.AnimStateHash != snapshot.AnimStateHash)
+            {
+                return true;
+            }
+
+            if (Mathf.Abs(entity.AnimNormalizedTime - snapshot.AnimNormalizedTime) > AnimNormalizedTimeDirtyThreshold)
+            {
+                return true;
+            }
+
+            if (Mathf.Abs(entity.FloatParam1 - snapshot.FloatParam1) > FloatParamDirtyThreshold ||
+                Mathf.Abs(entity.FloatParam2 - snapshot.FloatParam2) > FloatParamDirtyThreshold ||
+                Mathf.Abs(entity.FloatParam3 - snapshot.FloatParam3) > FloatParamDirtyThreshold)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private ushort BuildDirtyMask(ServerSyncEntity entity, bool forceFull)
+        {
+            if (!_lastSentSnapshots.TryGetValue(entity.NetId, out SyncSnapshot snapshot) || forceFull)
+            {
+                return BuildFullDirtyMask(entity.Mask);
+            }
+
+            ObjectSyncDirtyMask dirtyMask = ObjectSyncDirtyMask.None;
+            if ((entity.Mask & (byte)EntitySyncMask.Transform) != 0)
+            {
+                if ((entity.Position - snapshot.Position).sqrMagnitude > PositionDirtyThresholdSqr)
+                {
+                    dirtyMask |= ObjectSyncDirtyMask.Position;
+                }
+
+                if (Mathf.Abs(entity.Rotation.x - snapshot.Rotation.x) > RotationDirtyThreshold ||
+                    Mathf.Abs(entity.Rotation.y - snapshot.Rotation.y) > RotationDirtyThreshold ||
+                    Mathf.Abs(entity.Rotation.z - snapshot.Rotation.z) > RotationDirtyThreshold)
+                {
+                    dirtyMask |= ObjectSyncDirtyMask.Rotation;
+                }
+
+                if ((entity.Velocity - snapshot.Velocity).sqrMagnitude > VelocityDirtyThresholdSqr)
+                {
+                    dirtyMask |= ObjectSyncDirtyMask.Velocity;
+                }
+
+                if ((entity.Scale - snapshot.Scale).sqrMagnitude > ScaleDirtyThresholdSqr)
+                {
+                    dirtyMask |= ObjectSyncDirtyMask.Scale;
+                }
+            }
+
+            if ((entity.Mask & (byte)EntitySyncMask.Animator) != 0)
+            {
+                if (entity.AnimStateHash != snapshot.AnimStateHash)
+                {
+                    dirtyMask |= ObjectSyncDirtyMask.AnimState;
+                }
+
+                if (Mathf.Abs(entity.AnimNormalizedTime - snapshot.AnimNormalizedTime) > AnimNormalizedTimeDirtyThreshold)
+                {
+                    dirtyMask |= ObjectSyncDirtyMask.AnimNormalizedTime;
+                }
+
+                if (Mathf.Abs(entity.FloatParam1 - snapshot.FloatParam1) > FloatParamDirtyThreshold)
+                {
+                    dirtyMask |= ObjectSyncDirtyMask.FloatParam1;
+                }
+
+                if (Mathf.Abs(entity.FloatParam2 - snapshot.FloatParam2) > FloatParamDirtyThreshold)
+                {
+                    dirtyMask |= ObjectSyncDirtyMask.FloatParam2;
+                }
+
+                if (Mathf.Abs(entity.FloatParam3 - snapshot.FloatParam3) > FloatParamDirtyThreshold)
+                {
+                    dirtyMask |= ObjectSyncDirtyMask.FloatParam3;
+                }
+            }
+
+            return (ushort)dirtyMask;
+        }
+
+        private static ushort BuildFullDirtyMask(byte entityMask)
+        {
+            ObjectSyncDirtyMask dirtyMask = ObjectSyncDirtyMask.None;
+            if ((entityMask & (byte)EntitySyncMask.Transform) != 0)
+            {
+                dirtyMask |= ObjectSyncDirtyMask.AllTransform;
+            }
+
+            if ((entityMask & (byte)EntitySyncMask.Animator) != 0)
+            {
+                dirtyMask |= ObjectSyncDirtyMask.AllAnimator;
+            }
+
+            return (ushort)dirtyMask;
         }
     }
 }
