@@ -63,7 +63,25 @@ namespace StellarNet.Lite.Client.Modules
         public void OnS2C_LeaveRoomResult(S2C_LeaveRoomResult msg)
         {
             if (_app.State == ClientAppState.ReplayRoom) return;
+            _app.Session.ClearRecoveryContext();
             _app.LeaveRoom();
+            GlobalTypeNetEvent.Broadcast(msg);
+        }
+
+        [NetHandler]
+        public void OnS2C_DisconnectRoomResult(S2C_DisconnectRoomResult msg)
+        {
+            if (_app.State == ClientAppState.ReplayRoom || msg == null) return;
+            if (msg.Success)
+            {
+                _app.LeaveRoom(true);
+                GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"房间已挂起，可回到房间 {msg.RoomId} 恢复状态" });
+            }
+            else
+            {
+                GlobalTypeNetEvent.Broadcast(new Local_SystemPrompt { Message = $"挂起房间失败: {msg.Reason}" });
+            }
+
             GlobalTypeNetEvent.Broadcast(msg);
         }
 

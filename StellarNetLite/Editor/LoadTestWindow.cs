@@ -24,6 +24,7 @@ namespace StellarNet.Lite.Editor
         private const int DefaultDuration = 0;
         private const int DefaultMoveRate = 8;
         private const int DefaultLogInterval = 5;
+        private const int DefaultRoomEndMinutes = 0;
         private const string DefaultRoomName = "LoadTestRoom";
         private const string DefaultAccountPrefix = "bot";
         private const string DefaultClientVersion = "0.0.1";
@@ -44,6 +45,8 @@ namespace StellarNet.Lite.Editor
         private int _duration = DefaultDuration;
         private int _moveRate = DefaultMoveRate;
         private int _logInterval = DefaultLogInterval;
+        private int _roomEndMinutes = DefaultRoomEndMinutes;
+        private bool _enableReplayRecording;
         private string _roomName = DefaultRoomName;
         private string _accountPrefix = DefaultAccountPrefix;
         private string _clientVersion = DefaultClientVersion;
@@ -139,6 +142,8 @@ namespace StellarNet.Lite.Editor
             _duration = EditorGUILayout.IntField("压测时长/秒 (0=直到手动停止)", _duration);
             _moveRate = EditorGUILayout.IntField("移动频率/秒", _moveRate);
             _logInterval = EditorGUILayout.IntField("日志间隔/秒", _logInterval);
+            _roomEndMinutes = EditorGUILayout.IntField("房间自动结束/分钟 (0=关闭)", _roomEndMinutes);
+            _enableReplayRecording = EditorGUILayout.Toggle("建房启用录像录制", _enableReplayRecording);
             _roomName = EditorGUILayout.TextField("房间名前缀", _roomName);
             _accountPrefix = EditorGUILayout.TextField("账号前缀", _accountPrefix);
             _clientVersion = EditorGUILayout.TextField("客户端版本", _clientVersion);
@@ -303,7 +308,9 @@ namespace StellarNet.Lite.Editor
                 $"-RoomName \"{EscapeArgument(_roomName)}\" " +
                 $"-AccountPrefix \"{EscapeArgument(_accountPrefix)}\" " +
                 $"-ClientVersion \"{EscapeArgument(_clientVersion)}\" " +
-                $"-LogInterval {_logInterval}";
+                $"-LogInterval {_logInterval} " +
+                $"-RoomEndMinutes {_roomEndMinutes} " +
+                (_enableReplayRecording ? " -EnableReplayRecording" : string.Empty);
 
             var startInfo = new ProcessStartInfo
             {
@@ -323,7 +330,7 @@ namespace StellarNet.Lite.Editor
             {
                 _outputBuilder.Clear();
                 AppendOutput(
-                    $"[Editor] 启动压测: 传输层={_transport}, 地址={_host}:{_port}, 房间数={_roomCount}, 每房机器人={_clientsPerRoom}, 每房冗余={_redundantClientsPerRoom}, 总机器人={_roomCount * _clientsPerRoom}, 时长={(_duration > 0 ? _duration + "s" : "直到手动停止")}");
+                    $"[Editor] 启动压测: 传输层={_transport}, 地址={_host}:{_port}, 房间数={_roomCount}, 每房机器人={_clientsPerRoom}, 每房冗余={_redundantClientsPerRoom}, 总机器人={_roomCount * _clientsPerRoom}, 时长={(_duration > 0 ? _duration + "s" : "直到手动停止")}, 自动结束={(_roomEndMinutes > 0 ? _roomEndMinutes + "分钟" : "关闭")}, 录像={(_enableReplayRecording ? "开启" : "关闭")}");
 
                 _runningProcess = new Process
                 {
@@ -494,9 +501,10 @@ namespace StellarNet.Lite.Editor
             }
 
             if (_port <= 0 || _roomCount <= 0 || _clientsPerRoom <= 0 || _redundantClientsPerRoom < 0 || _connectRate <= 0 || _duration < 0 ||
+                _roomEndMinutes < 0 ||
                 _moveRate <= 0 || _logInterval <= 0)
             {
-                EditorUtility.DisplayDialog("参数错误", "端口、房间数、每房客户端数、建连速率、移动频率、日志间隔必须大于 0；冗余成员数与压测时长必须大于等于 0。", "确定");
+                EditorUtility.DisplayDialog("参数错误", "端口、房间数、每房客户端数、建连速率、移动频率、日志间隔必须大于 0；冗余成员数、压测时长和房间自动结束分钟数必须大于等于 0。", "确定");
                 return false;
             }
 
@@ -554,6 +562,8 @@ namespace StellarNet.Lite.Editor
             _duration = EditorPrefs.GetInt(EditorPrefsPrefix + "duration", DefaultDuration);
             _moveRate = EditorPrefs.GetInt(EditorPrefsPrefix + "moveRate", DefaultMoveRate);
             _logInterval = EditorPrefs.GetInt(EditorPrefsPrefix + "logInterval", DefaultLogInterval);
+            _roomEndMinutes = EditorPrefs.GetInt(EditorPrefsPrefix + "roomEndMinutes", DefaultRoomEndMinutes);
+            _enableReplayRecording = EditorPrefs.GetBool(EditorPrefsPrefix + "enableReplayRecording", false);
             _roomName = EditorPrefs.GetString(EditorPrefsPrefix + "roomName", DefaultRoomName);
             _accountPrefix = EditorPrefs.GetString(EditorPrefsPrefix + "accountPrefix", DefaultAccountPrefix);
             _clientVersion = EditorPrefs.GetString(EditorPrefsPrefix + "clientVersion", DefaultClientVersion);
@@ -571,6 +581,8 @@ namespace StellarNet.Lite.Editor
             EditorPrefs.SetInt(EditorPrefsPrefix + "duration", _duration);
             EditorPrefs.SetInt(EditorPrefsPrefix + "moveRate", _moveRate);
             EditorPrefs.SetInt(EditorPrefsPrefix + "logInterval", _logInterval);
+            EditorPrefs.SetInt(EditorPrefsPrefix + "roomEndMinutes", _roomEndMinutes);
+            EditorPrefs.SetBool(EditorPrefsPrefix + "enableReplayRecording", _enableReplayRecording);
             EditorPrefs.SetString(EditorPrefsPrefix + "roomName", _roomName ?? DefaultRoomName);
             EditorPrefs.SetString(EditorPrefsPrefix + "accountPrefix", _accountPrefix ?? DefaultAccountPrefix);
             EditorPrefs.SetString(EditorPrefsPrefix + "clientVersion", _clientVersion ?? DefaultClientVersion);

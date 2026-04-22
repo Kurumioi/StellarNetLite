@@ -386,7 +386,11 @@ namespace StellarNet.Lite.Server.Infrastructure
                 {
                     rooms = serverApp.Rooms.Values.Where(room => room != null).ToArray();
                     sessions = serverApp.Sessions.Values.Where(session => session != null).ToArray();
-                    playingRoomCount = rooms.Count(room => room.State == RoomState.Playing);
+                    playingRoomCount = rooms.Count(room =>
+                    {
+                        RoomRuntimeSnapshot snapshot = room.GetRuntimeSnapshot();
+                        return snapshot != null && snapshot.State == RoomState.Playing;
+                    });
                     onlineSessionCount = sessions.Count(session => session.IsOnline);
 
                     PrintTable(
@@ -402,7 +406,8 @@ namespace StellarNet.Lite.Server.Infrastructure
                     for (int i = 0; i < rooms.Length; i++)
                     {
                         Room room = rooms[i];
-                        if (room.State == RoomState.Playing)
+                        RoomRuntimeSnapshot snapshot = room.GetRuntimeSnapshot();
+                        if (snapshot != null && snapshot.State == RoomState.Playing)
                         {
                             room.EndGame("Server shutdown");
                         }
@@ -669,7 +674,8 @@ namespace StellarNet.Lite.Server.Infrastructure
                 if (room != null)
                 {
                     room.RemoveMember(targetSession);
-                    if (room.MemberCount == 0)
+                    RoomRuntimeSnapshot snapshot = room.GetRuntimeSnapshot();
+                    if (snapshot != null && snapshot.MemberCount == 0)
                     {
                         serverApp.DestroyRoom(roomId);
                     }
@@ -711,6 +717,10 @@ namespace StellarNet.Lite.Server.Infrastructure
                 TimeSpan uptime = DateTime.UtcNow - _startupTimeUtc;
                 FileInfo[] retainedFiles = GetRetainedLogFiles();
                 ServerPersistenceRuntime persistenceRuntime = serverApp.PersistenceRuntime;
+                var workerStats = serverApp.CaptureRoomWorkerStats();
+                string workerSummary = workerStats.Length == 0
+                    ? "-"
+                    : string.Join(" | ", workerStats.Select(stat => $"W{stat.WorkerId}:{stat.Rooms}房/{stat.Pending}排队/{stat.AvgTickMs:F2}ms").ToArray());
 
                 var rows = new List<string[]>
                 {
@@ -724,6 +734,8 @@ namespace StellarNet.Lite.Server.Infrastructure
                     new[] { "Sessions", sessions.Length.ToString() },
                     new[] { "Online", onlineCount.ToString() },
                     new[] { "Offline", offlineCount.ToString() },
+                    new[] { "RoomWorkers", workerStats.Length.ToString() },
+                    new[] { "RoomWorkerState", workerSummary },
                     new[] { "EmptyRoomTimeoutMin", serverApp.Config != null ? serverApp.Config.EmptyRoomTimeoutMinutes.ToString() : "-" },
                     new[] { "OfflineLobbyTimeoutMin", serverApp.Config != null ? serverApp.Config.OfflineTimeoutLobbyMinutes.ToString() : "-" },
                     new[] { "OfflineRoomTimeoutMin", serverApp.Config != null ? serverApp.Config.OfflineTimeoutRoomMinutes.ToString() : "-" },
@@ -793,13 +805,12 @@ namespace StellarNet.Lite.Server.Infrastructure
             lock (serverApp.SyncRoot)
             {
                 Dictionary<int, RoomComponentMeta> componentMetaMap = BuildComponentMetaMap();
-                Room[] rooms = serverApp.Rooms.Values.Where(room => room != null).OrderBy(room => room.RoomId).ToArray();
+                RoomRuntimeSnapshot[] rooms = serverApp.CaptureRoomRuntimeSnapshots().Where(room => room != null).OrderBy(room => room.RoomId).ToArray();
                 var rows = new List<string[]>();
 
                 for (int i = 0; i < rooms.Length; i++)
                 {
-                    Room room = rooms[i];
-                    int onlineMembers = room.Members.Values.Count(session => session != null && session.IsOnline);
+                    RoomRuntimeSnapshot room = rooms[i];
                     string componentSummary = room.ComponentIds == null || room.ComponentIds.Length == 0
                         ? "-"
                         : string.Join(", ", room.ComponentIds.Select(id =>
@@ -817,20 +828,21 @@ namespace StellarNet.Lite.Server.Infrastructure
                         room.RoomId,
                         string.IsNullOrEmpty(room.RoomName) ? "-" : room.RoomName,
                         room.State.ToString(),
-                        $"{room.MemberCount}/{room.Config.MaxMembers}",
-                        onlineMembers.ToString(),
+                        $"{room.MemberCount}/{room.MaxMembers}",
+                        room.OnlineMemberCount.ToString(),
                         room.CurrentTick.ToString(),
-                        ((DateTime.UtcNow - room.CreateTime).TotalMinutes).ToString("F1"),
+                        room.AssignedWorkerId.ToString(),
+                        ((DateTime.UtcNow - room.CreateTimeUtc).TotalMinutes).ToString("F1"),
                         componentSummary
                     });
                 }
 
                 if (rows.Count == 0)
                 {
-                    rows.Add(new[] { "-", "-", "-", "0/0", "0", "0", "0.0", "-" });
+                    rows.Add(new[] { "-", "-", "-", "0/0", "0", "0", "-", "0.0", "-" });
                 }
 
-                PrintTable(new[] { "RoomId", "Name", "State", "Members", "Online", "Tick", "AgeMin", "Components" }, rows);
+                PrintTable(new[] { "RoomId", "Name", "State", "Members", "Online", "Tick", "Worker", "AgeMin", "Components" }, rows);
             }
         }
 
@@ -838,8 +850,8 @@ namespace StellarNet.Lite.Server.Infrastructure
         {
             lock (serverApp.SyncRoot)
             {
-                Room room = serverApp.GetRoom(roomId);
-                if (room == null)
+                RoomDetailedSnapshot room = serverApp.CaptureRoomDetailedSnapshot(roomId);
+                if (room == null || room.Runtime == null)
                 {
                     PrintLine($"Room not found: {roomId}");
                     return;
@@ -848,22 +860,24 @@ namespace StellarNet.Lite.Server.Infrastructure
                 Dictionary<int, RoomComponentMeta> componentMetaMap = BuildComponentMetaMap();
                 var summaryRows = new List<string[]>
                 {
-                    new[] { "RoomId", room.RoomId },
-                    new[] { "RoomName", string.IsNullOrEmpty(room.RoomName) ? "-" : room.RoomName },
-                    new[] { "State", room.State.ToString() },
-                    new[] { "Members", $"{room.MemberCount}/{room.Config.MaxMembers}" },
-                    new[] { "IsPrivate", room.Config.IsPrivate ? "Yes" : "No" },
-                    new[] { "CreateUtc", room.CreateTime.ToString("yyyy-MM-dd HH:mm:ss") },
-                    new[] { "EmptySinceUtc", room.EmptySince == DateTime.MaxValue ? "-" : room.EmptySince.ToString("yyyy-MM-dd HH:mm:ss") },
-                    new[] { "CurrentTick", room.CurrentTick.ToString() },
-                    new[] { "Recording", room.IsRecording ? "Yes" : "No" },
-                    new[] { "LastReplayId", string.IsNullOrEmpty(room.LastReplayId) ? "-" : room.LastReplayId },
-                    new[] { "CustomProps", room.Config.CustomProperties != null ? room.Config.CustomProperties.Count.ToString() : "0" }
+                    new[] { "RoomId", room.Runtime.RoomId },
+                    new[] { "RoomName", string.IsNullOrEmpty(room.Runtime.RoomName) ? "-" : room.Runtime.RoomName },
+                    new[] { "State", room.Runtime.State.ToString() },
+                    new[] { "Members", $"{room.Runtime.MemberCount}/{room.Runtime.MaxMembers}" },
+                    new[] { "IsPrivate", room.Runtime.IsPrivate ? "Yes" : "No" },
+                    new[] { "CreateUtc", room.Runtime.CreateTimeUtc.ToString("yyyy-MM-dd HH:mm:ss") },
+                    new[] { "EmptySinceUtc", room.Runtime.EmptySinceUtc == DateTime.MaxValue ? "-" : room.Runtime.EmptySinceUtc.ToString("yyyy-MM-dd HH:mm:ss") },
+                    new[] { "CurrentTick", room.Runtime.CurrentTick.ToString() },
+                    new[] { "Recording", room.Runtime.IsRecording ? "Yes" : "No" },
+                    new[] { "LastReplayId", string.IsNullOrEmpty(room.Runtime.LastReplayId) ? "-" : room.Runtime.LastReplayId },
+                    new[] { "WorkerId", room.Runtime.AssignedWorkerId.ToString() },
+                    new[] { "WorkerAvgTickMs", room.Runtime.WorkerAverageTickMs.ToString("F3") },
+                    new[] { "CustomProps", room.CustomPropertyCount.ToString() }
                 };
                 PrintTable(new[] { "Field", "Value" }, summaryRows);
 
                 var componentRows = new List<string[]>();
-                int[] componentIds = room.ComponentIds ?? Array.Empty<int>();
+                int[] componentIds = room.Runtime.ComponentIds ?? Array.Empty<int>();
                 for (int i = 0; i < componentIds.Length; i++)
                 {
                     int componentId = componentIds[i];
@@ -885,11 +899,11 @@ namespace StellarNet.Lite.Server.Infrastructure
                 PrintTable(new[] { "ComponentId", "CodeName", "DisplayName" }, componentRows);
 
                 var memberRows = new List<string[]>();
-                Session[] members = room.Members.Values.Where(session => session != null).OrderBy(session => session.AccountId).ThenBy(session => session.SessionId).ToArray();
+                RoomMemberSnapshot[] members = room.Members.OrderBy(session => session.AccountId).ThenBy(session => session.SessionId).ToArray();
                 float realtimeNow = serverApp.CurrentRealtimeSinceStartup;
                 for (int i = 0; i < members.Length; i++)
                 {
-                    Session session = members[i];
+                    RoomMemberSnapshot session = members[i];
                     memberRows.Add(new[]
                     {
                         session.SessionId,

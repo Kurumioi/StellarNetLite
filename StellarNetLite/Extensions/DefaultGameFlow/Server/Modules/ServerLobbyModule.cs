@@ -77,25 +77,26 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             var roomList = new List<RoomBriefInfo>();
-            foreach (KeyValuePair<string, Room> kvp in app.Rooms)
+            RoomRuntimeSnapshot[] snapshots = app.CaptureRoomRuntimeSnapshots();
+            for (int i = 0; i < snapshots.Length; i++)
             {
-                Room room = kvp.Value;
+                RoomRuntimeSnapshot room = snapshots[i];
                 if (room == null || room.State == RoomState.Finished)
                 {
                     continue;
                 }
 
-                string displayName = string.IsNullOrEmpty(room.Config.RoomName)
+                string displayName = string.IsNullOrEmpty(room.RoomName)
                     ? $"房间_{room.RoomId.Substring(0, Math.Min(6, room.RoomId.Length))}"
-                    : room.Config.RoomName;
+                    : room.RoomName;
 
                 roomList.Add(new RoomBriefInfo
                 {
                     RoomId = room.RoomId,
                     RoomName = displayName,
                     MemberCount = room.MemberCount,
-                    MaxMembers = room.Config.MaxMembers,
-                    IsPrivate = room.Config.IsPrivate,
+                    MaxMembers = room.MaxMembers,
+                    IsPrivate = room.IsPrivate,
                     State = (int)room.State
                 });
             }

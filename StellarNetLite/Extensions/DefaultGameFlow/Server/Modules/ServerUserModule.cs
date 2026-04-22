@@ -165,7 +165,8 @@ namespace StellarNet.Lite.Server.Modules
 
             if (!msg.Accept)
             {
-                Room room = string.IsNullOrEmpty(roomId) ? null : _app.GetRoom(roomId);
+                string recoverableRoomId = !string.IsNullOrEmpty(session.CurrentRoomId) ? session.CurrentRoomId : session.RecoverableRoomId;
+                Room room = string.IsNullOrEmpty(recoverableRoomId) ? null : _app.GetRoom(recoverableRoomId);
                 if (room != null)
                 {
                     room.RemoveMember(session);
@@ -174,6 +175,8 @@ namespace StellarNet.Lite.Server.Modules
                 {
                     session.UnbindRoom();
                 }
+
+                session.ClearRecoverableRoom();
 
                 _app.SendMessageToSession(session, new S2C_ReconnectResult { Success = false, Reason = "已放弃重连" });
                 NetLogger.LogInfo("ServerUserModule", "重连放弃完成", roomId, session.SessionId);
@@ -203,7 +206,7 @@ namespace StellarNet.Lite.Server.Modules
         [NetHandler]
         public void OnC2S_ReconnectReady(Session session, C2S_ReconnectReady msg)
         {
-            string roomId = session.CurrentRoomId;
+            string roomId = !string.IsNullOrEmpty(session.CurrentRoomId) ? session.CurrentRoomId : session.RecoverableRoomId;
             NetLogger.LogInfo("ServerUserModule", "重连就绪请求", roomId, session.SessionId);
             if (string.IsNullOrEmpty(roomId))
             {
@@ -219,6 +222,16 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
+            if (string.IsNullOrEmpty(session.CurrentRoomId))
+            {
+                if (!room.ResumeMember(session, out string resumeReason))
+                {
+                    _app.SendMessageToSession(session, new S2C_RoomSetupResult { Success = false, RoomId = roomId, Reason = resumeReason });
+                    NetLogger.LogWarning("ServerUserModule", $"重连就绪跳过: {resumeReason}", roomId, session.SessionId);
+                    return;
+                }
+            }
+
             _app.SendMessageToSession(session, new S2C_RoomSetupResult { Success = true, RoomId = room.RoomId });
             session.SetRoomReady(true);
             room.TriggerReconnectSnapshot(session);
@@ -229,21 +242,24 @@ namespace StellarNet.Lite.Server.Modules
         {
             room = null;
             reason = string.Empty;
-            if (session == null || string.IsNullOrEmpty(session.CurrentRoomId))
+            string recoverableRoomId = !string.IsNullOrEmpty(session?.CurrentRoomId) ? session.CurrentRoomId : session?.RecoverableRoomId;
+            if (session == null || string.IsNullOrEmpty(recoverableRoomId))
             {
                 reason = "当前没有可恢复房间";
                 return false;
             }
 
-            room = _app.GetRoom(session.CurrentRoomId);
+            room = _app.GetRoom(recoverableRoomId);
             if (room == null)
             {
                 session.UnbindRoom();
+                session.ClearRecoverableRoom();
                 reason = "房间已解散";
                 return false;
             }
 
-            if (room.State == RoomState.Finished)
+            RoomRuntimeSnapshot snapshot = room.GetRuntimeSnapshot();
+            if (snapshot != null && snapshot.State == RoomState.Finished)
             {
                 if (room.GetMember(session.SessionId) != null)
                 {
@@ -254,6 +270,7 @@ namespace StellarNet.Lite.Server.Modules
                     session.UnbindRoom();
                 }
 
+                session.ClearRecoverableRoom();
                 room = null;
                 reason = "对局已结束";
                 return false;
@@ -262,6 +279,7 @@ namespace StellarNet.Lite.Server.Modules
             if (room.GetMember(session.SessionId) == null)
             {
                 session.UnbindRoom();
+                session.ClearRecoverableRoom();
                 room = null;
                 reason = "房间恢复上下文已失效";
                 return false;

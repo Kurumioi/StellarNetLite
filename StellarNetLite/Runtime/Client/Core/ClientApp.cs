@@ -248,6 +248,13 @@ namespace StellarNet.Lite.Client.Core
             NetLogger.LogInfo("ClientApp", $"已进入回放房间。RoomId:{roomId}");
         }
 
+        /// <summary>
+        /// 仅做客户端本地房间上下文清理。
+        /// 是否已经通知服务端，由调用方决定。
+        /// 例如：
+        /// - 正式离房结果回包后调用
+        /// - 挂起房间结果回包后调用
+        /// </summary>
         public void LeaveRoom(bool silent = false)
         {
             if (_isDisposed)

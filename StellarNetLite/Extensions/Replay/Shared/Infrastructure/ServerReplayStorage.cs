@@ -44,7 +44,7 @@ namespace StellarNet.Lite.Server.Infrastructure
             public long PendingBytes;
         }
 
-        private static readonly Dictionary<string, RecordContext> ActiveRecords = new Dictionary<string, RecordContext>();
+        private static readonly ConcurrentDictionary<string, RecordContext> ActiveRecords = new ConcurrentDictionary<string, RecordContext>();
 
         public static void InitializePaths(string persistentDataPath)
         {
@@ -93,7 +93,7 @@ namespace StellarNet.Lite.Server.Infrastructure
             {
                 CloseRecordContext(roomId, oldContext);
                 TryDeleteTempFile(oldContext.TempFilePath);
-                ActiveRecords.Remove(roomId);
+                ActiveRecords.TryRemove(roomId, out _);
             }
 
             string tempPath = Path.Combine(folderPath, $"{roomId}_temp.replay").Replace("\\", "/");
@@ -204,7 +204,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                 return;
             }
 
-            ActiveRecords.Remove(roomId);
+            ActiveRecords.TryRemove(roomId, out _);
             CloseRecordContext(roomId, ctx);
             if (ctx.WorkerException != null)
             {
@@ -297,7 +297,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                 return;
             }
 
-            ActiveRecords.Remove(roomId);
+            ActiveRecords.TryRemove(roomId, out _);
             CloseRecordContext(roomId, ctx);
             TryDeleteTempFile(ctx.TempFilePath);
         }

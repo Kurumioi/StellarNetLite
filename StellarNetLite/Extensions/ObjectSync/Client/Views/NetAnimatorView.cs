@@ -83,6 +83,9 @@ namespace StellarNet.Lite.Client.Components.Views
         // 已经提示过的未知逻辑状态 Hash。
         private readonly HashSet<int> _unknownSyncedStateHashes = new HashSet<int>();
 
+        // 映射表和参数 Hash 是否已经完成初始化。
+        private bool _isRuntimeInitialized;
+
         // 三个浮点参数对应的 Animator Hash。
         private int _param1Hash;
         private int _param2Hash;
@@ -108,6 +111,8 @@ namespace StellarNet.Lite.Client.Components.Views
             {
                 TargetAnimator = GetComponentInChildren<Animator>();
             }
+
+            EnsureRuntimeInitialized();
         }
 
         /// <summary>
@@ -115,29 +120,7 @@ namespace StellarNet.Lite.Client.Components.Views
         /// </summary>
         private void Start()
         {
-            _antiIceTargetHashes.Clear();
-            foreach (var state in AntiIceTargetStates)
-            {
-                if (!string.IsNullOrEmpty(state))
-                {
-                    _antiIceTargetHashes.Add(Animator.StringToHash(state));
-                }
-            }
-
-            _antiIceSourceHashes.Clear();
-            foreach (var state in AntiIceSourceStates)
-            {
-                if (!string.IsNullOrEmpty(state))
-                {
-                    _antiIceSourceHashes.Add(Animator.StringToHash(state));
-                }
-            }
-
-            BuildSyncedStateHashMap();
-
-            _param1Hash = string.IsNullOrEmpty(FloatParam1Name) ? 0 : Animator.StringToHash(FloatParam1Name);
-            _param2Hash = string.IsNullOrEmpty(FloatParam2Name) ? 0 : Animator.StringToHash(FloatParam2Name);
-            _param3Hash = string.IsNullOrEmpty(FloatParam3Name) ? 0 : Animator.StringToHash(FloatParam3Name);
+            EnsureRuntimeInitialized();
         }
 
         /// <summary>
@@ -145,6 +128,7 @@ namespace StellarNet.Lite.Client.Components.Views
         /// </summary>
         public void HardSetInitialState(int animHash, float normalizedTime, float p1, float p2, float p3)
         {
+            EnsureRuntimeInitialized();
             int resolvedAnimHash = ResolveAnimatorStateHash(animHash);
             _lastAnimStateHash = resolvedAnimHash;
             _currentParam1 = p1;
@@ -198,6 +182,7 @@ namespace StellarNet.Lite.Client.Components.Views
         /// </summary>
         private void ProcessAnimatorSync(ref PredictedAnimatorData syncData)
         {
+            EnsureRuntimeInitialized();
             int targetHash = ResolveAnimatorStateHash(syncData.AnimStateHash);
 
             if (EnableAntiIceSkating)
@@ -302,6 +287,39 @@ namespace StellarNet.Lite.Client.Components.Views
             RegisterStateNames(SyncedStateNames);
             RegisterStateNames(AntiIceTargetStates);
             RegisterStateNames(AntiIceSourceStates);
+        }
+
+        private void EnsureRuntimeInitialized()
+        {
+            if (_isRuntimeInitialized)
+            {
+                return;
+            }
+
+            _antiIceTargetHashes.Clear();
+            foreach (var state in AntiIceTargetStates)
+            {
+                if (!string.IsNullOrEmpty(state))
+                {
+                    _antiIceTargetHashes.Add(Animator.StringToHash(state));
+                }
+            }
+
+            _antiIceSourceHashes.Clear();
+            foreach (var state in AntiIceSourceStates)
+            {
+                if (!string.IsNullOrEmpty(state))
+                {
+                    _antiIceSourceHashes.Add(Animator.StringToHash(state));
+                }
+            }
+
+            BuildSyncedStateHashMap();
+
+            _param1Hash = string.IsNullOrEmpty(FloatParam1Name) ? 0 : Animator.StringToHash(FloatParam1Name);
+            _param2Hash = string.IsNullOrEmpty(FloatParam2Name) ? 0 : Animator.StringToHash(FloatParam2Name);
+            _param3Hash = string.IsNullOrEmpty(FloatParam3Name) ? 0 : Animator.StringToHash(FloatParam3Name);
+            _isRuntimeInitialized = true;
         }
 
         private void RegisterStateNames(List<string> stateNames)

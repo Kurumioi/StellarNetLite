@@ -51,12 +51,12 @@ namespace StellarNet.Lite.Server.Modules
     /// <summary>
     /// 服务端录像模块。
     /// 负责录像列表、重命名和分片下载。
-    /// </summary>
+        /// </summary>
     [ServerModule("ServerReplayModule", "录像下载与分发模块")]
     public sealed class ServerReplayModule
     {
         private readonly ServerApp _app;
-        private const int ChunkSize = 64 * 1024;
+        private const int ChunkSize = 8 * 1024;
         private readonly Dictionary<string, ReplayDownloadTask> _downloadTasks = new Dictionary<string, ReplayDownloadTask>();
 
         public ServerReplayModule(ServerApp app)

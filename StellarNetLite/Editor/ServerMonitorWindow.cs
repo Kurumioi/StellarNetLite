@@ -66,23 +66,25 @@ namespace StellarNet.Lite.Editor
 
         private void DrawOverview(ServerApp serverApp)
         {
+            RoomRuntimeSnapshot[] rooms = serverApp.CaptureRoomRuntimeSnapshots();
             EditorGUILayout.BeginVertical("box");
             EditorGUILayout.LabelField("全局概览", EditorStyles.boldLabel);
             EditorGUILayout.LabelField($"当前在线连接数: {serverApp.Sessions.Count}");
-            EditorGUILayout.LabelField($"当前活跃房间数: {serverApp.Rooms.Count}");
+            EditorGUILayout.LabelField($"当前活跃房间数: {rooms.Length}");
             EditorGUILayout.LabelField($"TickRate: {serverApp.Config.TickRate} Hz");
             EditorGUILayout.EndVertical();
         }
 
         private void DrawRoomList(ServerApp serverApp)
         {
+            RoomRuntimeSnapshot[] rooms = serverApp.CaptureRoomRuntimeSnapshots();
             EditorGUILayout.BeginVertical("box", GUILayout.Width(position.width * 0.45f));
-            EditorGUILayout.LabelField($"房间列表 ({serverApp.Rooms.Count})", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField($"房间列表 ({rooms.Length})", EditorStyles.boldLabel);
             _roomScroll = EditorGUILayout.BeginScrollView(_roomScroll, GUILayout.Height(150));
 
-            foreach (var kvp in serverApp.Rooms)
+            for (int i = 0; i < rooms.Length; i++)
             {
-                Room room = kvp.Value;
+                RoomRuntimeSnapshot room = rooms[i];
                 GUI.color = _selectedRoomId == room.RoomId ? Color.cyan : Color.white;
                 if (GUILayout.Button($"[{room.State}] {room.RoomName} ({room.MemberCount}人)", EditorStyles.toolbarButton))
                 {
@@ -116,29 +118,32 @@ namespace StellarNet.Lite.Editor
 
         private void DrawRoomDetails(ServerApp serverApp)
         {
-            if (string.IsNullOrEmpty(_selectedRoomId) || !serverApp.Rooms.TryGetValue(_selectedRoomId, out Room room))
+            RoomDetailedSnapshot room = string.IsNullOrEmpty(_selectedRoomId)
+                ? null
+                : serverApp.CaptureRoomDetailedSnapshot(_selectedRoomId);
+            if (room == null || room.Runtime == null)
             {
                 EditorGUILayout.HelpBox("请在上方选择一个房间查看详情。", MessageType.Info);
                 return;
             }
 
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField($"房间详情: {room.RoomName} ({room.RoomId})", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField($"状态: {room.State} | Tick: {room.CurrentTick} | 录制中: {room.IsRecording}");
+            EditorGUILayout.LabelField($"房间详情: {room.Runtime.RoomName} ({room.Runtime.RoomId})", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField($"状态: {room.Runtime.State} | Tick: {room.Runtime.CurrentTick} | 录制中: {room.Runtime.IsRecording}");
+            EditorGUILayout.LabelField($"Worker: {room.Runtime.AssignedWorkerId} | AvgTickMs: {room.Runtime.WorkerAverageTickMs:F3}");
 
             EditorGUILayout.Space(5);
             EditorGUILayout.LabelField("成员列表:", EditorStyles.boldLabel);
-            foreach (var kvp in room.Members)
+            foreach (RoomMemberSnapshot member in room.Members)
             {
-                Session member = kvp.Value;
                 EditorGUILayout.LabelField($"- {member.AccountId} (Ready: {member.IsRoomReady})");
             }
 
             EditorGUILayout.Space(5);
             EditorGUILayout.LabelField("挂载组件:", EditorStyles.boldLabel);
-            if (room.ComponentIds != null)
+            if (room.Runtime.ComponentIds != null)
             {
-                foreach (int compId in room.ComponentIds)
+                foreach (int compId in room.Runtime.ComponentIds)
                 {
                     EditorGUILayout.LabelField($"- Component ID: {compId}");
                 }

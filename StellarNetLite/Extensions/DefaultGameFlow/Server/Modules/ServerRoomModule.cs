@@ -89,6 +89,7 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             room.SetComponentIds(uniqueComponentIds);
+            _app.RegisterRoomToScheduler(room);
             session.AuthorizeRoom(roomId);
 
             _app.SendMessageToSession(
@@ -126,14 +127,16 @@ namespace StellarNet.Lite.Server.Modules
             Room room = _app.GetRoom(msg.RoomId);
             if (room != null)
             {
-                if (room.State == RoomState.Finished)
+                RoomRuntimeSnapshot snapshot = room.GetRuntimeSnapshot();
+                bool isRecoveringSameRoom = session.RecoverableRoomId == room.RoomId && room.GetMember(session.SessionId) != null;
+                if (snapshot != null && snapshot.State == RoomState.Finished)
                 {
                     _app.SendMessageToSession(session, new S2C_JoinRoomResult { Success = false, Reason = "房间已结束" });
                     NetLogger.LogWarning("ServerRoomModule", "加房拒绝: 房间已结束", room.RoomId, session.SessionId);
                     return;
                 }
 
-                if (room.MemberCount >= room.Config.MaxMembers)
+                if (!isRecoveringSameRoom && snapshot != null && snapshot.MemberCount >= room.Config.MaxMembers)
                 {
                     _app.SendMessageToSession(session, new S2C_JoinRoomResult { Success = false, Reason = "房间人数已满" });
                     NetLogger.LogWarning("ServerRoomModule", "加房拒绝: 房间已满", room.RoomId, session.SessionId);
@@ -141,7 +144,7 @@ namespace StellarNet.Lite.Server.Modules
                 }
 
                 string password = msg.RoomConfig != null ? msg.RoomConfig.Password ?? string.Empty : string.Empty;
-                if (room.Config.IsPrivate && room.Config.Password != password)
+                if (!isRecoveringSameRoom && room.Config.IsPrivate && room.Config.Password != password)
                 {
                     _app.SendMessageToSession(session, new S2C_JoinRoomResult { Success = false, Reason = "房间密码错误" });
                     NetLogger.LogWarning("ServerRoomModule", "加房拒绝: 房间密码错误", room.RoomId, session.SessionId);
@@ -203,6 +206,7 @@ namespace StellarNet.Lite.Server.Modules
             }
 
             newRoom.SetComponentIds(uniqueComponentIds);
+            _app.RegisterRoomToScheduler(newRoom);
             session.AuthorizeRoom(msg.RoomId);
 
             _app.SendMessageToSession(
@@ -244,21 +248,23 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            if (room.State == RoomState.Finished)
+            RoomRuntimeSnapshot roomSnapshot = room.GetRuntimeSnapshot();
+            bool isRecoveringSameRoom = session.RecoverableRoomId == room.RoomId && room.GetMember(session.SessionId) != null;
+            if (roomSnapshot != null && roomSnapshot.State == RoomState.Finished)
             {
                 _app.SendMessageToSession(session, new S2C_JoinRoomResult { Success = false, Reason = "房间已结束" });
                 NetLogger.LogWarning("ServerRoomModule", "加房拒绝: 房间已结束", room.RoomId, session.SessionId);
                 return;
             }
 
-            if (room.MemberCount >= room.Config.MaxMembers)
+            if (!isRecoveringSameRoom && roomSnapshot != null && roomSnapshot.MemberCount >= room.Config.MaxMembers)
             {
                 _app.SendMessageToSession(session, new S2C_JoinRoomResult { Success = false, Reason = "房间人数已满" });
                 NetLogger.LogWarning("ServerRoomModule", "加房拒绝: 房间已满", room.RoomId, session.SessionId);
                 return;
             }
 
-            if (room.Config.IsPrivate && room.Config.Password != msg.Password)
+            if (!isRecoveringSameRoom && room.Config.IsPrivate && room.Config.Password != msg.Password)
             {
                 _app.SendMessageToSession(session, new S2C_JoinRoomResult { Success = false, Reason = "房间密码错误" });
                 NetLogger.LogWarning("ServerRoomModule", "加房拒绝: 房间密码错误", room.RoomId, session.SessionId);
@@ -320,34 +326,103 @@ namespace StellarNet.Lite.Server.Modules
                 return;
             }
 
-            if (!room.TryAddMember(session, false, out string reason))
-            {
-                session.ClearAuthorizedRoom();
-                _app.SendMessageToSession(
-                    session,
-                    new S2C_RoomSetupResult
-                    {
-                        Success = false,
-                        RoomId = msg.RoomId,
-                        Reason = string.IsNullOrEmpty(reason) ? "进入房间失败" : reason
-                    });
-                NetLogger.LogWarning(
-                    "ServerRoomModule",
-                    $"进房拒绝: 最终确认失败, Reason:{reason}",
-                    msg.RoomId,
-                    session.SessionId);
-                return;
-            }
+            string previousRecoverableRoomId = session.RecoverableRoomId;
+            bool isResumingSameRoom = previousRecoverableRoomId == msg.RoomId && room.GetMember(session.SessionId) != null;
 
-            session.SetRoomReady(false);
-            session.ClearAuthorizedRoom();
-            _app.SendMessageToSession(session, new S2C_RoomSetupResult { Success = true, RoomId = room.RoomId });
-            session.SetRoomReady(true);
-            room.NotifyMemberJoined(session);
+            if (isResumingSameRoom)
+            {
+                if (!room.ResumeMember(session, out string resumeReason))
+                {
+                    session.ClearAuthorizedRoom();
+                    _app.SendMessageToSession(
+                        session,
+                        new S2C_RoomSetupResult
+                        {
+                            Success = false,
+                            RoomId = msg.RoomId,
+                            Reason = string.IsNullOrEmpty(resumeReason) ? "恢复房间失败" : resumeReason
+                        });
+                    NetLogger.LogWarning("ServerRoomModule", $"恢复进房失败: {resumeReason}", msg.RoomId, session.SessionId);
+                    return;
+                }
+
+                session.ClearAuthorizedRoom();
+                _app.SendMessageToSession(session, new S2C_RoomSetupResult { Success = true, RoomId = room.RoomId });
+                session.SetRoomReady(true);
+                room.TriggerReconnectSnapshot(session);
+            }
+            else
+            {
+                if (!room.TryAddMember(session, false, out string reason))
+                {
+                    session.ClearAuthorizedRoom();
+                    _app.SendMessageToSession(
+                        session,
+                        new S2C_RoomSetupResult
+                        {
+                            Success = false,
+                            RoomId = msg.RoomId,
+                            Reason = string.IsNullOrEmpty(reason) ? "进入房间失败" : reason
+                        });
+                    NetLogger.LogWarning(
+                        "ServerRoomModule",
+                        $"进房拒绝: 最终确认失败, Reason:{reason}",
+                        msg.RoomId,
+                        session.SessionId);
+                    return;
+                }
+
+                session.SetRoomReady(false);
+                session.ClearAuthorizedRoom();
+                _app.SendMessageToSession(session, new S2C_RoomSetupResult { Success = true, RoomId = room.RoomId });
+                session.SetRoomReady(true);
+                room.NotifyMemberJoined(session);
+
+                CleanupPreviousRecoverableRoom(previousRecoverableRoomId, room.RoomId, session);
+            }
 
             BroadcastRoomListToLobby();
             ServerLobbyModule.BroadcastOnlinePlayerList(_app);
             NetLogger.LogInfo("ServerRoomModule", "进房完成", room.RoomId, session.SessionId);
+        }
+
+        [NetHandler]
+        public void OnC2S_DisconnectRoom(Session session, C2S_DisconnectRoom msg)
+        {
+            string roomId = session.CurrentRoomId;
+            NetLogger.LogInfo("ServerRoomModule", "挂起房间请求", roomId, session.SessionId);
+            if (string.IsNullOrEmpty(roomId))
+            {
+                _app.SendMessageToSession(session, new S2C_DisconnectRoomResult { Success = false, RoomId = string.Empty, Reason = "当前不在房间中" });
+                return;
+            }
+
+            Room room = _app.GetRoom(roomId);
+            if (room == null)
+            {
+                session.UnbindRoom();
+                session.ClearRecoverableRoom();
+                _app.SendMessageToSession(session, new S2C_DisconnectRoomResult { Success = false, RoomId = roomId, Reason = "房间不存在" });
+                return;
+            }
+
+            if (!room.SuspendMember(session, out string reason))
+            {
+                _app.SendMessageToSession(
+                    session,
+                    new S2C_DisconnectRoomResult
+                    {
+                        Success = false,
+                        RoomId = roomId,
+                        Reason = string.IsNullOrEmpty(reason) ? "挂起房间失败" : reason
+                    });
+                return;
+            }
+
+            session.ClearAuthorizedRoom();
+            _app.SendMessageToSession(session, new S2C_DisconnectRoomResult { Success = true, RoomId = roomId, Reason = string.Empty });
+            ServerLobbyModule.BroadcastOnlinePlayerList(_app);
+            NetLogger.LogInfo("ServerRoomModule", "挂起房间完成", roomId, session.SessionId);
         }
 
         /// <summary>
@@ -356,7 +431,7 @@ namespace StellarNet.Lite.Server.Modules
         [NetHandler]
         public void OnC2S_LeaveRoom(Session session, C2S_LeaveRoom msg)
         {
-            string roomId = session.CurrentRoomId;
+            string roomId = !string.IsNullOrEmpty(session.CurrentRoomId) ? session.CurrentRoomId : session.RecoverableRoomId;
             NetLogger.LogInfo("ServerRoomModule", "离房请求", roomId, session.SessionId);
             if (!string.IsNullOrEmpty(roomId))
             {
@@ -364,13 +439,16 @@ namespace StellarNet.Lite.Server.Modules
                 if (room != null)
                 {
                     room.RemoveMember(session);
-                    if (room.MemberCount == 0)
+                    RoomRuntimeSnapshot snapshot = room.GetRuntimeSnapshot();
+                    if (snapshot != null && snapshot.MemberCount == 0)
                     {
                         _app.DestroyRoom(roomId);
                         NetLogger.LogInfo("ServerRoomModule", "空房销毁完成", roomId, session.SessionId);
                     }
                 }
             }
+
+            session.ClearRecoverableRoom();
 
             _app.SendMessageToSession(session, new S2C_LeaveRoomResult { Success = true });
             BroadcastRoomListToLobby();
@@ -415,6 +493,27 @@ namespace StellarNet.Lite.Server.Modules
                     _app.SendMessageToSession(session, response);
                 }
             }
+        }
+
+        private void CleanupPreviousRecoverableRoom(string previousRecoverableRoomId, string activeRoomId, Session session)
+        {
+            if (string.IsNullOrEmpty(previousRecoverableRoomId) || previousRecoverableRoomId == activeRoomId)
+            {
+                return;
+            }
+
+            Room oldRoom = _app.GetRoom(previousRecoverableRoomId);
+            if (oldRoom != null)
+            {
+                oldRoom.RemoveMember(session);
+                RoomRuntimeSnapshot snapshot = oldRoom.GetRuntimeSnapshot();
+                if (snapshot != null && snapshot.MemberCount == 0)
+                {
+                    _app.DestroyRoom(previousRecoverableRoomId);
+                }
+            }
+
+            session.ClearRecoverableRoom();
         }
     }
 }

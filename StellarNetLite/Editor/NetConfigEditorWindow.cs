@@ -170,6 +170,8 @@ namespace StellarNet.Lite.Editor
 
             _currentConfig.MaxConnections = EditorGUILayout.IntField("最大连接数:", _currentConfig.MaxConnections);
             _currentConfig.TickRate = EditorGUILayout.IntField("服务器帧率 (TickRate):", _currentConfig.TickRate);
+            _currentConfig.RoomWorkerCount = EditorGUILayout.IntField("房间工作线程数(0=自动):", _currentConfig.RoomWorkerCount);
+            _currentConfig.RoomWorkerReserveCpuCount = EditorGUILayout.IntField("自动模式预留CPU数:", _currentConfig.RoomWorkerReserveCpuCount);
 
             GUILayout.Space(6);
             EditorGUILayout.LabelField("生产环境防御配置 (GC & 熔断)", EditorStyles.boldLabel);
@@ -382,6 +384,16 @@ namespace StellarNet.Lite.Editor
             if (_currentConfig.TickRate <= 0)
             {
                 _currentConfig.TickRate = 60;
+            }
+
+            if (_currentConfig.RoomWorkerCount < 0)
+            {
+                _currentConfig.RoomWorkerCount = 0;
+            }
+
+            if (_currentConfig.RoomWorkerReserveCpuCount < 0)
+            {
+                _currentConfig.RoomWorkerReserveCpuCount = 1;
             }
 
             if (_currentConfig.MaxRoomLifetimeHours <= 0)

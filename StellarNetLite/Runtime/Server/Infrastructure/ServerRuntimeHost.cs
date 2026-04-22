@@ -21,6 +21,7 @@ namespace StellarNet.Lite.Server.Infrastructure
 
         private readonly ServerApp _serverApp;
         private readonly IServerTransportPump _serverTransportPump;
+        private readonly ServerRoomScheduler _roomScheduler;
         private readonly ConcurrentQueue<Action> _pendingActions = new ConcurrentQueue<Action>();
         private readonly AutoResetEvent _workSignal = new AutoResetEvent(false);
         private readonly Stopwatch _stopwatch = new Stopwatch();
@@ -34,6 +35,8 @@ namespace StellarNet.Lite.Server.Infrastructure
         {
             _serverApp = serverApp;
             _serverTransportPump = transport as IServerTransportPump;
+            _roomScheduler = new ServerRoomScheduler(serverApp.Config, () => RealtimeSinceStartup);
+            _serverApp.AttachRoomScheduler(_roomScheduler);
         }
 
         public float RealtimeSinceStartup => (float)_stopwatch.Elapsed.TotalSeconds;
@@ -48,6 +51,7 @@ namespace StellarNet.Lite.Server.Infrastructure
             }
 
             _cts = new CancellationTokenSource();
+            _roomScheduler.Start();
             _thread = new Thread(RunLoop)
             {
                 IsBackground = true,
@@ -65,6 +69,7 @@ namespace StellarNet.Lite.Server.Infrastructure
             }
 
             _isRunning = false;
+            _roomScheduler.Stop();
             _cts?.Cancel();
             _workSignal.Set();
 
@@ -103,6 +108,7 @@ namespace StellarNet.Lite.Server.Infrastructure
         public void Dispose()
         {
             Stop();
+            _roomScheduler.Dispose();
             _workSignal.Dispose();
         }
 
@@ -137,6 +143,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                         }
 
                         DrainPendingActions();
+                        _serverApp.FlushOutboundPackets();
                     }
 
                     nowSeconds = _stopwatch.Elapsed.TotalSeconds;
@@ -148,6 +155,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                             try
                             {
                                 _serverApp.Tick();
+                                _serverApp.FlushOutboundPackets();
                             }
                             catch (Exception ex)
                             {
@@ -183,6 +191,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                     double nowSeconds = _stopwatch.Elapsed.TotalSeconds;
                     _serverApp.UpdateRuntimeContext((float)nowSeconds, nowUtc);
                     DrainPendingActions();
+                    _serverApp.FlushOutboundPackets();
                 }
 
                 _stopwatch.Stop();

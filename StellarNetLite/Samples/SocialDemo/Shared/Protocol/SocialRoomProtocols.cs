@@ -181,4 +181,5 @@ namespace StellarNet.Lite.Game.Shared.Protocol
             Content = reader.ReadString();
         }
     }
+
 }

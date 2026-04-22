@@ -20,6 +20,8 @@ namespace StellarNet.Lite.Client.Modules
         private string _downloadingReplayId;
         private int _expectedTotalBytes;
         private FileStream _fileStream;
+        private int _pendingFlushBytes;
+        private const int FlushThresholdBytes = 64 * 1024;
 
         /// <summary>
         /// 客户端录像缓存目录。
@@ -38,6 +40,7 @@ namespace StellarNet.Lite.Client.Modules
             CloseFileStream();
             _downloadingReplayId = string.Empty;
             _expectedTotalBytes = 0;
+            _pendingFlushBytes = 0;
         }
 
         public static void RequestDownload(ClientApp app, string replayId)
@@ -78,6 +81,7 @@ namespace StellarNet.Lite.Client.Modules
             EnsureCacheFolderExists();
             _downloadingReplayId = msg.ReplayId ?? string.Empty;
             _expectedTotalBytes = msg.TotalBytes;
+            _pendingFlushBytes = 0;
             NetLogger.LogInfo("ClientReplayModule",
                 $"录像下载开始。ReplayId:{_downloadingReplayId}, AcceptedOffset:{msg.AcceptedOffset}, TotalBytes:{_expectedTotalBytes}");
 
@@ -97,7 +101,12 @@ namespace StellarNet.Lite.Client.Modules
             if (msg.ChunkData == null || msg.ReplayId != _downloadingReplayId || _fileStream == null) return;
 
             _fileStream.Write(msg.ChunkData, 0, msg.ChunkData.Length);
-            _fileStream.Flush();
+            _pendingFlushBytes += msg.ChunkData.Length;
+            if (_pendingFlushBytes >= FlushThresholdBytes)
+            {
+                _fileStream.Flush();
+                _pendingFlushBytes = 0;
+            }
 
             GlobalTypeNetEvent.Broadcast(new Local_ReplayDownloadProgress
                 { ReplayId = _downloadingReplayId, DownloadedBytes = (int)_fileStream.Length, TotalBytes = _expectedTotalBytes });
@@ -128,6 +137,7 @@ namespace StellarNet.Lite.Client.Modules
 
             _downloadingReplayId = string.Empty;
             _expectedTotalBytes = 0;
+            _pendingFlushBytes = 0;
             NetLogger.LogInfo("ClientReplayModule", $"录像下载完成。ReplayId:{replayId}, File:{finalPath}");
             GlobalTypeNetEvent.Broadcast(new S2C_DownloadReplayResult { Success = true, ReplayId = replayId, ReplayFileData = finalPath });
         }
@@ -137,14 +147,25 @@ namespace StellarNet.Lite.Client.Modules
             CloseFileStream();
             _downloadingReplayId = string.Empty;
             _expectedTotalBytes = 0;
+            _pendingFlushBytes = 0;
             NetLogger.LogError("ClientReplayModule", $"录像下载失败。ReplayId:{replayId}, Reason:{reason}");
             GlobalTypeNetEvent.Broadcast(new S2C_DownloadReplayResult { Success = false, ReplayId = replayId ?? string.Empty, Reason = reason });
         }
 
         private void CloseFileStream()
         {
-            _fileStream?.Dispose();
+            if (_fileStream != null)
+            {
+                if (_pendingFlushBytes > 0)
+                {
+                    _fileStream.Flush();
+                }
+
+                _fileStream.Dispose();
+            }
+
             _fileStream = null;
+            _pendingFlushBytes = 0;
         }
 
         private void ReleaseResources()

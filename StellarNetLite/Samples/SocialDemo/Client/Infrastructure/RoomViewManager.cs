@@ -19,6 +19,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
     {
         private bool _isInitialized;
         private GameObject _currentRoomViewRoot;
+        private ClientRoom _boundRoom;
 
         public void Init()
         {
@@ -33,6 +34,15 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             if (_currentRoomViewRoot == null &&
                 NetClient.State == ClientAppState.ReplayRoom &&
                 NetClient.CurrentRoom != null)
+            {
+                BuildRoomView(NetClient.CurrentRoom);
+                return;
+            }
+
+            if (_currentRoomViewRoot != null &&
+                NetClient.State == ClientAppState.ReplayRoom &&
+                NetClient.CurrentRoom != null &&
+                !ReferenceEquals(_boundRoom, NetClient.CurrentRoom))
             {
                 BuildRoomView(NetClient.CurrentRoom);
                 return;
@@ -61,6 +71,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             if (room == null) return;
 
             CleanupCurrentRoomView();
+            _boundRoom = room;
 
             // 1. 创建表现层根节点
             _currentRoomViewRoot = new GameObject($"[View] Room_{room.RoomId}");
@@ -118,6 +129,8 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
                 Destroy(_currentRoomViewRoot);
                 _currentRoomViewRoot = null;
             }
+
+            _boundRoom = null;
 
             // 兜底清理所有房间面板
             UIKit.ClosePanel<Panel_StellarNetRoom>();

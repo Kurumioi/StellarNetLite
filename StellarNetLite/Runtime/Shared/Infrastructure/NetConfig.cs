@@ -82,6 +82,17 @@ namespace StellarNet.Lite.Shared.Infrastructure
         /// 最低客户端版本号。
         /// </summary>
         public string MinClientVersion = "0.0.1";
+
+        /// <summary>
+        /// 房间工作线程数量。
+        /// 0 表示按 CPU 数量自动计算。
+        /// </summary>
+        public int RoomWorkerCount = 0;
+
+        /// <summary>
+        /// 房间工作线程自动计算时预留给其它任务的 CPU 数量。
+        /// </summary>
+        public int RoomWorkerReserveCpuCount = 1;
     }
 
     /// <summary>
@@ -388,6 +399,20 @@ namespace StellarNet.Lite.Shared.Infrastructure
             {
                 NetLogger.LogWarning("NetConfigLoader", $"配置修正: MinClientVersion 为空，已回退默认值 0.0.1。Path:{fullPath}");
                 config.MinClientVersion = "0.0.1";
+            }
+
+            if (config.RoomWorkerCount < 0)
+            {
+                NetLogger.LogWarning("NetConfigLoader", $"配置修正: RoomWorkerCount 非法，已回退默认值 0。Path:{fullPath}, Value:{config.RoomWorkerCount}");
+                config.RoomWorkerCount = 0;
+            }
+
+            if (config.RoomWorkerReserveCpuCount < 0)
+            {
+                NetLogger.LogWarning(
+                    "NetConfigLoader",
+                    $"配置修正: RoomWorkerReserveCpuCount 非法，已回退默认值 1。Path:{fullPath}, Value:{config.RoomWorkerReserveCpuCount}");
+                config.RoomWorkerReserveCpuCount = 1;
             }
         }
 

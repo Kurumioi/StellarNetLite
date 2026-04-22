@@ -17,6 +17,7 @@ public class Panel_SocialRoomView : UIPanelBase
     [Header("UI 引用")] [SerializeField] private TMP_InputField chatInput;
     [SerializeField] private Button sendBtn;
     [SerializeField] private Button endGameBtn;
+    [SerializeField] private Button leaveRoomBtn;
     [SerializeField] private RectTransform bubbleContainer;
     [SerializeField] private GameObject bubblePrefab;
 
@@ -31,6 +32,7 @@ public class Panel_SocialRoomView : UIPanelBase
         base.OnInit();
         sendBtn.onClick.AddListener(OnSendBtnClick);
         endGameBtn.onClick.AddListener(OnEndGameBtnClick);
+        leaveRoomBtn.onClick.AddListener(OnLeaveRoomBtnClick);
         chatInput.onSubmit.AddListener(OnChatInputSubmit);
     }
 
@@ -45,7 +47,7 @@ public class Panel_SocialRoomView : UIPanelBase
             _spawnerView = FindObjectOfType<StellarNet.Lite.Client.Components.Views.ObjectSpawnerView>();
             _inputController = gameObject.GetComponent<StellarNet.Lite.Game.Client.Views.SocialRoomInputController>();
             if (_inputController == null) _inputController = gameObject.AddComponent<StellarNet.Lite.Game.Client.Views.SocialRoomInputController>();
-            
+
             _inputController.Init(NetClient.CurrentRoom);
 
             NetClient.CurrentRoom.NetEventSystem.Register<S2C_SocialBubbleSync>(HandleBubbleSync).UnRegisterWhenMonoDisable(this);
@@ -87,6 +89,7 @@ public class Panel_SocialRoomView : UIPanelBase
     private void OnDestroy()
     {
         sendBtn?.onClick.RemoveListener(OnSendBtnClick);
+        leaveRoomBtn?.onClick.RemoveListener(OnLeaveRoomBtnClick);
         endGameBtn?.onClick.RemoveListener(OnEndGameBtnClick);
         chatInput?.onSubmit.RemoveListener(OnChatInputSubmit);
     }
@@ -141,6 +144,7 @@ public class Panel_SocialRoomView : UIPanelBase
                 existingBubble.UpdateContent(content, 4f);
                 return;
             }
+
             _activeBubbles.Remove(netId);
         }
 
@@ -173,6 +177,7 @@ public class Panel_SocialRoomView : UIPanelBase
         {
             if (kvp.Value != null) Destroy(kvp.Value.gameObject);
         }
+
         _activeBubbles.Clear();
     }
 
@@ -210,5 +215,10 @@ public class Panel_SocialRoomView : UIPanelBase
     {
         if (_inputController != null) _inputController.RequestEndGame();
         else NetClient.Send(new C2S_EndGame());
+    }
+
+    private void OnLeaveRoomBtnClick()
+    {
+        NetClient.Send(new C2S_DisconnectRoom());
     }
 }

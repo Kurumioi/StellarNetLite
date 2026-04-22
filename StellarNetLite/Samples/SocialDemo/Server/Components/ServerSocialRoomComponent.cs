@@ -299,5 +299,6 @@ namespace StellarNet.Lite.Game.Server.Components
             string safeContent = msg.Content.Length > 30 ? msg.Content.Substring(0, 30) + "..." : msg.Content;
             Room.BroadcastMessage(new S2C_SocialBubbleSync { NetId = netId, Content = safeContent }, false);
         }
+
     }
 }

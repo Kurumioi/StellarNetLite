@@ -48,6 +48,7 @@ namespace StellarNet.Lite.Client.Core
         /// </summary>
         public bool IsReconnecting { get; set; }
 
+
         /// <summary>
         /// 设置当前账号 Id。
         /// </summary>
@@ -137,7 +138,6 @@ namespace StellarNet.Lite.Client.Core
         {
             LastBoundRoomId = string.Empty;
             IsReconnecting = false;
-
             NetLogger.LogInfo("ClientSession", "重连上下文清理完成", sessionId: SessionId);
         }
     }

@@ -146,6 +146,37 @@ namespace StellarNet.Lite.Shared.Protocol
     }
 
     /// <summary>
+    /// 挂起当前房间请求。
+    /// 当前会话回到大厅，但服务端保留该房间的可恢复状态。
+    /// </summary>
+    [NetMsg(209, NetScope.Global, NetDir.C2S)]
+    public sealed class C2S_DisconnectRoom
+    {
+    }
+
+    /// <summary>
+    /// 挂起当前房间结果。
+    /// </summary>
+    [NetMsg(217, NetScope.Global, NetDir.S2C)]
+    public sealed class S2C_DisconnectRoomResult
+    {
+        /// <summary>
+        /// 是否挂起成功。
+        /// </summary>
+        public bool Success;
+
+        /// <summary>
+        /// 被挂起的房间 Id。
+        /// </summary>
+        public string RoomId;
+
+        /// <summary>
+        /// 失败原因。
+        /// </summary>
+        public string Reason;
+    }
+
+    /// <summary>
     /// 房间装配完成确认。
     /// </summary>
     [NetMsg(206, NetScope.Global, NetDir.C2S)]

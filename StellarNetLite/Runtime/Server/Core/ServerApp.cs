@@ -20,9 +20,11 @@ namespace StellarNet.Lite.Server.Core
         public object SyncRoot { get; } = new object();
         public float CurrentRealtimeSinceStartup { get; private set; }
         public DateTime CurrentUtcNow { get; private set; }
+        public ServerRoomScheduler RoomScheduler { get; private set; }
 
         private readonly INetworkTransport _transport;
         private readonly INetSerializer _serializer;
+        private readonly ServerOutboundDispatcher _outboundDispatcher = new ServerOutboundDispatcher();
 
         #region 核心状态字典 (路由索引)
         private readonly Dictionary<string, Session> _sessions = new Dictionary<string, Session>();
@@ -52,6 +54,52 @@ namespace StellarNet.Lite.Server.Core
             CurrentUtcNow = utcNow;
         }
 
+        public void AttachRoomScheduler(ServerRoomScheduler scheduler)
+        {
+            RoomScheduler = scheduler;
+        }
+
+        public void FlushOutboundPackets()
+        {
+            _outboundDispatcher.Drain(_transport);
+        }
+
+        public RoomRuntimeSnapshot[] CaptureRoomRuntimeSnapshots()
+        {
+            var snapshots = new RoomRuntimeSnapshot[_rooms.Count];
+            int index = 0;
+            foreach (KeyValuePair<string, Room> kvp in _rooms)
+            {
+                Room room = kvp.Value;
+                if (room == null)
+                {
+                    continue;
+                }
+
+                snapshots[index++] = room.GetRuntimeSnapshot();
+            }
+
+            if (index != snapshots.Length)
+            {
+                Array.Resize(ref snapshots, index);
+            }
+
+            return snapshots;
+        }
+
+        public RoomDetailedSnapshot CaptureRoomDetailedSnapshot(string roomId)
+        {
+            Room room = GetRoom(roomId);
+            return room != null ? room.CaptureDetailedSnapshot() : null;
+        }
+
+        public (int WorkerId, int Rooms, int Pending, float AvgTickMs, float LoadScore)[] CaptureRoomWorkerStats()
+        {
+            return RoomScheduler != null
+                ? RoomScheduler.CaptureWorkerStats()
+                : Array.Empty<(int WorkerId, int Rooms, int Pending, float AvgTickMs, float LoadScore)>();
+        }
+
         #region 生命周期与 GC
 
         public void Dispose()
@@ -69,6 +117,7 @@ namespace StellarNet.Lite.Server.Core
             _accountToSession.Clear();
             _globalModules.Clear();
             GlobalDispatcher.Clear();
+            RoomScheduler = null;
         }
 
         public void Tick()
@@ -88,16 +137,20 @@ namespace StellarNet.Lite.Server.Core
             {
                 Room room = kvp.Value;
                 if (room == null) continue;
-                room.UpdateRuntimeContext(CurrentRealtimeSinceStartup, now);
-                room.Tick();
+                RoomRuntimeSnapshot snapshot = room.GetRuntimeSnapshot();
+                if (snapshot == null)
+                {
+                    continue;
+                }
 
-                if ((now - room.CreateTime).TotalHours >= Config.MaxRoomLifetimeHours)
+                if ((now - snapshot.CreateTimeUtc).TotalHours >= Config.MaxRoomLifetimeHours)
                 {
                     _gcRoomCache.Add(room.RoomId);
                     continue;
                 }
 
-                if (room.MemberCount == 0 && (now - room.EmptySince).TotalMinutes >= Config.EmptyRoomTimeoutMinutes)
+                if (snapshot.MemberCount == 0 && snapshot.EmptySinceUtc != DateTime.MaxValue &&
+                    (now - snapshot.EmptySinceUtc).TotalMinutes >= Config.EmptyRoomTimeoutMinutes)
                 {
                     _gcRoomCache.Add(room.RoomId);
                 }
@@ -212,7 +265,14 @@ namespace StellarNet.Lite.Server.Core
                     return;
                 }
 
-                room.Dispatcher.Dispatch(session, packet);
+                if (RoomScheduler != null)
+                {
+                    RoomScheduler.DispatchPacketToRoom(room, session, packet);
+                }
+                else
+                {
+                    room.DispatchPacket(session, packet);
+                }
             }
         }
 
@@ -277,9 +337,19 @@ namespace StellarNet.Lite.Server.Core
                 return null;
             }
 
-            var room = new Room(roomId, _transport, _serializer, Config);
+            var room = new Room(roomId, _outboundDispatcher, _serializer, Config);
             _rooms.Add(roomId, room);
             return room;
+        }
+
+        public void RegisterRoomToScheduler(Room room)
+        {
+            if (_isDisposed || room == null || RoomScheduler == null)
+            {
+                return;
+            }
+
+            RoomScheduler.RegisterRoom(room);
         }
 
         public void DestroyRoom(string roomId)
@@ -288,6 +358,7 @@ namespace StellarNet.Lite.Server.Core
 
             if (_rooms.TryGetValue(roomId, out Room room) && room != null)
             {
+                RoomScheduler?.UnregisterRoom(roomId);
                 room.Destroy();
                 _rooms.Remove(roomId);
             }
