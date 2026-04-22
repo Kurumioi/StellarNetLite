@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using StellarNet.Lite.Client.Components;
+using StellarNet.Lite.Client.Core;
 using UnityEngine;
 
 namespace StellarNet.Lite.Client.Components.Views
@@ -64,6 +65,12 @@ namespace StellarNet.Lite.Client.Components.Views
         /// </summary>
         [Header("服务端逻辑状态映射")]
         public List<string> SyncedStateNames = new List<string> { "Idle", "Walk", "Wave", "Dance" };
+
+        /// <summary>
+        /// 当前对象是否为本地玩家。
+        /// 本地玩家在线态下使用本地动画驱动，不再依赖网络回写。
+        /// </summary>
+        public bool IsLocalPlayer { get; set; }
 
         // 当前实体身份组件。
         private NetIdentity _identity;
@@ -165,6 +172,11 @@ namespace StellarNet.Lite.Client.Components.Views
         private void Update()
         {
             if (_identity == null || _identity.SyncService == null || TargetAnimator == null)
+            {
+                return;
+            }
+
+            if (IsLocalPlayer && NetClient.State == ClientAppState.OnlineRoom)
             {
                 return;
             }

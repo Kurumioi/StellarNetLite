@@ -116,16 +116,6 @@ namespace StellarNet.Lite.Shared.Core
             NetLogger.LogInfo(
                 "NetMessageMapper",
                 $"协议静态注册完成: Total:{TypeToMetaCache.Count}, C2S:{c2sCount}, S2C:{s2cCount}, Global:{globalCount}, Room:{roomCount}");
-
-            // 核心协议缺失直接阻断启动，避免框架带病运行。
-            bool hasLogin = TypeToMetaCache.Values.Any(m => m.Id == 100);
-            bool hasCreateRoom = TypeToMetaCache.Values.Any(m => m.Id == 200);
-            bool hasJoinRoom = TypeToMetaCache.Values.Any(m => m.Id == 202);
-
-            if (!hasLogin || !hasCreateRoom || !hasJoinRoom)
-            {
-                throw new Exception("[NetMessageMapper] 致命阻断: 核心协议(Login/CreateRoom/JoinRoom)缺失。");
-            }
         }
 
         public static bool TryGetMeta(Type msgType, out NetMessageMeta meta)

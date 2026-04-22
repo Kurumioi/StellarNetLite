@@ -273,6 +273,7 @@ namespace StellarNet.Lite.Client.Components.Runtime
                     state.FloatParam1,
                     state.FloatParam2,
                     state.FloatParam3);
+                animView.IsLocalPlayer = NetClient.Session != null && state.OwnerSessionId == NetClient.Session.SessionId;
             }
         }
     }

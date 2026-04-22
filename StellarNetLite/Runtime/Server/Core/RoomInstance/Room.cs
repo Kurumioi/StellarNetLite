@@ -1,11 +1,9 @@
 ﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
-using StellarNet.Lite.Server.Components;
 using StellarNet.Lite.Server.Infrastructure;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
-using StellarNet.Lite.Shared.Replay;
 
 namespace StellarNet.Lite.Server.Core
 {
@@ -25,7 +23,6 @@ namespace StellarNet.Lite.Server.Core
     /// </summary>
     public sealed class Room
     {
-        private const int ReplaySnapshotIntervalTicks = 150;
         private readonly object _gate = new object();
 
         public string RoomId { get; }
@@ -55,22 +52,26 @@ namespace StellarNet.Lite.Server.Core
         private readonly ServerOutboundDispatcher _outboundDispatcher;
         private readonly INetSerializer _serializer;
         private readonly NetConfig _netConfig;
+        private readonly IRoomRecordingService _roomRecordingService;
+        private readonly IRoomMembershipNotifier _roomMembershipNotifier;
 
         private int _finishedTickCount;
         private int _recordStartTick;
         private bool _isDestroyed;
-        private bool _hasWrittenInitialReplaySnapshot;
         private int _assignedWorkerId = -1;
         private float _workerAverageTickMs;
         private RoomRuntimeSnapshot _runtimeSnapshot;
 
-        public Room(string roomId, ServerOutboundDispatcher outboundDispatcher, INetSerializer serializer, NetConfig config)
+        public Room(string roomId, ServerOutboundDispatcher outboundDispatcher, INetSerializer serializer, NetConfig config,
+            IRoomRecordingService roomRecordingService, IRoomMembershipNotifier roomMembershipNotifier)
         {
             RoomId = roomId;
             Dispatcher = new RoomDispatcher(roomId);
             _outboundDispatcher = outboundDispatcher;
             _serializer = serializer;
             _netConfig = config ?? new NetConfig();
+            _roomRecordingService = roomRecordingService;
+            _roomMembershipNotifier = roomMembershipNotifier;
             CreateTime = DateTime.UtcNow;
             EmptySince = DateTime.UtcNow;
             CurrentTick = 0;
@@ -557,14 +558,16 @@ namespace StellarNet.Lite.Server.Core
 
                 State = RoomState.Playing;
                 LastReplayId = string.Empty;
-                _hasWrittenInitialReplaySnapshot = false;
                 StartRecord();
                 for (int i = 0; i < _components.Count; i++)
                 {
                     _components[i].OnGameStart();
                 }
 
-                TryRecordInitialReplaySnapshot();
+                if (IsRecording)
+                {
+                    _roomRecordingService?.RecordInitialSnapshot(this, _components, CurrentTick - _recordStartTick);
+                }
                 RefreshRuntimeSnapshotUnsafe();
             }
         }
@@ -584,7 +587,10 @@ namespace StellarNet.Lite.Server.Core
                     return;
                 }
 
-                TryRecordFinalReplaySnapshot();
+                if (IsRecording)
+                {
+                    _roomRecordingService?.RecordFinalSnapshot(this, _components, CurrentTick - _recordStartTick);
+                }
                 State = RoomState.Finished;
                 _finishedTickCount = 0;
                 if (IsRecording)
@@ -654,7 +660,7 @@ namespace StellarNet.Lite.Server.Core
                 if (recordToReplay && IsRecording)
                 {
                     int relativeTick = CurrentTick - _recordStartTick;
-                    ServerReplayStorage.RecordFrame(RoomId, relativeTick, meta.Id, buffer, length);
+                    _roomRecordingService?.RecordMessage(this, relativeTick, meta.Id, buffer, length);
                 }
 
                 int[] targets = new int[_members.Count];
@@ -747,7 +753,7 @@ namespace StellarNet.Lite.Server.Core
                 if (recordToReplay && IsRecording)
                 {
                     int relativeTick = CurrentTick - _recordStartTick;
-                    ServerReplayStorage.RecordFrame(RoomId, relativeTick, meta.Id, buffer, length);
+                    _roomRecordingService?.RecordMessage(this, relativeTick, meta.Id, buffer, length);
                 }
 
                 _outboundDispatcher.EnqueueSingle(session.ConnectionId, packet, true);
@@ -779,7 +785,7 @@ namespace StellarNet.Lite.Server.Core
                     }
 
                     int relativeTick = CurrentTick - _recordStartTick;
-                    ServerReplayStorage.RecordFrame(RoomId, relativeTick, meta.Id, buffer, length);
+                    _roomRecordingService?.RecordMessage(this, relativeTick, meta.Id, buffer, length);
                 }
                 finally
                 {
@@ -798,26 +804,16 @@ namespace StellarNet.Lite.Server.Core
                     return;
                 }
 
-                if (_netConfig != null && !_netConfig.EnableReplayRecording)
+                if (_roomRecordingService == null || !_roomRecordingService.CanStartRecording(this))
                 {
                     IsRecording = false;
-                    _hasWrittenInitialReplaySnapshot = false;
-                    RefreshRuntimeSnapshotUnsafe();
-                    return;
-                }
-
-                if (!Config.EnableReplayRecording)
-                {
-                    IsRecording = false;
-                    _hasWrittenInitialReplaySnapshot = false;
                     RefreshRuntimeSnapshotUnsafe();
                     return;
                 }
 
                 IsRecording = true;
                 _recordStartTick = CurrentTick;
-                _hasWrittenInitialReplaySnapshot = false;
-                ServerReplayStorage.StartRecord(RoomId);
+                _roomRecordingService.StartRecording(this);
                 RefreshRuntimeSnapshotUnsafe();
             }
         }
@@ -827,8 +823,9 @@ namespace StellarNet.Lite.Server.Core
             lock (_gate)
             {
                 IsRecording = false;
-                string replayId = Guid.NewGuid().ToString("N");
-                ServerReplayStorage.StopRecordAndSave(RoomId, replayId, displayName, ComponentIds, _netConfig, totalTicks);
+                string replayId = _roomRecordingService != null
+                    ? _roomRecordingService.StopRecordingAndSave(this, displayName, totalTicks, ComponentIds, _netConfig != null ? _netConfig.TickRate : 0)
+                    : string.Empty;
                 RefreshRuntimeSnapshotUnsafe();
                 return replayId;
             }
@@ -857,7 +854,10 @@ namespace StellarNet.Lite.Server.Core
                 }
 
                 CurrentTick++;
-                TryRecordPeriodicReplaySnapshot();
+                if (IsRecording)
+                {
+                    _roomRecordingService?.RecordPeriodicSnapshot(this, _components, CurrentTick - _recordStartTick);
+                }
                 for (int i = 0; i < _tickableComponents.Count; i++)
                 {
                     _tickableComponents[i].OnTick();
@@ -878,9 +878,7 @@ namespace StellarNet.Lite.Server.Core
                                 continue;
                             }
 
-                            StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult kickMsg =
-                                new StellarNet.Lite.Shared.Protocol.S2C_LeaveRoomResult { Success = true };
-                            SendMessageTo(session, kickMsg);
+                            _roomMembershipNotifier?.NotifyForcedLeave(this, session);
                             RemoveMember(session);
                         }
                     }
@@ -908,7 +906,7 @@ namespace StellarNet.Lite.Server.Core
 
                 if (IsRecording)
                 {
-                    ServerReplayStorage.AbortRecord(RoomId);
+                    _roomRecordingService?.AbortRecording(this);
                     IsRecording = false;
                 }
 
@@ -981,91 +979,5 @@ namespace StellarNet.Lite.Server.Core
             };
         }
 
-        #region ================= 回放关键帧录制 (核心解耦) =================
-
-        private void TryRecordInitialReplaySnapshot()
-        {
-            if (!IsRecording || _hasWrittenInitialReplaySnapshot || !HasReplaySnapshotSupport()) return;
-            bool recorded = RecordReplaySnapshotAtCurrentTick();
-            if (!recorded)
-            {
-                NetLogger.LogError("Room", $"记录开局关键帧失败, RoomId:{RoomId}, CurrentTick:{CurrentTick}, IsRecording:{IsRecording}");
-                return;
-            }
-
-            _hasWrittenInitialReplaySnapshot = true;
-        }
-
-        private void TryRecordPeriodicReplaySnapshot()
-        {
-            if (!IsRecording || State != RoomState.Playing || !HasReplaySnapshotSupport()) return;
-
-            int relativeTick = CurrentTick - _recordStartTick;
-            if (relativeTick <= 0 || relativeTick % ReplaySnapshotIntervalTicks != 0) return;
-
-            bool recorded = RecordReplaySnapshotAtCurrentTick();
-            if (!recorded)
-            {
-                NetLogger.LogError("Room", $"记录周期关键帧失败, RoomId:{RoomId}, CurrentTick:{CurrentTick}, RelativeTick:{relativeTick}");
-            }
-        }
-
-        private void TryRecordFinalReplaySnapshot()
-        {
-            if (!IsRecording || !HasReplaySnapshotSupport()) return;
-            bool recorded = RecordReplaySnapshotAtCurrentTick();
-            if (!recorded)
-            {
-                NetLogger.LogError("Room", $"记录终局关键帧失败, RoomId:{RoomId}, CurrentTick:{CurrentTick}, IsRecording:{IsRecording}");
-            }
-        }
-
-        private bool HasReplaySnapshotSupport()
-        {
-            for (int i = 0; i < _components.Count; i++)
-            {
-                if (_components[i] is IReplaySnapshotProvider) return true;
-            }
-
-            return false;
-        }
-
-        private bool RecordReplaySnapshotAtCurrentTick()
-        {
-            if (!IsRecording) return false;
-
-            int relativeTick = CurrentTick - _recordStartTick;
-            if (relativeTick < 0) return false;
-
-            var snapshots = new List<ComponentSnapshotData>();
-            for (int i = 0; i < _components.Count; i++)
-            {
-                if (_components[i] is IReplaySnapshotProvider provider)
-                {
-                    byte[] payload = provider.ExportSnapshot();
-                    if (payload != null)
-                    {
-                        snapshots.Add(new ComponentSnapshotData
-                        {
-                            ComponentId = provider.SnapshotComponentId,
-                            Payload = payload
-                        });
-                    }
-                }
-            }
-
-            if (snapshots.Count == 0) return false;
-
-            ReplaySnapshotFrame snapshotFrame = new ReplaySnapshotFrame
-            {
-                Tick = relativeTick,
-                ComponentSnapshots = snapshots.ToArray()
-            };
-
-            ServerReplayStorage.RecordSnapshotFrame(RoomId, snapshotFrame);
-            return true;
-        }
-
-        #endregion
     }
 }

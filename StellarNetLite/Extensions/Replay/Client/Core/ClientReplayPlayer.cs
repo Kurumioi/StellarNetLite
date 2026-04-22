@@ -450,12 +450,12 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
-            if (_app.State == ClientAppState.ReplayRoom)
+            if (_app.State == ClientAppState.SandboxRoom)
             {
                 _app.LeaveRoom(true);
             }
 
-            _app.EnterReplayRoom(_roomId);
+            _app.EnterSandboxRoom(_roomId);
             if (_app.CurrentRoom == null)
             {
                 NetLogger.LogError("ClientReplayPlayer", $"重启回放沙盒失败: CurrentRoom 创建失败, RoomId:{_roomId}");

@@ -13,10 +13,14 @@ namespace StellarNet.Lite.Game.Server.Components
 {
     /// <summary>
     /// Demo 社交房间服务端组件。
+    /// 当前采用：
+    /// 1. 客户端本地产生真实移动/动作结果
+    /// 2. 服务端做轻量合法性校验
+    /// 3. 服务端立刻转发最新状态给房间成员
+    /// 4. 周期 ObjectSync 仍负责兜底校正与回放录制
     /// </summary>
     [RoomComponent(102, "SocialRoom", "简易交友房间")]
-    public sealed class ServerSocialRoomComponent
-        : ServerRoomComponent, ITickableComponent
+    public sealed class ServerSocialRoomComponent : ServerRoomComponent, ITickableComponent
     {
         private readonly ServerApp _app;
         private ServerObjectSyncComponent _syncService;
@@ -31,6 +35,8 @@ namespace StellarNet.Lite.Game.Server.Components
         private static readonly int AnimHash_Dance = GetStableStringHash("Dance");
 
         private const float PlayerMoveSpeed = 4.0f;
+        private const float WaveDurationSeconds = 2.5f;
+        private const float DanceDurationSeconds = 4.0f;
 
         public ServerSocialRoomComponent(ServerApp app)
         {
@@ -64,7 +70,7 @@ namespace StellarNet.Lite.Game.Server.Components
 
             _sessionToNetId.Clear();
             _actionEndTimes.Clear();
-            foreach (var kvp in Room.Members)
+            foreach (KeyValuePair<string, Session> kvp in Room.Members)
             {
                 SpawnPlayerForSession(kvp.Value);
             }
@@ -92,7 +98,7 @@ namespace StellarNet.Lite.Game.Server.Components
         {
             if (_syncService != null)
             {
-                foreach (var kvp in _sessionToNetId)
+                foreach (KeyValuePair<string, int> kvp in _sessionToNetId)
                 {
                     _syncService.DestroyObject(kvp.Value);
                 }
@@ -104,7 +110,7 @@ namespace StellarNet.Lite.Game.Server.Components
 
         private void SpawnPlayerForSession(Session session)
         {
-            if (_syncService == null || _sessionToNetId.ContainsKey(session.SessionId))
+            if (_syncService == null || session == null || _sessionToNetId.ContainsKey(session.SessionId))
             {
                 return;
             }
@@ -117,18 +123,22 @@ namespace StellarNet.Lite.Game.Server.Components
 
             Vector3 spawnPos = GetRandomSpawnPosition(3f);
             ServerSyncEntity syncEntity = _syncService.SpawnObject(
-                PlayerPrefabHash, EntitySyncMask.All, spawnPos, Vector3.zero, Vector3.zero, session.SessionId);
+                PlayerPrefabHash,
+                EntitySyncMask.All,
+                spawnPos,
+                Vector3.zero,
+                Vector3.zero,
+                session.SessionId);
 
-            if (syncEntity != null)
-            {
-                syncEntity.AnimStateHash = AnimHash_Idle;
-                syncEntity.AnimNormalizedTime = 0f;
-                _sessionToNetId.Add(session.SessionId, syncEntity.NetId);
-            }
-            else
+            if (syncEntity == null)
             {
                 NetLogger.LogError("ServerSocialRoomComponent", $"角色生成失败: SpawnObject 返回 null, PrefabHash:{PlayerPrefabHash}", Room.RoomId, session.SessionId);
+                return;
             }
+
+            syncEntity.AnimStateHash = AnimHash_Idle;
+            syncEntity.AnimNormalizedTime = 0f;
+            _sessionToNetId.Add(session.SessionId, syncEntity.NetId);
         }
 
         private Vector3 GetRandomSpawnPosition(float radius)
@@ -169,7 +179,7 @@ namespace StellarNet.Lite.Game.Server.Components
             float deltaTime = 1f / _app.Config.TickRate;
             float currentTime = Room.CurrentRealtimeSinceStartup;
 
-            foreach (var kvp in _sessionToNetId)
+            foreach (KeyValuePair<string, int> kvp in _sessionToNetId)
             {
                 ServerSyncEntity playerSync = _syncService.GetEntity(kvp.Value);
                 if (playerSync == null)
@@ -177,18 +187,18 @@ namespace StellarNet.Lite.Game.Server.Components
                     continue;
                 }
 
-                // 服务端按速度积分位置，降低广播坐标与客户端真实位置的偏差。
                 if (playerSync.Velocity.sqrMagnitude > 0.01f)
                 {
                     playerSync.Position += playerSync.Velocity * deltaTime;
                 }
-                else if (playerSync.AnimStateHash == AnimHash_Wave || playerSync.AnimStateHash == AnimHash_Dance)
+                else if ((playerSync.AnimStateHash == AnimHash_Wave || playerSync.AnimStateHash == AnimHash_Dance) &&
+                         _actionEndTimes.TryGetValue(playerSync.NetId, out float endTime) &&
+                         currentTime > endTime)
                 {
-                    if (_actionEndTimes.TryGetValue(playerSync.NetId, out float endTime) && currentTime > endTime)
-                    {
-                        playerSync.AnimStateHash = AnimHash_Idle;
-                        playerSync.AnimNormalizedTime = 0f;
-                    }
+                    _actionEndTimes.Remove(playerSync.NetId);
+                    playerSync.AnimStateHash = AnimHash_Idle;
+                    playerSync.AnimNormalizedTime = 0f;
+                    BroadcastLiveState(playerSync);
                 }
             }
         }
@@ -196,7 +206,7 @@ namespace StellarNet.Lite.Game.Server.Components
         [NetHandler]
         public void OnC2S_SocialMoveReq(Session session, C2S_SocialMoveReq msg)
         {
-            if (Room.State != RoomState.Playing || _syncService == null)
+            if (Room.State != RoomState.Playing || _syncService == null || session == null)
             {
                 return;
             }
@@ -214,12 +224,7 @@ namespace StellarNet.Lite.Game.Server.Components
 
             Vector3 newPos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             Vector3 newVel = new Vector3(msg.VelX, msg.VelY, msg.VelZ);
-
-            // 标量校验：因为服务端恢复了积分，此时 playerSync.Position 是服务端预测的位置
-            // 客户端发来的 newPos 是客户端的真实位置，两者距离应该极小。
             float distance = Vector3.Distance(playerSync.Position, newPos);
-
-            // 允许的最大位移容差 (适当放宽以应对网络抖动)
             float maxAllowedDistance = PlayerMoveSpeed * 1.5f;
 
             if (distance > maxAllowedDistance && playerSync.Position != Vector3.zero)
@@ -228,13 +233,13 @@ namespace StellarNet.Lite.Game.Server.Components
                 return;
             }
 
-            // 校验通过后使用客户端位置覆盖服务端预测位置，消除积分误差。
             playerSync.Position = newPos;
             playerSync.Velocity = newVel;
             playerSync.Rotation = new Vector3(0f, msg.RotY, 0f);
 
             if (newVel.sqrMagnitude > 0.01f)
             {
+                _actionEndTimes.Remove(netId);
                 if (playerSync.AnimStateHash != AnimHash_Walk)
                 {
                     playerSync.AnimStateHash = AnimHash_Walk;
@@ -246,12 +251,14 @@ namespace StellarNet.Lite.Game.Server.Components
                 playerSync.AnimStateHash = AnimHash_Idle;
                 playerSync.AnimNormalizedTime = 0f;
             }
+
+            BroadcastLiveState(playerSync);
         }
 
         [NetHandler]
         public void OnC2S_SocialActionReq(Session session, C2S_SocialActionReq msg)
         {
-            if (Room.State != RoomState.Playing || _syncService == null)
+            if (Room.State != RoomState.Playing || _syncService == null || session == null)
             {
                 return;
             }
@@ -273,20 +280,22 @@ namespace StellarNet.Lite.Game.Server.Components
             {
                 playerSync.AnimStateHash = AnimHash_Wave;
                 playerSync.AnimNormalizedTime = 0f;
-                _actionEndTimes[netId] = Room.CurrentRealtimeSinceStartup + 2.5f;
+                _actionEndTimes[netId] = Room.CurrentRealtimeSinceStartup + WaveDurationSeconds;
+                BroadcastLiveState(playerSync);
             }
             else if (msg.ActionId == 2)
             {
                 playerSync.AnimStateHash = AnimHash_Dance;
                 playerSync.AnimNormalizedTime = 0f;
-                _actionEndTimes[netId] = Room.CurrentRealtimeSinceStartup + 4.0f;
+                _actionEndTimes[netId] = Room.CurrentRealtimeSinceStartup + DanceDurationSeconds;
+                BroadcastLiveState(playerSync);
             }
         }
 
         [NetHandler]
         public void OnC2S_SocialBubbleReq(Session session, C2S_SocialBubbleReq msg)
         {
-            if (string.IsNullOrWhiteSpace(msg.Content) || Room.State != RoomState.Playing)
+            if (string.IsNullOrWhiteSpace(msg.Content) || Room.State != RoomState.Playing || session == null)
             {
                 return;
             }
@@ -300,5 +309,61 @@ namespace StellarNet.Lite.Game.Server.Components
             Room.BroadcastMessage(new S2C_SocialBubbleSync { NetId = netId, Content = safeContent }, false);
         }
 
+        private void BroadcastLiveState(ServerSyncEntity entity)
+        {
+            if (entity == null)
+            {
+                return;
+            }
+
+            Room.BroadcastMessage(new S2C_SocialStateSync
+            {
+                ServerTime = Room.CurrentRealtimeSinceStartup,
+                State = BuildLiveState(entity)
+            }, true);
+        }
+
+        private static ObjectSyncState BuildLiveState(ServerSyncEntity entity)
+        {
+            return new ObjectSyncState
+            {
+                NetId = entity.NetId,
+                Mask = entity.Mask,
+                DirtyMask = BuildFullDirtyMask(entity.Mask),
+                PosX = entity.Position.x,
+                PosY = entity.Position.y,
+                PosZ = entity.Position.z,
+                RotX = entity.Rotation.x,
+                RotY = entity.Rotation.y,
+                RotZ = entity.Rotation.z,
+                VelX = entity.Velocity.x,
+                VelY = entity.Velocity.y,
+                VelZ = entity.Velocity.z,
+                ScaleX = Mathf.Approximately(entity.Scale.x, 0f) ? 1f : entity.Scale.x,
+                ScaleY = Mathf.Approximately(entity.Scale.y, 0f) ? 1f : entity.Scale.y,
+                ScaleZ = Mathf.Approximately(entity.Scale.z, 0f) ? 1f : entity.Scale.z,
+                AnimStateHash = entity.AnimStateHash,
+                AnimNormalizedTime = entity.AnimNormalizedTime,
+                FloatParam1 = entity.FloatParam1,
+                FloatParam2 = entity.FloatParam2,
+                FloatParam3 = entity.FloatParam3
+            };
+        }
+
+        private static ushort BuildFullDirtyMask(byte entityMask)
+        {
+            ObjectSyncDirtyMask dirtyMask = ObjectSyncDirtyMask.None;
+            if ((entityMask & (byte)EntitySyncMask.Transform) != 0)
+            {
+                dirtyMask |= ObjectSyncDirtyMask.AllTransform;
+            }
+
+            if ((entityMask & (byte)EntitySyncMask.Animator) != 0)
+            {
+                dirtyMask |= ObjectSyncDirtyMask.AllAnimator;
+            }
+
+            return (ushort)dirtyMask;
+        }
     }
 }

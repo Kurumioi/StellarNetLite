@@ -1,4 +1,4 @@
-﻿#if UNITY_EDITOR
+#if UNITY_EDITOR
 using System.IO;
 using Newtonsoft.Json;
 using StellarNet.Lite.Shared.Infrastructure;
@@ -9,17 +9,19 @@ namespace StellarNet.Lite.Editor
 {
     /// <summary>
     /// 网络配置编辑器窗口。
+    /// Runtime / Replay / ObjectSync 三套配置统一在这里编辑，但保存为独立文件。
     /// </summary>
     public sealed class NetConfigEditorWindow : EditorWindow
     {
-        // 当前编辑中的配置对象和目标根目录。
-        private NetConfig _currentConfig = new NetConfig();
-
+        private NetConfig _runtimeConfig = new NetConfig();
+        private ReplayGlobalConfig _replayConfig = new ReplayGlobalConfig();
+        private ObjectSyncGlobalConfig _objectSyncConfig = new ObjectSyncGlobalConfig();
         private ConfigRootPath _targetRoot = ConfigRootPath.StreamingAssets;
 
-        // GUI 状态缓存。
         private string _loadedSnapshotJson = string.Empty;
-        private string _currentResolvedPath = string.Empty;
+        private string _runtimePath = string.Empty;
+        private string _replayPath = string.Empty;
+        private string _objectSyncPath = string.Empty;
         private Vector2 _scrollPos;
         private GUIStyle _headerStyle;
         private GUIStyle _pathStyle;
@@ -36,14 +38,13 @@ namespace StellarNet.Lite.Editor
         public static void ShowWindow()
         {
             NetConfigEditorWindow window = GetWindow<NetConfigEditorWindow>("NetConfig Editor");
-            window.minSize = new Vector2(460, 520);
+            window.minSize = new Vector2(500, 620);
             window.Show();
         }
 
         private void OnEnable()
         {
             _targetRoot = NetConfigLoader.LoadRuntimeRootSync();
-            // 打开窗口时按当前根目录读取一次配置。
             LoadFromCurrentRoot();
         }
 
@@ -52,18 +53,19 @@ namespace StellarNet.Lite.Editor
             InitializeStyles();
 
             GUILayout.Space(10);
-            GUILayout.Label("StellarNet Lite 全局网络配置", _headerStyle);
-            EditorGUILayout.HelpBox("这里的根目录不仅决定编辑哪个 netconfig.json，也决定运行时默认从哪个根目录读取配置。", MessageType.Info);
+            GUILayout.Label("StellarNet Lite 配置中心", _headerStyle);
+            EditorGUILayout.HelpBox("Runtime、Replay、ObjectSync 配置现在已经拆分保存，不再混写到同一个 netconfig.json。", MessageType.Info);
 
             DrawToolbar();
             DrawResolvedPathInfo();
 
             GUILayout.Space(6);
             _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos);
-
-            EnsureConfigInstance();
-            DrawConfigFields();
-
+            DrawRuntimeFields();
+            GUILayout.Space(6);
+            DrawReplayFields();
+            GUILayout.Space(6);
+            DrawObjectSyncFields();
             EditorGUILayout.EndScrollView();
 
             GUILayout.Space(10);
@@ -118,93 +120,79 @@ namespace StellarNet.Lite.Editor
                 LoadFromCurrentRoot();
             }
 
-            string dirtyText = IsDirty() ? "有未保存修改" : "当前内容已保存";
-            MessageType dirtyType = IsDirty() ? MessageType.Warning : MessageType.Info;
-            EditorGUILayout.HelpBox(dirtyText, dirtyType);
-
+            EditorGUILayout.HelpBox(IsDirty() ? "有未保存修改" : "当前内容已保存", IsDirty() ? MessageType.Warning : MessageType.Info);
             EditorGUILayout.EndVertical();
         }
 
         private void DrawResolvedPathInfo()
         {
             EditorGUILayout.BeginVertical("box");
-
             GUILayout.Label("当前配置目标路径", EditorStyles.boldLabel);
 
-            if (string.IsNullOrEmpty(_currentResolvedPath))
-            {
-                EditorGUILayout.HelpBox($"当前 Root 无法解析有效路径。Root:{_targetRoot}", MessageType.Error);
-                return;
-            }
+            EditorGUILayout.SelectableLabel(_runtimePath, _pathStyle, GUILayout.Height(34f));
+            EditorGUILayout.SelectableLabel(_replayPath, _pathStyle, GUILayout.Height(34f));
+            EditorGUILayout.SelectableLabel(_objectSyncPath, _pathStyle, GUILayout.Height(34f));
 
-            EditorGUILayout.SelectableLabel(_currentResolvedPath, _pathStyle, GUILayout.Height(34f));
-            EditorGUILayout.LabelField($"当前运行时激活根目录: {_targetRoot}", EditorStyles.miniBoldLabel);
             string runtimeRootBootstrapPath = Path
                 .Combine(Application.streamingAssetsPath, NetConfigLoader.ConfigFolderName, NetConfigLoader.RuntimeRootFileName)
                 .Replace("\\", "/");
             EditorGUILayout.SelectableLabel(runtimeRootBootstrapPath, _pathStyle, GUILayout.Height(34f));
 
-            bool configExists = File.Exists(_currentResolvedPath);
-            EditorGUILayout.HelpBox(
-                configExists ? "当前目标文件已存在；切换根目录后运行时会按这里的选择读取。" : "当前目标文件不存在，首次保存时将自动创建；若直接运行，将回退默认配置。",
-                configExists ? MessageType.None : MessageType.Warning);
-
+            EditorGUILayout.LabelField($"当前运行时激活根目录: {_targetRoot}", EditorStyles.miniBoldLabel);
             if (_targetRoot == ConfigRootPath.PersistentDataPath)
             {
-                EditorGUILayout.HelpBox("注意：PersistentDataPath 是当前设备/当前 Unity 实例自己的沙盒目录。Editor 中保存到这里的文件，不会自动跟随 Build 发布到别的机器。", MessageType.Warning);
+                EditorGUILayout.HelpBox("PersistentDataPath 是当前设备沙盒目录；保存到这里的配置不会自动跟随 Build 发布。", MessageType.Warning);
             }
 
             EditorGUILayout.EndVertical();
         }
 
-        private void DrawConfigFields()
+        private void DrawRuntimeFields()
         {
             EditorGUILayout.BeginVertical("box");
+            GUILayout.Label("Runtime Core", EditorStyles.boldLabel);
+            _runtimeConfig.Ip = EditorGUILayout.TextField("服务器 IP:", _runtimeConfig.Ip);
+            int port = EditorGUILayout.IntField("端口 (Port):", _runtimeConfig.Port);
+            _runtimeConfig.Port = (ushort)Mathf.Clamp(port, 0, 65535);
+            _runtimeConfig.MaxConnections = EditorGUILayout.IntField("最大连接数:", _runtimeConfig.MaxConnections);
+            _runtimeConfig.TickRate = EditorGUILayout.IntField("服务器帧率 (TickRate):", _runtimeConfig.TickRate);
+            _runtimeConfig.RoomWorkerCount = EditorGUILayout.IntField("房间工作线程数(0=自动):", _runtimeConfig.RoomWorkerCount);
+            _runtimeConfig.RoomWorkerReserveCpuCount = EditorGUILayout.IntField("自动模式预留CPU数:", _runtimeConfig.RoomWorkerReserveCpuCount);
+            _runtimeConfig.MaxRoomLifetimeHours = EditorGUILayout.IntField("房间最大存活(小时):", _runtimeConfig.MaxRoomLifetimeHours);
+            _runtimeConfig.OfflineTimeoutLobbyMinutes = EditorGUILayout.IntField("大厅离线GC(分钟):", _runtimeConfig.OfflineTimeoutLobbyMinutes);
+            _runtimeConfig.OfflineTimeoutRoomMinutes = EditorGUILayout.IntField("房间离线GC(分钟):", _runtimeConfig.OfflineTimeoutRoomMinutes);
+            _runtimeConfig.EmptyRoomTimeoutMinutes = EditorGUILayout.IntField("空房间熔断(分钟):", _runtimeConfig.EmptyRoomTimeoutMinutes);
+            _runtimeConfig.MinClientVersion = EditorGUILayout.TextField("最低客户端版本:", _runtimeConfig.MinClientVersion);
+            EditorGUILayout.EndVertical();
+        }
 
-            EditorGUI.BeginChangeCheck();
+        private void DrawReplayFields()
+        {
+            EditorGUILayout.BeginVertical("box");
+            GUILayout.Label("Replay Extension", EditorStyles.boldLabel);
+            _replayConfig.EnableReplayRecording = EditorGUILayout.Toggle("启用录像录制:", _replayConfig.EnableReplayRecording);
+            _replayConfig.MaxReplayFiles = EditorGUILayout.IntField("最大录像保留数:", _replayConfig.MaxReplayFiles);
+            EditorGUILayout.EndVertical();
+        }
 
-            _currentConfig.Ip = EditorGUILayout.TextField("服务器 IP:", _currentConfig.Ip);
-
-            int port = EditorGUILayout.IntField("端口 (Port):", _currentConfig.Port);
-            _currentConfig.Port = (ushort)Mathf.Clamp(port, 0, 65535);
-
-            _currentConfig.MaxConnections = EditorGUILayout.IntField("最大连接数:", _currentConfig.MaxConnections);
-            _currentConfig.TickRate = EditorGUILayout.IntField("服务器帧率 (TickRate):", _currentConfig.TickRate);
-            _currentConfig.RoomWorkerCount = EditorGUILayout.IntField("房间工作线程数(0=自动):", _currentConfig.RoomWorkerCount);
-            _currentConfig.RoomWorkerReserveCpuCount = EditorGUILayout.IntField("自动模式预留CPU数:", _currentConfig.RoomWorkerReserveCpuCount);
-            _currentConfig.ObjectSyncOnlineIntervalTicks = EditorGUILayout.IntField("对象同步广播间隔Tick:", _currentConfig.ObjectSyncOnlineIntervalTicks);
-            _currentConfig.ObjectSyncFullResyncIntervalTicks = EditorGUILayout.IntField("对象同步全量校正间隔Tick:", _currentConfig.ObjectSyncFullResyncIntervalTicks);
-            _currentConfig.EnableAdaptiveObjectSync = EditorGUILayout.Toggle("按人数自动降频对象同步:", _currentConfig.EnableAdaptiveObjectSync);
-
-            GUILayout.Space(6);
-            EditorGUILayout.LabelField("生产环境防御配置 (GC & 熔断)", EditorStyles.boldLabel);
-
-            _currentConfig.MaxRoomLifetimeHours = EditorGUILayout.IntField("房间最大存活(小时):", _currentConfig.MaxRoomLifetimeHours);
-            _currentConfig.MaxReplayFiles = EditorGUILayout.IntField("最大录像保留数:", _currentConfig.MaxReplayFiles);
-            _currentConfig.EnableReplayRecording = EditorGUILayout.Toggle("启用录像录制:", _currentConfig.EnableReplayRecording);
-            _currentConfig.ReplayObjectSyncRecordIntervalTicks =
-                EditorGUILayout.IntField("对象同步录像间隔Tick(0=仅关键帧):", _currentConfig.ReplayObjectSyncRecordIntervalTicks);
-            _currentConfig.OfflineTimeoutLobbyMinutes = EditorGUILayout.IntField("大厅离线GC(分钟):", _currentConfig.OfflineTimeoutLobbyMinutes);
-            _currentConfig.OfflineTimeoutRoomMinutes = EditorGUILayout.IntField("房间离线GC(分钟):", _currentConfig.OfflineTimeoutRoomMinutes);
-            _currentConfig.EmptyRoomTimeoutMinutes = EditorGUILayout.IntField("空房间熔断(分钟):", _currentConfig.EmptyRoomTimeoutMinutes);
-
-            GUILayout.Space(6);
-            EditorGUILayout.LabelField("版本控制策略", EditorStyles.boldLabel);
-            _currentConfig.MinClientVersion = EditorGUILayout.TextField("最低客户端版本:", _currentConfig.MinClientVersion);
-
-            if (EditorGUI.EndChangeCheck())
-            {
-                Repaint();
-            }
-
+        private void DrawObjectSyncFields()
+        {
+            EditorGUILayout.BeginVertical("box");
+            GUILayout.Label("ObjectSync Extension", EditorStyles.boldLabel);
+            _objectSyncConfig.ObjectSyncOnlineIntervalTicks =
+                EditorGUILayout.IntField("对象同步广播间隔Tick:", _objectSyncConfig.ObjectSyncOnlineIntervalTicks);
+            _objectSyncConfig.ObjectSyncFullResyncIntervalTicks =
+                EditorGUILayout.IntField("对象同步全量校正间隔Tick:", _objectSyncConfig.ObjectSyncFullResyncIntervalTicks);
+            _objectSyncConfig.EnableAdaptiveObjectSync =
+                EditorGUILayout.Toggle("按人数自动降频对象同步:", _objectSyncConfig.EnableAdaptiveObjectSync);
+            _objectSyncConfig.ReplayObjectSyncRecordIntervalTicks =
+                EditorGUILayout.IntField("对象同步录像间隔Tick(0=仅关键帧):", _objectSyncConfig.ReplayObjectSyncRecordIntervalTicks);
             EditorGUILayout.EndVertical();
         }
 
         private void DrawActionButtons()
         {
             EditorGUILayout.BeginVertical("box");
-
-            GUI.enabled = true;
             GUI.color = IsDirty() ? new Color(0.2f, 0.85f, 0.2f) : new Color(0.6f, 0.8f, 0.6f);
             if (GUILayout.Button("保存配置 (Save Config)", GUILayout.Height(36)))
             {
@@ -222,11 +210,9 @@ namespace StellarNet.Lite.Editor
                         "当前存在未保存修改，重新加载会覆盖当前内容，是否继续？",
                         "重新加载",
                         "取消");
-
                     if (!confirmReload)
                     {
                         EditorGUILayout.EndVertical();
-                        GUI.enabled = true;
                         return;
                     }
                 }
@@ -239,67 +225,51 @@ namespace StellarNet.Lite.Editor
                 OpenFolderInExplorer();
             }
 
-            GUI.enabled = true;
             EditorGUILayout.EndVertical();
-        }
-
-        private void EnsureConfigInstance()
-        {
-            if (_currentConfig != null)
-            {
-                return;
-            }
-
-            NetLogger.LogError("NetConfigEditorWindow", $"配置实例为空，已自动回退默认配置。Root:{_targetRoot}");
-            _currentConfig = new NetConfig();
         }
 
         private void LoadFromCurrentRoot()
         {
-            _currentResolvedPath = ResolveCurrentFullPath();
+            _runtimeConfig = NetConfigLoader.LoadEditorSync(_targetRoot) ?? new NetConfig();
+            _replayConfig = ReplayConfigLoader.LoadEditorSync(_targetRoot) ?? new ReplayGlobalConfig();
+            _objectSyncConfig = ObjectSyncConfigLoader.LoadEditorSync(_targetRoot) ?? new ObjectSyncGlobalConfig();
 
-            _currentConfig = NetConfigLoader.LoadEditorSync(_targetRoot);
-            if (_currentConfig == null)
-            {
-                NetLogger.LogError("NetConfigEditorWindow", $"加载配置失败: 返回 config 为空, Root:{_targetRoot}, Path:{_currentResolvedPath}");
-                _currentConfig = new NetConfig();
-            }
-
-            NormalizeCurrentConfig();
-            _loadedSnapshotJson = SerializeConfigSnapshot(_currentConfig);
-
+            NormalizeConfigs();
+            RefreshPaths();
+            _loadedSnapshotJson = SerializeSnapshot();
             Repaint();
         }
 
         private void SaveToCurrentRoot()
         {
-            if (_currentConfig == null)
+            NormalizeConfigs();
+            RefreshPaths();
+
+            SaveResultState runtimeResult = SaveJsonIfChanged(_runtimePath, JsonConvert.SerializeObject(_runtimeConfig, Formatting.Indented));
+            SaveResultState replayResult = SaveJsonIfChanged(_replayPath, JsonConvert.SerializeObject(_replayConfig, Formatting.Indented));
+            SaveResultState objectSyncResult =
+                SaveJsonIfChanged(_objectSyncPath, JsonConvert.SerializeObject(_objectSyncConfig, Formatting.Indented));
+
+            if (runtimeResult == SaveResultState.Failed || replayResult == SaveResultState.Failed || objectSyncResult == SaveResultState.Failed)
             {
-                NetLogger.LogError("NetConfigEditorWindow", $"保存失败: _currentConfig 为空, Root:{_targetRoot}");
                 return;
             }
 
-            NormalizeCurrentConfig();
-
-            SaveResultState saveResult = SaveConfigToCurrentRoot(_currentConfig);
-            if (saveResult == SaveResultState.Failed)
+            if (runtimeResult == SaveResultState.NoChange &&
+                replayResult == SaveResultState.NoChange &&
+                objectSyncResult == SaveResultState.NoChange)
             {
-                return;
-            }
-
-            if (saveResult == SaveResultState.NoChange)
-            {
-                NetLogger.LogInfo("NetConfigEditorWindow", $"保存跳过: 配置内容未变化, Root:{_targetRoot}, Path:{_currentResolvedPath}");
                 EditorUtility.DisplayDialog("无需保存", "当前配置内容未发生变化。", "确定");
                 return;
             }
 
-            _loadedSnapshotJson = SerializeConfigSnapshot(_currentConfig);
-            Repaint();
-
             ApplyRuntimeRootSelection();
-            NetLogger.LogInfo("NetConfigEditorWindow", $"配置保存成功, Root:{_targetRoot}, Path:{_currentResolvedPath}");
-            EditorUtility.DisplayDialog("保存成功", $"配置已写入:\n{_currentResolvedPath}", "确定");
+            _loadedSnapshotJson = SerializeSnapshot();
+            Repaint();
+            EditorUtility.DisplayDialog(
+                "保存成功",
+                $"Runtime:\n{_runtimePath}\n\nReplay:\n{_replayPath}\n\nObjectSync:\n{_objectSyncPath}",
+                "确定");
         }
 
         private void ApplyRuntimeRootSelection()
@@ -308,46 +278,22 @@ namespace StellarNet.Lite.Editor
             AssetDatabase.Refresh();
         }
 
-        private SaveResultState SaveConfigToCurrentRoot(NetConfig config)
+        private SaveResultState SaveJsonIfChanged(string fullPath, string json)
         {
-            if (config == null)
+            if (string.IsNullOrEmpty(fullPath) || string.IsNullOrEmpty(json))
             {
-                NetLogger.LogError("NetConfigEditorWindow", $"保存失败: config 为空, Root:{_targetRoot}");
                 return SaveResultState.Failed;
             }
 
-            string basePath = ResolveCurrentBasePath();
-            if (string.IsNullOrEmpty(basePath))
+            string folderPath = Path.GetDirectoryName(fullPath);
+            if (string.IsNullOrEmpty(folderPath))
             {
-                NetLogger.LogError("NetConfigEditorWindow", $"保存失败: basePath 为空, Root:{_targetRoot}");
-                return SaveResultState.Failed;
-            }
-
-            string folderPath = Path.Combine(basePath, NetConfigLoader.ConfigFolderName).Replace("\\", "/");
-            string fullPath = Path.Combine(folderPath, NetConfigLoader.ConfigFileName).Replace("\\", "/");
-            _currentResolvedPath = fullPath;
-
-            if (string.IsNullOrEmpty(folderPath) || string.IsNullOrEmpty(fullPath))
-            {
-                NetLogger.LogError("NetConfigEditorWindow", $"保存失败: 路径非法, Folder:{folderPath}, FullPath:{fullPath}, Root:{_targetRoot}");
                 return SaveResultState.Failed;
             }
 
             if (!Directory.Exists(folderPath))
             {
                 Directory.CreateDirectory(folderPath);
-                if (!Directory.Exists(folderPath))
-                {
-                    NetLogger.LogError("NetConfigEditorWindow", $"保存失败: 目录创建失败, Folder:{folderPath}, Root:{_targetRoot}");
-                    return SaveResultState.Failed;
-                }
-            }
-
-            string json = SerializeConfigSnapshot(config);
-            if (string.IsNullOrEmpty(json))
-            {
-                NetLogger.LogError("NetConfigEditorWindow", $"保存失败: 序列化结果为空, FullPath:{fullPath}, Root:{_targetRoot}");
-                return SaveResultState.Failed;
             }
 
             string oldContent = File.Exists(fullPath) ? File.ReadAllText(fullPath) : string.Empty;
@@ -361,159 +307,72 @@ namespace StellarNet.Lite.Editor
             return SaveResultState.Saved;
         }
 
-        private void NormalizeCurrentConfig()
+        private void NormalizeConfigs()
         {
-            if (_currentConfig == null)
-            {
-                NetLogger.LogError("NetConfigEditorWindow", $"归一化失败: _currentConfig 为空, Root:{_targetRoot}");
-                _currentConfig = new NetConfig();
-            }
+            if (string.IsNullOrWhiteSpace(_runtimeConfig.Ip)) _runtimeConfig.Ip = "127.0.0.1";
+            if (_runtimeConfig.Port == 0) _runtimeConfig.Port = 7777;
+            if (_runtimeConfig.MaxConnections <= 0) _runtimeConfig.MaxConnections = 200;
+            if (_runtimeConfig.TickRate <= 0) _runtimeConfig.TickRate = 60;
+            if (_runtimeConfig.RoomWorkerCount < 0) _runtimeConfig.RoomWorkerCount = 0;
+            if (_runtimeConfig.RoomWorkerReserveCpuCount < 0) _runtimeConfig.RoomWorkerReserveCpuCount = 1;
+            if (_runtimeConfig.MaxRoomLifetimeHours <= 0) _runtimeConfig.MaxRoomLifetimeHours = 24;
+            if (_runtimeConfig.OfflineTimeoutLobbyMinutes < 0) _runtimeConfig.OfflineTimeoutLobbyMinutes = 5;
+            if (_runtimeConfig.OfflineTimeoutRoomMinutes < 0) _runtimeConfig.OfflineTimeoutRoomMinutes = 60;
+            if (_runtimeConfig.EmptyRoomTimeoutMinutes < 0) _runtimeConfig.EmptyRoomTimeoutMinutes = 5;
+            if (string.IsNullOrWhiteSpace(_runtimeConfig.MinClientVersion)) _runtimeConfig.MinClientVersion = "0.0.1";
 
-            if (string.IsNullOrWhiteSpace(_currentConfig.Ip))
-            {
-                _currentConfig.Ip = "127.0.0.1";
-            }
+            if (_replayConfig.MaxReplayFiles < 0) _replayConfig.MaxReplayFiles = 100;
 
-            if (_currentConfig.Port == 0)
-            {
-                _currentConfig.Port = 7777;
-            }
-
-            if (_currentConfig.MaxConnections <= 0)
-            {
-                _currentConfig.MaxConnections = 200;
-            }
-
-            if (_currentConfig.TickRate <= 0)
-            {
-                _currentConfig.TickRate = 60;
-            }
-
-            if (_currentConfig.RoomWorkerCount < 0)
-            {
-                _currentConfig.RoomWorkerCount = 0;
-            }
-
-            if (_currentConfig.RoomWorkerReserveCpuCount < 0)
-            {
-                _currentConfig.RoomWorkerReserveCpuCount = 1;
-            }
-
-            if (_currentConfig.ObjectSyncOnlineIntervalTicks <= 0)
-            {
-                _currentConfig.ObjectSyncOnlineIntervalTicks = 2;
-            }
-
-            if (_currentConfig.ObjectSyncFullResyncIntervalTicks <= 0)
-            {
-                _currentConfig.ObjectSyncFullResyncIntervalTicks = 60;
-            }
-
-            if (_currentConfig.MaxRoomLifetimeHours <= 0)
-            {
-                _currentConfig.MaxRoomLifetimeHours = 24;
-            }
-
-            if (_currentConfig.MaxReplayFiles < 0)
-            {
-                _currentConfig.MaxReplayFiles = 100;
-            }
-
-            if (_currentConfig.ReplayObjectSyncRecordIntervalTicks < 0)
-            {
-                _currentConfig.ReplayObjectSyncRecordIntervalTicks = 3;
-            }
-
-            if (_currentConfig.OfflineTimeoutLobbyMinutes < 0)
-            {
-                _currentConfig.OfflineTimeoutLobbyMinutes = 5;
-            }
-
-            if (_currentConfig.OfflineTimeoutRoomMinutes < 0)
-            {
-                _currentConfig.OfflineTimeoutRoomMinutes = 60;
-            }
-
-            if (_currentConfig.EmptyRoomTimeoutMinutes < 0)
-            {
-                _currentConfig.EmptyRoomTimeoutMinutes = 5;
-            }
-
-            if (string.IsNullOrWhiteSpace(_currentConfig.MinClientVersion))
-            {
-                _currentConfig.MinClientVersion = "0.0.1";
-            }
-        }
-
-        private void OpenFolderInExplorer()
-        {
-            string basePath = ResolveCurrentBasePath();
-            if (string.IsNullOrEmpty(basePath))
-            {
-                NetLogger.LogError("NetConfigEditorWindow", $"打开目录失败: basePath 为空, Root:{_targetRoot}");
-                return;
-            }
-
-            string folderPath = Path.Combine(basePath, NetConfigLoader.ConfigFolderName).Replace("\\", "/");
-            if (string.IsNullOrEmpty(folderPath))
-            {
-                NetLogger.LogError("NetConfigEditorWindow", $"打开目录失败: folderPath 为空, Root:{_targetRoot}");
-                return;
-            }
-
-            if (!Directory.Exists(folderPath))
-            {
-                Directory.CreateDirectory(folderPath);
-                if (!Directory.Exists(folderPath))
-                {
-                    NetLogger.LogError("NetConfigEditorWindow", $"打开目录失败: 目录创建失败, Folder:{folderPath}, Root:{_targetRoot}");
-                    return;
-                }
-            }
-
-            EditorUtility.RevealInFinder(folderPath);
+            if (_objectSyncConfig.ReplayObjectSyncRecordIntervalTicks < 0) _objectSyncConfig.ReplayObjectSyncRecordIntervalTicks = 3;
+            if (_objectSyncConfig.ObjectSyncOnlineIntervalTicks <= 0) _objectSyncConfig.ObjectSyncOnlineIntervalTicks = 2;
+            if (_objectSyncConfig.ObjectSyncFullResyncIntervalTicks <= 0) _objectSyncConfig.ObjectSyncFullResyncIntervalTicks = 60;
         }
 
         private bool IsDirty()
         {
-            EnsureConfigInstance();
-
-            string currentSnapshot = SerializeConfigSnapshot(_currentConfig);
-            if (string.IsNullOrEmpty(currentSnapshot) && string.IsNullOrEmpty(_loadedSnapshotJson))
-            {
-                return false;
-            }
-
-            return currentSnapshot != _loadedSnapshotJson;
+            return SerializeSnapshot() != _loadedSnapshotJson;
         }
 
-        private string SerializeConfigSnapshot(NetConfig config)
+        private string SerializeSnapshot()
         {
-            if (config == null)
+            return JsonConvert.SerializeObject(new
             {
-                NetLogger.LogError("NetConfigEditorWindow", $"快照序列化失败: config 为空, Root:{_targetRoot}");
-                return string.Empty;
-            }
-
-            return JsonConvert.SerializeObject(config, Formatting.Indented);
+                Runtime = _runtimeConfig,
+                Replay = _replayConfig,
+                ObjectSync = _objectSyncConfig,
+                Root = _targetRoot
+            }, Formatting.Indented);
         }
 
-        private string ResolveCurrentBasePath()
+        private void RefreshPaths()
         {
-            return _targetRoot == ConfigRootPath.StreamingAssets
+            string basePath = _targetRoot == ConfigRootPath.StreamingAssets
                 ? Application.streamingAssetsPath
                 : Application.persistentDataPath;
+            _runtimePath = string.IsNullOrEmpty(basePath)
+                ? string.Empty
+                : Path.Combine(basePath, NetConfigLoader.ConfigFolderName, NetConfigLoader.ConfigFileName).Replace("\\", "/");
+            _replayPath = ReplayConfigLoader.GetFullPath(_targetRoot);
+            _objectSyncPath = ObjectSyncConfigLoader.GetFullPath(_targetRoot);
         }
 
-        private string ResolveCurrentFullPath()
+        private void OpenFolderInExplorer()
         {
-            string basePath = ResolveCurrentBasePath();
+            string basePath = _targetRoot == ConfigRootPath.StreamingAssets
+                ? Application.streamingAssetsPath
+                : Application.persistentDataPath;
             if (string.IsNullOrEmpty(basePath))
             {
-                return string.Empty;
+                return;
             }
 
-            return Path.Combine(basePath, NetConfigLoader.ConfigFolderName, NetConfigLoader.ConfigFileName).Replace("\\", "/");
+            string folderPath = Path.Combine(basePath, NetConfigLoader.ConfigFolderName).Replace("\\", "/");
+            if (!Directory.Exists(folderPath))
+            {
+                Directory.CreateDirectory(folderPath);
+            }
+
+            EditorUtility.RevealInFinder(folderPath);
         }
     }
 }

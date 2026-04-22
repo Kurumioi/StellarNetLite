@@ -11,10 +11,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using StellarNet.Lite.Runtime;
 using StellarNet.Lite.Server.Core;
-using StellarNet.Lite.Server.Modules;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
-using StellarNet.Lite.Shared.Protocol;
 using UnityEngine;
 
 namespace StellarNet.Lite.Server.Infrastructure
@@ -418,7 +416,7 @@ namespace StellarNet.Lite.Server.Infrastructure
                         Session session = sessions[i];
                         if (session.IsOnline)
                         {
-                            serverApp.SendMessageToSession(session, new S2C_KickOut { Reason = "Server shutting down." });
+                            manager.TryNotifyServerSessionKick(session, "Server shutting down.");
                         }
                     }
                 }
@@ -683,12 +681,12 @@ namespace StellarNet.Lite.Server.Infrastructure
 
                 if (targetSession.IsOnline)
                 {
-                    serverApp.SendMessageToSession(targetSession, new S2C_KickOut { Reason = reason });
+                    manager.TryNotifyServerSessionKick(targetSession, reason);
                     manager.Transport?.DisconnectClient(targetSession.ConnectionId);
                 }
 
                 serverApp.RemoveSession(targetSession.SessionId);
-                ServerLobbyModule.BroadcastOnlinePlayerList(serverApp);
+                manager.NotifyServerSessionStateChanged(targetSession);
 
                 PrintTable(
                     new[] { "Action", "SessionId", "AccountId", "RoomId", "Online", "Reason" },

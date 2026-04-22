@@ -190,7 +190,14 @@ namespace StellarNet.Lite.Server.Infrastructure
             TryEnqueueFrame(ctx, roomId, ReplayFrameKind.ObjectSnapshot, snapshotFrame.Tick, MessageFrameMsgIdPlaceholder, payload, payload.Length);
         }
 
-        public static void StopRecordAndSave(string roomId, string replayId, string displayName, int[] componentIds, NetConfig config, int totalTicks)
+        public static void StopRecordAndSave(
+            string roomId,
+            string replayId,
+            string displayName,
+            int[] componentIds,
+            int recordedTickRate,
+            int maxReplayFiles,
+            int totalTicks)
         {
             if (string.IsNullOrEmpty(roomId))
             {
@@ -254,10 +261,10 @@ namespace StellarNet.Lite.Server.Infrastructure
                 }
 
                 headerWriter.Write(totalTicks);
-                int recordedTickRate = config != null && config.TickRate > 0
-                    ? config.TickRate
+                int safeTickRate = recordedTickRate > 0
+                    ? recordedTickRate
                     : ReplayFormatDefines.DefaultTickRateFallback;
-                headerWriter.Write(recordedTickRate);
+                headerWriter.Write(safeTickRate);
                 headerWriter.Flush();
                 headerBytes = ms.ToArray();
             }
@@ -281,7 +288,7 @@ namespace StellarNet.Lite.Server.Infrastructure
 
             TryDeleteTempFile(ctx.TempFilePath);
             NetLogger.LogInfo("ServerReplayStorage", $"录像保存成功: {Path.GetFileName(finalPath)}", roomId);
-            EnforceRollingLimit(folderPath, config != null ? config.MaxReplayFiles : 100);
+            EnforceRollingLimit(folderPath, maxReplayFiles >= 0 ? maxReplayFiles : 100);
         }
 
         public static void AbortRecord(string roomId)

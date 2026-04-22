@@ -101,15 +101,14 @@ namespace StellarNet.Lite.Client.Components.Views
                 return;
             }
 
-            // 在线房间中的本地玩家走柔性和解，其余情况统一按远端对象处理。
+            // 采用客户端本地权威移动时，本地玩家不再做常规网络和解，
+            // 避免 CharacterController 与网络回写同时驱动位置导致拉扯。
             if (IsLocalPlayer && NetClient.State == ClientAppState.OnlineRoom)
             {
-                ProcessLocalReconciliation(ref syncData);
+                return;
             }
-            else
-            {
-                ProcessRemoteTransformSync(ref syncData);
-            }
+
+            ProcessRemoteTransformSync(ref syncData);
         }
 
         /// <summary>

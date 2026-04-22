@@ -46,6 +46,8 @@ namespace StellarNet.Lite.Client.Components
     public sealed class ClientObjectSyncComponent : ClientRoomComponent, IReplaySnapshotConsumer
     {
         private readonly ClientApp _app;
+        private const float RemoteOnlinePredictionLeadSeconds = 0.05f;
+        private const float MaxOnlinePredictionWindow = 0.2f;
 
         /// <summary>
         /// 单个同步实体的客户端缓存状态。
@@ -145,7 +147,7 @@ namespace StellarNet.Lite.Client.Components
             if (msg.States == null) return;
             float currentLocalTime = Time.realtimeSinceStartup;
 
-            if (_app.State == ClientAppState.ReplayRoom && msg.ValidCount > 0)
+            if (_app.State == ClientAppState.SandboxRoom && msg.ValidCount > 0)
             {
                 float packetServerTime = msg.ServerTime;
                 if (_replayBaseLocalTime < 0f || packetServerTime < _replayBaseServerTime || packetServerTime > _replayBaseServerTime + 5f)
@@ -160,60 +162,7 @@ namespace StellarNet.Lite.Client.Components
             {
                 ObjectSyncState state = msg.States[i];
                 if (!_entities.TryGetValue(state.NetId, out SyncEntityData data)) continue;
-
-                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Position) != 0)
-                {
-                    data.RawPos.x = state.PosX;
-                    data.RawPos.y = state.PosY;
-                    data.RawPos.z = state.PosZ;
-                }
-
-                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Rotation) != 0)
-                {
-                    data.RawRot.x = state.RotX;
-                    data.RawRot.y = state.RotY;
-                    data.RawRot.z = state.RotZ;
-                }
-
-                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Velocity) != 0)
-                {
-                    data.RawVel.x = state.VelX;
-                    data.RawVel.y = state.VelY;
-                    data.RawVel.z = state.VelZ;
-                }
-
-                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Scale) != 0)
-                {
-                    data.RawScale.x = state.ScaleX;
-                    data.RawScale.y = state.ScaleY;
-                    data.RawScale.z = state.ScaleZ;
-                }
-
-                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.AnimState) != 0)
-                {
-                    data.AnimStateHash = state.AnimStateHash;
-                }
-
-                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.AnimNormalizedTime) != 0)
-                {
-                    data.AnimNormalizedTime = state.AnimNormalizedTime;
-                }
-
-                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam1) != 0)
-                {
-                    data.FloatParam1 = state.FloatParam1;
-                }
-
-                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam2) != 0)
-                {
-                    data.FloatParam2 = state.FloatParam2;
-                }
-
-                if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam3) != 0)
-                {
-                    data.FloatParam3 = state.FloatParam3;
-                }
-
+                ApplySyncState(ref data, in state);
                 data.ServerTime = msg.ServerTime;
                 data.LocalReceiveTime = currentLocalTime;
             }
@@ -316,6 +265,39 @@ namespace StellarNet.Lite.Client.Components
             return list;
         }
 
+        public void ApplyLiveState(ObjectSyncState state, float serverTime)
+        {
+            if (state.NetId <= 0)
+            {
+                return;
+            }
+
+            if (!_entities.TryGetValue(state.NetId, out SyncEntityData data))
+            {
+                return;
+            }
+
+            ApplySyncState(ref data, in state);
+            data.ServerTime = serverTime;
+            data.LocalReceiveTime = Time.realtimeSinceStartup;
+
+            if (_app.State == ClientAppState.SandboxRoom)
+            {
+                _replayBaseLocalTime = data.LocalReceiveTime;
+                _replayBaseServerTime = serverTime;
+            }
+        }
+
+        public bool IsLocalOwnedEntity(int netId)
+        {
+            if (!_entities.TryGetValue(netId, out SyncEntityData data) || NetClient.Session == null)
+            {
+                return false;
+            }
+
+            return data.OwnerSessionId == NetClient.Session.SessionId;
+        }
+
         public bool TryGetTransformData(int netId, out PredictedTransformData result)
         {
             if (!_entities.TryGetValue(netId, out SyncEntityData data) || (data.Mask & (byte)EntitySyncMask.Transform) == 0)
@@ -324,7 +306,7 @@ namespace StellarNet.Lite.Client.Components
                 return false;
             }
 
-            if (_app.State == ClientAppState.ReplayRoom)
+            if (_app.State == ClientAppState.SandboxRoom)
             {
                 float replayDelta = 0f;
                 if (_replayBaseLocalTime >= 0f)
@@ -349,6 +331,17 @@ namespace StellarNet.Lite.Client.Components
             }
 
             float timeSinceLastPacket = Time.realtimeSinceStartup - data.LocalReceiveTime;
+            bool isLocalOwned = NetClient.Session != null && data.OwnerSessionId == NetClient.Session.SessionId;
+            if (!isLocalOwned)
+            {
+                timeSinceLastPacket += RemoteOnlinePredictionLeadSeconds;
+            }
+
+            if (timeSinceLastPacket > MaxOnlinePredictionWindow)
+            {
+                timeSinceLastPacket = MaxOnlinePredictionWindow;
+            }
+
             result = new PredictedTransformData
             {
                 Position = data.RawPos + (data.RawVel * timeSinceLastPacket),
@@ -369,7 +362,7 @@ namespace StellarNet.Lite.Client.Components
                 return false;
             }
 
-            if (_app.State == ClientAppState.ReplayRoom)
+            if (_app.State == ClientAppState.SandboxRoom)
             {
                 float replayDelta = 0f;
                 if (_replayBaseLocalTime >= 0f)
@@ -395,6 +388,17 @@ namespace StellarNet.Lite.Client.Components
             }
 
             float timeSinceLastPacket = Time.realtimeSinceStartup - data.LocalReceiveTime;
+            bool isLocalOwned = NetClient.Session != null && data.OwnerSessionId == NetClient.Session.SessionId;
+            if (!isLocalOwned)
+            {
+                timeSinceLastPacket += RemoteOnlinePredictionLeadSeconds;
+            }
+
+            if (timeSinceLastPacket > MaxOnlinePredictionWindow)
+            {
+                timeSinceLastPacket = MaxOnlinePredictionWindow;
+            }
+
             result = new PredictedAnimatorData
             {
                 AnimStateHash = data.AnimStateHash,
@@ -433,6 +437,62 @@ namespace StellarNet.Lite.Client.Components
             data.FloatParam3 = state.FloatParam3;
             data.LocalReceiveTime = Time.realtimeSinceStartup;
             data.ServerTime = 0f;
+        }
+
+        private static void ApplySyncState(ref SyncEntityData data, in ObjectSyncState state)
+        {
+            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Position) != 0)
+            {
+                data.RawPos.x = state.PosX;
+                data.RawPos.y = state.PosY;
+                data.RawPos.z = state.PosZ;
+            }
+
+            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Rotation) != 0)
+            {
+                data.RawRot.x = state.RotX;
+                data.RawRot.y = state.RotY;
+                data.RawRot.z = state.RotZ;
+            }
+
+            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Velocity) != 0)
+            {
+                data.RawVel.x = state.VelX;
+                data.RawVel.y = state.VelY;
+                data.RawVel.z = state.VelZ;
+            }
+
+            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.Scale) != 0)
+            {
+                data.RawScale.x = state.ScaleX;
+                data.RawScale.y = state.ScaleY;
+                data.RawScale.z = state.ScaleZ;
+            }
+
+            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.AnimState) != 0)
+            {
+                data.AnimStateHash = state.AnimStateHash;
+            }
+
+            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.AnimNormalizedTime) != 0)
+            {
+                data.AnimNormalizedTime = state.AnimNormalizedTime;
+            }
+
+            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam1) != 0)
+            {
+                data.FloatParam1 = state.FloatParam1;
+            }
+
+            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam2) != 0)
+            {
+                data.FloatParam2 = state.FloatParam2;
+            }
+
+            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam3) != 0)
+            {
+                data.FloatParam3 = state.FloatParam3;
+            }
         }
 
         private ObjectSpawnState BuildSpawnState(int netId, SyncEntityData data)

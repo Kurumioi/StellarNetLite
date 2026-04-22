@@ -22,7 +22,7 @@ namespace StellarNet.Lite.Client.Modules
         [NetHandler]
         public void OnS2C_CreateRoomResult(S2C_CreateRoomResult msg)
         {
-            if (_app.State == ClientAppState.ReplayRoom) return;
+            if (_app.State == ClientAppState.SandboxRoom) return;
 
             if (msg.Success)
             {
@@ -42,7 +42,7 @@ namespace StellarNet.Lite.Client.Modules
         [NetHandler]
         public void OnS2C_JoinRoomResult(S2C_JoinRoomResult msg)
         {
-            if (_app.State == ClientAppState.ReplayRoom) return;
+            if (_app.State == ClientAppState.SandboxRoom) return;
 
             if (msg.Success)
             {
@@ -62,7 +62,7 @@ namespace StellarNet.Lite.Client.Modules
         [NetHandler]
         public void OnS2C_LeaveRoomResult(S2C_LeaveRoomResult msg)
         {
-            if (_app.State == ClientAppState.ReplayRoom) return;
+            if (_app.State == ClientAppState.SandboxRoom) return;
             _app.Session.ClearRecoveryContext();
             _app.LeaveRoom();
             GlobalTypeNetEvent.Broadcast(msg);
@@ -71,7 +71,7 @@ namespace StellarNet.Lite.Client.Modules
         [NetHandler]
         public void OnS2C_DisconnectRoomResult(S2C_DisconnectRoomResult msg)
         {
-            if (_app.State == ClientAppState.ReplayRoom || msg == null) return;
+            if (_app.State == ClientAppState.SandboxRoom || msg == null) return;
             if (msg.Success)
             {
                 _app.LeaveRoom(true);
@@ -88,7 +88,7 @@ namespace StellarNet.Lite.Client.Modules
         [NetHandler]
         public void OnS2C_RoomSetupResult(S2C_RoomSetupResult msg)
         {
-            if (_app.State == ClientAppState.ReplayRoom || msg == null) return;
+            if (_app.State == ClientAppState.SandboxRoom || msg == null) return;
 
             if (msg.Success)
             {

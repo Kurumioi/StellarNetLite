@@ -2,13 +2,10 @@
 using System.Collections;
 using StellarNet.Lite.Client.Core;
 using StellarNet.Lite.Client.Core.Events;
-using StellarNet.Lite.Client.Infrastructure;
 using StellarNet.Lite.Server.Core;
 using StellarNet.Lite.Server.Infrastructure;
-using StellarNet.Lite.Server.Modules;
 using StellarNet.Lite.Shared.Binders;
 using StellarNet.Lite.Shared.Core;
-using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Shared.Infrastructure;
 using UnityEngine;
 
@@ -39,6 +36,7 @@ namespace StellarNet.Lite.Runtime
         private bool _serverRuntimeRequested;
         private readonly object _serverLifecycleLock = new object();
         private ServerRuntimeHost _serverRuntime;
+        private IRuntimeFeatureBridge[] _runtimeFeatureBridges = Array.Empty<IRuntimeFeatureBridge>();
 
         #region ================= 生命周期与初始化 =================
 
@@ -67,7 +65,6 @@ namespace StellarNet.Lite.Runtime
             Serializer = new LiteNetSerializer();
             _netConfig = NetConfigLoader.LoadRuntimeConfigSync();
             Transport.ApplyConfig(_netConfig);
-            ServerReplayStorage.InitializePaths(Application.persistentDataPath);
 
             NetMessageMapper.Initialize();
 
@@ -76,6 +73,9 @@ namespace StellarNet.Lite.Runtime
                 AutoRegistry.BindServerComponent(comp, dispatcher, deserializeFunc);
             ClientRoomFactory.ComponentBinder = (comp, dispatcher) =>
                 AutoRegistry.BindClientComponent(comp, dispatcher, deserializeFunc);
+
+            _runtimeFeatureBridges = GeneratedRuntimeAccess.CreateRuntimeFeatureBridges();
+            NotifyRuntimeFeatureBridges(bridge => bridge.OnRuntimeAwake(this), "OnRuntimeAwake");
 
             _isCoreInitialized = true;
 
@@ -143,6 +143,64 @@ namespace StellarNet.Lite.Runtime
 
             _netConfig = config;
             Transport?.ApplyConfig(_netConfig);
+        }
+
+        public bool TryNotifyServerSessionKick(Session session, string reason)
+        {
+            if (ServerApp == null || session == null)
+            {
+                return false;
+            }
+
+            bool handled = false;
+            NotifyRuntimeFeatureBridges(bridge =>
+            {
+                if (bridge.TryNotifyServerSessionKick(this, ServerApp, session, reason))
+                {
+                    handled = true;
+                }
+            }, "TryNotifyServerSessionKick");
+            return handled;
+        }
+
+        public void NotifyServerSessionStateChanged(Session session)
+        {
+            if (ServerApp == null || session == null)
+            {
+                return;
+            }
+
+            NotifyRuntimeFeatureBridges(
+                bridge => bridge.OnServerSessionStateChanged(this, ServerApp, session),
+                "OnServerSessionStateChanged");
+        }
+
+        private void NotifyRuntimeFeatureBridges(Action<IRuntimeFeatureBridge> callback, string stage)
+        {
+            if (callback == null || _runtimeFeatureBridges == null || _runtimeFeatureBridges.Length == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _runtimeFeatureBridges.Length; i++)
+            {
+                IRuntimeFeatureBridge bridge = _runtimeFeatureBridges[i];
+                if (bridge == null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    callback(bridge);
+                }
+                catch (Exception ex)
+                {
+                    NetLogger.LogError(
+                        "StellarNetAppManager",
+                        $"运行时扩展桥执行失败: Stage:{stage}, Bridge:{bridge.GetType().FullName}, Error:{ex.GetType().Name}, {ex.Message}");
+                }
+            }
         }
 
         #endregion
@@ -220,6 +278,9 @@ namespace StellarNet.Lite.Runtime
                 RegisterUnauthenticatedProtocols(ServerApp);
                 Func<byte[], int, int, Type, object> deserializeFunc = Serializer.Deserialize;
                 AutoRegistry.RegisterServer(ServerApp, deserializeFunc);
+                NotifyRuntimeFeatureBridges(
+                    bridge => bridge.OnServerAppCreated(this, ServerApp),
+                    "OnServerAppCreated");
 
                 _serverRuntime = new ServerRuntimeHost(ServerApp, Transport);
                 _serverRuntime.Start();
@@ -256,7 +317,7 @@ namespace StellarNet.Lite.Runtime
         {
             if (serverApp == null) return;
 
-            int[] msgIds = AutoUnauthenticatedProtocolRegistry.GlobalC2SMsgIds;
+            int[] msgIds = GeneratedRuntimeAccess.GetUnauthenticatedGlobalC2SMsgIds();
             if (msgIds == null || msgIds.Length == 0)
             {
                 NetLogger.LogWarning("StellarNetAppManager", "未鉴权协议表为空，当前不会放行任何登录前全局协议");
@@ -292,8 +353,6 @@ namespace StellarNet.Lite.Runtime
             ServerRuntimeHost runtime = EnsureServerRuntimeCreated();
             runtime?.ExecuteOrEnqueue(() =>
             {
-                OnServerClientDisconnectedEvent?.Invoke(connectionId);
-
                 if (ServerApp == null)
                 {
                     return;
@@ -304,9 +363,10 @@ namespace StellarNet.Lite.Runtime
                 {
                     NetLogger.LogInfo("StellarNetAppManager", "物理连接断开，触发会话离线", "-", session.SessionId, $"ConnId:{connectionId}");
                     ServerApp.UnbindConnection(session);
+                    NotifyServerSessionStateChanged(session);
                 }
 
-                ServerLobbyModule.BroadcastOnlinePlayerList(ServerApp);
+                OnServerClientDisconnectedEvent?.Invoke(connectionId);
             });
         }
 
@@ -324,11 +384,6 @@ namespace StellarNet.Lite.Runtime
         /// 当前客户端逻辑宿主。
         /// </summary>
         public ClientApp ClientApp { get; private set; }
-
-        /// <summary>
-        /// 当前客户端网络质量监控器。
-        /// </summary>
-        public ClientNetworkMonitor NetworkMonitor { get; private set; }
 
         private Coroutine _reconnectCoroutine;
 
@@ -349,27 +404,13 @@ namespace StellarNet.Lite.Runtime
             {
                 ClientApp = new ClientApp(Transport, Serializer);
 
-                // 业务层主动注册弱网豁免白名单，解耦底层引擎
-                ClientApp.RegisterWeakNetBypassProtocol(MsgIdConst.C2S_Ping);
-                ClientApp.RegisterWeakNetBypassProtocol(MsgIdConst.C2S_Login);
-                ClientApp.RegisterWeakNetBypassProtocol(MsgIdConst.C2S_ConfirmReconnect);
-                ClientApp.RegisterWeakNetBypassProtocol(MsgIdConst.C2S_ReconnectReady);
-
                 NetClient.Initialize(ClientApp);
                 Func<byte[], int, int, Type, object> deserializeFunc = Serializer.Deserialize;
                 AutoRegistry.RegisterClient(ClientApp, deserializeFunc);
+                NotifyRuntimeFeatureBridges(
+                    bridge => bridge.OnClientAppCreated(this, ClientApp),
+                    "OnClientAppCreated");
             }
-
-            if (NetworkMonitor == null)
-            {
-                NetworkMonitor = gameObject.GetComponent<ClientNetworkMonitor>();
-                if (NetworkMonitor == null)
-                {
-                    NetworkMonitor = gameObject.AddComponent<ClientNetworkMonitor>();
-                }
-            }
-
-            NetworkMonitor.Init(ClientApp, Transport);
 
             NetLogger.LogInfo("StellarNetAppManager", "客户端逻辑内核装配完毕，准备就绪。");
             OnClientStartedEvent?.Invoke();
@@ -388,6 +429,9 @@ namespace StellarNet.Lite.Runtime
 
             if (ClientApp != null)
             {
+                NotifyRuntimeFeatureBridges(
+                    bridge => bridge.OnClientStopped(this, ClientApp),
+                    "OnClientStopped");
                 ClientApp.Dispose();
                 ClientApp = null;
                 NetClient.Initialize(null);
@@ -407,23 +451,12 @@ namespace StellarNet.Lite.Runtime
 
             if (ClientApp != null && ClientApp.Session.IsReconnecting)
             {
-                if (string.IsNullOrEmpty(ClientApp.Session.AccountId))
-                {
-                    NetLogger.LogError("StellarNetAppManager", "物理连接恢复失败: AccountId 为空，无法自动发起 Login 重连链");
-                }
-                else
-                {
-                    NetLogger.LogInfo("StellarNetAppManager", "物理连接恢复，自动发起 Login 鉴权恢复链");
-                    ClientApp.Session.IsPhysicalOnline = true;
-                    var loginReq = new C2S_Login
-                    {
-                        AccountId = ClientApp.Session.AccountId,
-                        ClientVersion = Application.version
-                    };
-                    ClientApp.SendMessage(loginReq);
-                }
+                NetLogger.LogInfo("StellarNetAppManager", "物理连接恢复，准备交由扩展桥处理业务重连链");
             }
 
+            NotifyRuntimeFeatureBridges(
+                bridge => bridge.OnClientConnected(this, ClientApp),
+                "OnClientConnected");
             OnClientConnectedEvent?.Invoke();
         }
 
@@ -453,12 +486,17 @@ namespace StellarNet.Lite.Runtime
                 }
             }
 
+            NotifyRuntimeFeatureBridges(
+                bridge => bridge.OnClientDisconnected(this, ClientApp),
+                "OnClientDisconnected");
             OnClientDisconnectedEvent?.Invoke();
         }
 
         private void HandleClientReceivePacket(Packet packet)
         {
-            NetworkMonitor?.OnPacketReceived();
+            NotifyRuntimeFeatureBridges(
+                bridge => bridge.OnClientPacketReceived(this, ClientApp, packet),
+                "OnClientPacketReceived");
             ClientApp?.OnReceivePacket(packet);
         }
 

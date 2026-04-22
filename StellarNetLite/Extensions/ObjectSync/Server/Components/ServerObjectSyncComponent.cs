@@ -7,6 +7,7 @@ using StellarNet.Lite.Shared.ObjectSync;
 using StellarNet.Lite.Shared.Protocol;
 using StellarNet.Lite.Server.Core;
 using StellarNet.Lite.Shared.Replay;
+using StellarNet.Lite.Shared.Infrastructure;
 
 namespace StellarNet.Lite.Server.Components
 {
@@ -104,9 +105,10 @@ namespace StellarNet.Lite.Server.Components
             if (Room.State != RoomState.Playing || _entities.Count == 0) return;
 
             int onlineIntervalTicks = ResolveOnlineSyncIntervalTicks();
+            int replayRecordIntervalTicks = ResolveReplayRecordIntervalTicks();
             bool shouldSyncOnline = Room.CurrentTick % onlineIntervalTicks == 0;
             bool shouldFullResync = ResolveFullResyncIntervalTicks() > 0 && Room.CurrentTick % ResolveFullResyncIntervalTicks() == 0;
-            bool shouldRecord = shouldSyncOnline && ResolveReplayRecordIntervalTicks() > 0;
+            bool shouldRecord = replayRecordIntervalTicks > 0 && Room.CurrentTick % replayRecordIntervalTicks == 0;
 
             if (!shouldSyncOnline && !shouldRecord) return;
 
@@ -188,28 +190,19 @@ namespace StellarNet.Lite.Server.Components
 
         private int ResolveReplayRecordIntervalTicks()
         {
-            return ResolveOnlineSyncIntervalTicks();
+            return ObjectSyncConfigLoader.Current.ReplayObjectSyncRecordIntervalTicks;
         }
 
         private int ResolveFullResyncIntervalTicks()
         {
-            if (_app == null || _app.Config == null)
-            {
-                return 60;
-            }
-
-            return _app.Config.ObjectSyncFullResyncIntervalTicks <= 0 ? 60 : _app.Config.ObjectSyncFullResyncIntervalTicks;
+            return ObjectSyncConfigLoader.Current.ObjectSyncFullResyncIntervalTicks;
         }
 
         private int ResolveOnlineSyncIntervalTicks()
         {
-            int baseInterval = 2;
-            bool enableAdaptive = true;
-            if (_app != null && _app.Config != null)
-            {
-                baseInterval = _app.Config.ObjectSyncOnlineIntervalTicks <= 0 ? 2 : _app.Config.ObjectSyncOnlineIntervalTicks;
-                enableAdaptive = _app.Config.EnableAdaptiveObjectSync;
-            }
+            ObjectSyncGlobalConfig config = ObjectSyncConfigLoader.Current;
+            int baseInterval = config.ObjectSyncOnlineIntervalTicks;
+            bool enableAdaptive = config.EnableAdaptiveObjectSync;
 
             if (!enableAdaptive)
             {

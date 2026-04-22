@@ -1,6 +1,7 @@
-﻿using System.IO;
+using System.IO;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Shared.Protocol;
 
 namespace StellarNet.Lite.Game.Shared.Protocol
 {
@@ -10,33 +11,12 @@ namespace StellarNet.Lite.Game.Shared.Protocol
     [NetMsg(1301, NetScope.Room, NetDir.C2S)]
     public sealed class C2S_SocialMoveReq : ILiteNetSerializable
     {
-        /// <summary>
-        /// 当前坐标 X。
-        /// </summary>
         public float PosX;
-        /// <summary>
-        /// 当前坐标 Y。
-        /// </summary>
         public float PosY;
-        /// <summary>
-        /// 当前坐标 Z。
-        /// </summary>
         public float PosZ;
-        /// <summary>
-        /// 当前速度 X。
-        /// </summary>
         public float VelX;
-        /// <summary>
-        /// 当前速度 Y。
-        /// </summary>
         public float VelY;
-        /// <summary>
-        /// 当前速度 Z。
-        /// </summary>
         public float VelZ;
-        /// <summary>
-        /// 当前朝向 Y。
-        /// </summary>
         public float RotY;
 
         public void Serialize(BinaryWriter writer)
@@ -80,9 +60,6 @@ namespace StellarNet.Lite.Game.Shared.Protocol
     [NetMsg(1302, NetScope.Room, NetDir.C2S)]
     public sealed class C2S_SocialActionReq : ILiteNetSerializable
     {
-        /// <summary>
-        /// 动作 Id。
-        /// </summary>
         public int ActionId;
 
         public void Serialize(BinaryWriter writer)
@@ -114,9 +91,6 @@ namespace StellarNet.Lite.Game.Shared.Protocol
     [NetMsg(1303, NetScope.Room, NetDir.C2S)]
     public sealed class C2S_SocialBubbleReq : ILiteNetSerializable
     {
-        /// <summary>
-        /// 气泡文本内容。
-        /// </summary>
         public string Content;
 
         public void Serialize(BinaryWriter writer)
@@ -148,13 +122,7 @@ namespace StellarNet.Lite.Game.Shared.Protocol
     [NetMsg(1304, NetScope.Room, NetDir.S2C)]
     public sealed class S2C_SocialBubbleSync : ILiteNetSerializable
     {
-        /// <summary>
-        /// 目标实体 NetId。
-        /// </summary>
         public int NetId;
-        /// <summary>
-        /// 气泡文本内容。
-        /// </summary>
         public string Content;
 
         public void Serialize(BinaryWriter writer)
@@ -182,4 +150,39 @@ namespace StellarNet.Lite.Game.Shared.Protocol
         }
     }
 
+    /// <summary>
+    /// 社交房间即时状态同步。
+    /// 客户端真实移动/动作结果被服务端接受后，立刻转发给房间内客户端，
+    /// 让远端无需等待周期 ObjectSync 广播即可开始前向预测。
+    /// </summary>
+    [NetMsg(1305, NetScope.Room, NetDir.S2C)]
+    public sealed class S2C_SocialStateSync : ILiteNetSerializable
+    {
+        public float ServerTime;
+        public ObjectSyncState State;
+
+        public void Serialize(BinaryWriter writer)
+        {
+            if (writer == null)
+            {
+                NetLogger.LogError("S2C_SocialStateSync", "序列化失败: writer 为空");
+                return;
+            }
+
+            writer.Write(ServerTime);
+            State.Serialize(writer);
+        }
+
+        public void Deserialize(BinaryReader reader)
+        {
+            if (reader == null)
+            {
+                NetLogger.LogError("S2C_SocialStateSync", "反序列化失败: reader 为空");
+                return;
+            }
+
+            ServerTime = reader.ReadSingle();
+            State.Deserialize(reader);
+        }
+    }
 }

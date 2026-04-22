@@ -48,39 +48,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
         public int MaxRoomLifetimeHours = 24;
 
         /// <summary>
-        /// 最大保留录像文件数。
-        /// </summary>
-        public int MaxReplayFiles = 100;
-
-        /// <summary>
-        /// 是否启用服务端录像录制。
-        /// </summary>
-        public bool EnableReplayRecording = true;
-
-        /// <summary>
-        /// 对象同步消息写入录像的 Tick 间隔。
-        /// 0 表示不记录高频对象同步消息，仅保留关键帧和其它业务消息。
-        /// </summary>
-        public int ReplayObjectSyncRecordIntervalTicks = 3;
-
-        /// <summary>
-        /// 在线对象同步广播间隔 Tick。
-        /// 1 表示每 Tick 广播，2 表示每 2 Tick 广播一次。
-        /// </summary>
-        public int ObjectSyncOnlineIntervalTicks = 2;
-
-        /// <summary>
-        /// 是否按房间人数自动降低对象同步广播频率。
-        /// </summary>
-        public bool EnableAdaptiveObjectSync = true;
-
-        /// <summary>
-        /// 在线对象同步全量校正间隔 Tick。
-        /// 用于定期纠偏，避免长时间只靠脏同步累积误差。
-        /// </summary>
-        public int ObjectSyncFullResyncIntervalTicks = 60;
-
-        /// <summary>
         /// 大厅态离线保留时间，单位分钟。
         /// </summary>
         public int OfflineTimeoutLobbyMinutes = 5;
@@ -379,33 +346,6 @@ namespace StellarNet.Lite.Shared.Infrastructure
             {
                 NetLogger.LogWarning("NetConfigLoader", $"配置修正: MaxRoomLifetimeHours 非法，已回退默认值 24。Path:{fullPath}, Value:{config.MaxRoomLifetimeHours}");
                 config.MaxRoomLifetimeHours = 24;
-            }
-
-            if (config.MaxReplayFiles < 0)
-            {
-                NetLogger.LogWarning("NetConfigLoader", $"配置修正: MaxReplayFiles 非法，已回退默认值 100。Path:{fullPath}, Value:{config.MaxReplayFiles}");
-                config.MaxReplayFiles = 100;
-            }
-
-            if (config.ReplayObjectSyncRecordIntervalTicks < 0)
-            {
-                NetLogger.LogWarning("NetConfigLoader",
-                    $"配置修正: ReplayObjectSyncRecordIntervalTicks 非法，已回退默认值 3。Path:{fullPath}, Value:{config.ReplayObjectSyncRecordIntervalTicks}");
-                config.ReplayObjectSyncRecordIntervalTicks = 3;
-            }
-
-            if (config.ObjectSyncOnlineIntervalTicks <= 0)
-            {
-                NetLogger.LogWarning("NetConfigLoader",
-                    $"配置修正: ObjectSyncOnlineIntervalTicks 非法，已回退默认值 2。Path:{fullPath}, Value:{config.ObjectSyncOnlineIntervalTicks}");
-                config.ObjectSyncOnlineIntervalTicks = 2;
-            }
-
-            if (config.ObjectSyncFullResyncIntervalTicks <= 0)
-            {
-                NetLogger.LogWarning("NetConfigLoader",
-                    $"配置修正: ObjectSyncFullResyncIntervalTicks 非法，已回退默认值 60。Path:{fullPath}, Value:{config.ObjectSyncFullResyncIntervalTicks}");
-                config.ObjectSyncFullResyncIntervalTicks = 60;
             }
 
             if (config.OfflineTimeoutLobbyMinutes < 0)

@@ -56,7 +56,7 @@ namespace StellarNet.Lite.Client.Modules
         [NetHandler]
         public void OnS2C_ReconnectResult(S2C_ReconnectResult msg)
         {
-            if (_app.State == ClientAppState.ReplayRoom) return;
+            if (_app.State == ClientAppState.SandboxRoom) return;
 
             if (msg.Success)
             {

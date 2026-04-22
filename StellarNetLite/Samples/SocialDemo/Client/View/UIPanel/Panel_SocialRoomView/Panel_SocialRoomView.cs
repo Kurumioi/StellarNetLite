@@ -72,7 +72,7 @@ public class Panel_SocialRoomView : UIPanelBase
             RefreshOwnerUI();
         }
 
-        bool isReplay = NetClient.State == ClientAppState.ReplayRoom;
+        bool isReplay = NetClient.State == ClientAppState.SandboxRoom;
         chatInput.gameObject.SetActive(!isReplay);
         sendBtn.gameObject.SetActive(!isReplay);
         if (isReplay) endGameBtn.gameObject.SetActive(false);
@@ -115,7 +115,7 @@ public class Panel_SocialRoomView : UIPanelBase
 
     private void RefreshOwnerUI()
     {
-        if (NetClient.State == ClientAppState.ReplayRoom)
+        if (NetClient.State == ClientAppState.SandboxRoom)
         {
             endGameBtn.gameObject.SetActive(false);
             return;

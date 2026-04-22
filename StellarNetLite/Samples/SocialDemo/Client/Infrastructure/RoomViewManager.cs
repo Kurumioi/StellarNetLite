@@ -32,7 +32,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
         private void Update()
         {
             if (_currentRoomViewRoot == null &&
-                NetClient.State == ClientAppState.ReplayRoom &&
+                NetClient.State == ClientAppState.SandboxRoom &&
                 NetClient.CurrentRoom != null)
             {
                 BuildRoomView(NetClient.CurrentRoom);
@@ -40,7 +40,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             }
 
             if (_currentRoomViewRoot != null &&
-                NetClient.State == ClientAppState.ReplayRoom &&
+                NetClient.State == ClientAppState.SandboxRoom &&
                 NetClient.CurrentRoom != null &&
                 !ReferenceEquals(_boundRoom, NetClient.CurrentRoom))
             {

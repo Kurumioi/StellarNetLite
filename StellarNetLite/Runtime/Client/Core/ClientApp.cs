@@ -14,7 +14,7 @@ namespace StellarNet.Lite.Client.Core
     {
         InLobby,
         OnlineRoom,
-        ReplayRoom,
+        SandboxRoom,
         ConnectionSuspended
     }
 
@@ -35,7 +35,7 @@ namespace StellarNet.Lite.Client.Core
         public ClientGlobalDispatcher GlobalDispatcher { get; } = new ClientGlobalDispatcher();
 
         /// <summary>
-        /// 当前在线房间或回放房间。
+        /// 当前在线房间或沙盒房间。
         /// </summary>
         public ClientRoom CurrentRoom { get; private set; }
 
@@ -74,6 +74,24 @@ namespace StellarNet.Lite.Client.Core
         {
             _weakNetBypassMsgIds.Add(msgId);
             NetLogger.LogInfo("ClientApp", $"注册弱网豁免协议成功。MsgId:{msgId}");
+        }
+
+        public bool RegisterWeakNetBypassProtocol<T>() where T : class
+        {
+            if (!NetMessageMapper.TryGetMeta(typeof(T), out NetMessageMeta meta))
+            {
+                NetLogger.LogError("ClientApp", $"注册弱网豁免协议失败: 未找到静态网络元数据, Type:{typeof(T).FullName}");
+                return false;
+            }
+
+            if (meta.Dir != NetDir.C2S)
+            {
+                NetLogger.LogError("ClientApp", $"注册弱网豁免协议失败: 仅允许 C2S 协议, Type:{typeof(T).FullName}, Dir:{meta.Dir}");
+                return false;
+            }
+
+            RegisterWeakNetBypassProtocol(meta.Id);
+            return true;
         }
 
         public void Dispose()
@@ -132,7 +150,7 @@ namespace StellarNet.Lite.Client.Core
 
             if (packet.Scope == NetScope.Room)
             {
-                if (State == ClientAppState.ReplayRoom || State == ClientAppState.ConnectionSuspended) return;
+                if (State == ClientAppState.SandboxRoom || State == ClientAppState.ConnectionSuspended) return;
                 if (CurrentRoom == null) return;
                 if (packet.RoomId != CurrentRoom.RoomId) return;
                 CurrentRoom.Dispatcher.Dispatch(packet);
@@ -146,12 +164,12 @@ namespace StellarNet.Lite.Client.Core
             switch (State)
             {
                 case ClientAppState.InLobby:
-                    isValidTransition = targetState == ClientAppState.OnlineRoom || targetState == ClientAppState.ReplayRoom;
+                    isValidTransition = targetState == ClientAppState.OnlineRoom || targetState == ClientAppState.SandboxRoom;
                     break;
                 case ClientAppState.OnlineRoom:
                     isValidTransition = targetState == ClientAppState.InLobby || targetState == ClientAppState.ConnectionSuspended;
                     break;
-                case ClientAppState.ReplayRoom:
+                case ClientAppState.SandboxRoom:
                     isValidTransition = targetState == ClientAppState.InLobby;
                     break;
                 case ClientAppState.ConnectionSuspended:
@@ -210,28 +228,28 @@ namespace StellarNet.Lite.Client.Core
             NetLogger.LogInfo("ClientApp", $"已进入在线房间。RoomId:{roomId}");
         }
 
-        public void EnterReplayRoom(string roomId)
+        public void EnterSandboxRoom(string roomId)
         {
             if (_isDisposed)
             {
-                NetLogger.LogError("ClientApp", $"进入回放房间失败: ClientApp 已销毁, RoomId:{roomId}");
+                NetLogger.LogError("ClientApp", $"进入沙盒房间失败: ClientApp 已销毁, RoomId:{roomId}");
                 return;
             }
 
             if (string.IsNullOrEmpty(roomId))
             {
-                NetLogger.LogError("ClientApp", "进入回放房间失败: roomId 为空");
+                NetLogger.LogError("ClientApp", "进入沙盒房间失败: roomId 为空");
                 return;
             }
 
             ClientRoom newRoom = ClientRoom.Create(roomId);
             if (newRoom == null)
             {
-                NetLogger.LogError("ClientApp", $"进入回放房间失败: ClientRoom 创建失败, RoomId:{roomId}");
+                NetLogger.LogError("ClientApp", $"进入沙盒房间失败: ClientRoom 创建失败, RoomId:{roomId}");
                 return;
             }
 
-            if (!TryChangeState(ClientAppState.ReplayRoom))
+            if (!TryChangeState(ClientAppState.SandboxRoom))
             {
                 newRoom.Destroy();
                 return;
@@ -245,7 +263,7 @@ namespace StellarNet.Lite.Client.Core
 
             CurrentRoom = newRoom;
             _isCurrentRoomConfirmed = true;
-            NetLogger.LogInfo("ClientApp", $"已进入回放房间。RoomId:{roomId}");
+            NetLogger.LogInfo("ClientApp", $"已进入沙盒房间。RoomId:{roomId}");
         }
 
         /// <summary>
@@ -336,7 +354,7 @@ namespace StellarNet.Lite.Client.Core
                 return;
             }
 
-            if (State == ClientAppState.ReplayRoom) return;
+            if (State == ClientAppState.SandboxRoom) return;
             if (State == ClientAppState.ConnectionSuspended && !_weakNetBypassMsgIds.Contains(meta.Id))
             {
                 return;

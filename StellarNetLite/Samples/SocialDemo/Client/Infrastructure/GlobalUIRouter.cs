@@ -54,7 +54,7 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             bool isDroppedFromRoom =
                 (_lastClientState == ClientAppState.OnlineRoom ||
                  _lastClientState == ClientAppState.ConnectionSuspended ||
-                 _lastClientState == ClientAppState.ReplayRoom) &&
+                 _lastClientState == ClientAppState.SandboxRoom) &&
                 currentState == ClientAppState.InLobby;
 
             if (isDroppedFromRoom)

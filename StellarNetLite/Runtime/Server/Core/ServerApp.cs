@@ -21,6 +21,8 @@ namespace StellarNet.Lite.Server.Core
         public float CurrentRealtimeSinceStartup { get; private set; }
         public DateTime CurrentUtcNow { get; private set; }
         public ServerRoomScheduler RoomScheduler { get; private set; }
+        public IRoomRecordingService RoomRecordingService { get; set; }
+        public IRoomMembershipNotifier RoomMembershipNotifier { get; set; }
 
         private readonly INetworkTransport _transport;
         private readonly INetSerializer _serializer;
@@ -337,7 +339,7 @@ namespace StellarNet.Lite.Server.Core
                 return null;
             }
 
-            var room = new Room(roomId, _outboundDispatcher, _serializer, Config);
+            var room = new Room(roomId, _outboundDispatcher, _serializer, Config, RoomRecordingService, RoomMembershipNotifier);
             _rooms.Add(roomId, room);
             return room;
         }
