@@ -19,6 +19,10 @@ namespace StellarNet.Lite.Game.Client.Views
     /// </summary>
     public class SocialRoomInputController : MonoBehaviour
     {
+        /// <summary>
+        /// 本地即时表现状态。
+        /// 只控制客户端自己的动画切换。
+        /// </summary>
         private enum LocalVisualState : byte
         {
             Idle = 0,
@@ -27,31 +31,115 @@ namespace StellarNet.Lite.Game.Client.Views
             Dance = 3
         }
 
+        /// <summary>
+        /// 当前绑定的房间实例。
+        /// </summary>
         private ClientRoom _boundRoom;
+
+        /// <summary>
+        /// 弱网阻断期间是否禁止输入上报。
+        /// </summary>
         private bool _isInputBlockedByWeakNet;
+
+        /// <summary>
+        /// 上一次已同步到服务端的输入轴值。
+        /// </summary>
         private Vector2 _lastInput = Vector2.zero;
+
+        /// <summary>
+        /// 是否已完成初始化。
+        /// </summary>
         private bool _isInitialized;
+
+        /// <summary>
+        /// 弱网状态事件的注销句柄。
+        /// </summary>
         private IUnRegister _networkQualityToken;
 
+        /// <summary>
+        /// 本地玩家实体的 Transform。
+        /// </summary>
         private Transform _localPlayerTransform;
+
+        /// <summary>
+        /// 本地玩家角色控制器。
+        /// </summary>
         private CharacterController _characterController;
+
+        /// <summary>
+        /// 本地玩家动画控制器。
+        /// </summary>
         private Animator _localAnimator;
+
+        /// <summary>
+        /// 上一次发送移动同步的时间。
+        /// </summary>
         private float _lastSendTime;
 
+        /// <summary>
+        /// 移动同步最小发送间隔。
+        /// </summary>
         private const float SendInterval = 1f / 30f;
+
+        /// <summary>
+        /// 本地移动速度。
+        /// </summary>
         private const float MoveSpeed = 4.0f;
+
+        /// <summary>
+        /// 朝向插值速度。
+        /// </summary>
         private const float RotationSmoothSpeed = 15f;
+
+        /// <summary>
+        /// 挥手动作锁定时长。
+        /// </summary>
         private const float WaveDurationSeconds = 2.5f;
+
+        /// <summary>
+        /// 跳舞动作锁定时长。
+        /// </summary>
         private const float DanceDurationSeconds = 4.0f;
+
+        /// <summary>
+        /// Idle 动画状态哈希。
+        /// </summary>
         private static readonly int AnimatorHash_Idle = Animator.StringToHash("Idle");
+
+        /// <summary>
+        /// Walk 动画状态哈希。
+        /// </summary>
         private static readonly int AnimatorHash_Walk = Animator.StringToHash("Walk");
+
+        /// <summary>
+        /// Wave 动画状态哈希。
+        /// </summary>
         private static readonly int AnimatorHash_Wave = Animator.StringToHash("Wave");
+
+        /// <summary>
+        /// Dance 动画状态哈希。
+        /// </summary>
         private static readonly int AnimatorHash_Dance = Animator.StringToHash("Dance");
 
+        /// <summary>
+        /// 当前目标朝向角度。
+        /// </summary>
         private float _targetRotationY;
+
+        /// <summary>
+        /// 动作锁定结束时间。
+        /// 动作锁定期间禁止被 Idle 覆盖。
+        /// </summary>
         private float _localActionLockUntil;
+
+        /// <summary>
+        /// 当前本地动画表现状态。
+        /// </summary>
         private LocalVisualState _localVisualState = LocalVisualState.Idle;
 
+        /// <summary>
+        /// 绑定房间并重置本地输入状态。
+        /// </summary>
         public void Init(ClientRoom room)
         {
             if (room == null)
@@ -81,6 +169,9 @@ namespace StellarNet.Lite.Game.Client.Views
             _isInitialized = true;
         }
 
+        /// <summary>
+        /// 清理房间绑定和本地缓存。
+        /// </summary>
         public void Clear()
         {
             _networkQualityToken?.UnRegister();
@@ -96,16 +187,25 @@ namespace StellarNet.Lite.Game.Client.Views
             _isInitialized = false;
         }
 
+        /// <summary>
+        /// 销毁时释放事件和本地状态。
+        /// </summary>
         private void OnDestroy()
         {
             Clear();
         }
 
+        /// <summary>
+        /// 同步弱网阻断标记。
+        /// </summary>
         private void HandleNetworkQualityChanged(Local_NetworkQualityChanged evt)
         {
             _isInputBlockedByWeakNet = evt.IsWeakNetBlock;
         }
 
+        /// <summary>
+        /// 发送聊天气泡消息。
+        /// </summary>
         public void SendChatBubble(string content)
         {
             if (string.IsNullOrWhiteSpace(content) || _boundRoom == null)
@@ -116,6 +216,10 @@ namespace StellarNet.Lite.Game.Client.Views
             NetClient.Send(new C2S_SocialBubbleReq { Content = content });
         }
 
+        /// <summary>
+        /// 尝试请求结束当前对局。
+        /// 仅房主可生效。
+        /// </summary>
         public void RequestEndGame()
         {
             if (_boundRoom == null) return;
@@ -131,6 +235,9 @@ namespace StellarNet.Lite.Game.Client.Views
             NetClient.Send(new C2S_EndGame());
         }
 
+        /// <summary>
+        /// 仅在在线房间且已开局时处理本地输入。
+        /// </summary>
         private void Update()
         {
             if (_boundRoom == null)
@@ -145,6 +252,9 @@ namespace StellarNet.Lite.Game.Client.Views
             }
         }
 
+        /// <summary>
+        /// 处理本地移动、动作与同步上报。
+        /// </summary>
         private void ProcessInput()
         {
             if (_isInputBlockedByWeakNet)
@@ -236,6 +346,9 @@ namespace StellarNet.Lite.Game.Client.Views
             }
         }
 
+        /// <summary>
+        /// 以平滑插值方式应用本地朝向。
+        /// </summary>
         private void ApplySmoothRotation()
         {
             if (_localPlayerTransform == null)
@@ -248,6 +361,9 @@ namespace StellarNet.Lite.Game.Client.Views
                 Quaternion.Slerp(_localPlayerTransform.rotation, actualTargetRot, Time.deltaTime * RotationSmoothSpeed);
         }
 
+        /// <summary>
+        /// 在当前房间实体列表中找到本地玩家对象并缓存引用。
+        /// </summary>
         private void BindLocalPlayer()
         {
             ClientObjectSyncComponent syncComp = _boundRoom.GetComponent<ClientObjectSyncComponent>();
@@ -298,6 +414,9 @@ namespace StellarNet.Lite.Game.Client.Views
             }
         }
 
+        /// <summary>
+        /// 上报当前真实位置、速度和朝向。
+        /// </summary>
         private void SendMovementSync(Vector3 velocity)
         {
             if (_localPlayerTransform == null)
@@ -317,6 +436,9 @@ namespace StellarNet.Lite.Game.Client.Views
             });
         }
 
+        /// <summary>
+        /// 停止本地移动并补发一次零速度同步。
+        /// </summary>
         private void StopLocalMovementAndSync()
         {
             if (_lastInput != Vector2.zero)
@@ -332,6 +454,9 @@ namespace StellarNet.Lite.Game.Client.Views
             }
         }
 
+        /// <summary>
+        /// 按真实速度刷新本地移动动画。
+        /// </summary>
         private void UpdateLocalLocomotion(Vector3 actualVelocity)
         {
             if (IsActionLocked())
@@ -349,6 +474,9 @@ namespace StellarNet.Lite.Game.Client.Views
             }
         }
 
+        /// <summary>
+        /// 启动本地动作播放并通知服务端。
+        /// </summary>
         private void StartLocalAction(int actionId)
         {
             if (_boundRoom == null)
@@ -375,6 +503,9 @@ namespace StellarNet.Lite.Game.Client.Views
             NetClient.Send(new C2S_SocialActionReq { ActionId = actionId });
         }
 
+        /// <summary>
+        /// 取消当前动作锁定。
+        /// </summary>
         private void CancelLocalAction()
         {
             if (_localActionLockUntil <= 0f)
@@ -385,6 +516,9 @@ namespace StellarNet.Lite.Game.Client.Views
             _localActionLockUntil = 0f;
         }
 
+        /// <summary>
+        /// 判断当前是否处于动作锁定期。
+        /// </summary>
         private bool IsActionLocked()
         {
             if (_localActionLockUntil <= 0f)
@@ -401,6 +535,9 @@ namespace StellarNet.Lite.Game.Client.Views
             return false;
         }
 
+        /// <summary>
+        /// 切换本地动画表现状态。
+        /// </summary>
         private void SetLocalVisualState(LocalVisualState state, float normalizedTime)
         {
             if (_localAnimator == null || _localVisualState == state)
@@ -419,6 +556,9 @@ namespace StellarNet.Lite.Game.Client.Views
             _localAnimator.speed = 1f;
         }
 
+        /// <summary>
+        /// 将本地表现状态映射到 Animator 状态哈希。
+        /// </summary>
         private static int ResolveAnimatorHash(LocalVisualState state)
         {
             switch (state)

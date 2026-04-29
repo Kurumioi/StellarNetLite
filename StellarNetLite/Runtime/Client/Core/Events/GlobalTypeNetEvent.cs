@@ -66,10 +66,14 @@ namespace StellarNet.Lite.Client.Core.Events
         /// </summary>
         private static class EventBox<T>
         {
-            // 当前类型的全部订阅者。
+            /// <summary>
+            /// 当前类型的全部订阅者。
+            /// </summary>
             public static Action<T> Subscribers;
 
-            // 当前类型复用的令牌池。
+            /// <summary>
+            /// 当前类型复用的令牌池。
+            /// </summary>
             private static readonly Stack<EventToken> _pool = new Stack<EventToken>();
 
             /// <summary>

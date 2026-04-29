@@ -13,26 +13,67 @@ namespace StellarNet.Lite.Shared.Infrastructure
     /// </summary>
     public static class UnityPlayerLoopDispatcher
     {
+        /// <summary>
+        /// 周期性回调记录。
+        /// </summary>
         private sealed class RecurringCallback
         {
+            /// <summary>
+            /// 回调唯一 Id。
+            /// </summary>
             public int Id;
+
+            /// <summary>
+            /// 每轮 PlayerLoop 都要执行的回调。
+            /// </summary>
             public Action Callback;
         }
 
+        /// <summary>
+        /// 插入 PlayerLoop 的标记类型。
+        /// </summary>
         private struct PlayerLoopMarker
         {
         }
 
+        /// <summary>
+        /// 后台线程投递到主线程的动作队列。
+        /// </summary>
         private static readonly ConcurrentQueue<Action> PendingActions = new ConcurrentQueue<Action>();
+
+        /// <summary>
+        /// 当前已注册的周期回调集合。
+        /// </summary>
         private static readonly List<RecurringCallback> RecurringCallbacks = new List<RecurringCallback>();
+
+        /// <summary>
+        /// 周期回调集合的互斥锁。
+        /// </summary>
         private static readonly object RecurringLock = new object();
 
+        /// <summary>
+        /// Unity 主线程 Id。
+        /// </summary>
         private static int _mainThreadId = -1;
+
+        /// <summary>
+        /// 周期回调自增 Id。
+        /// </summary>
         private static int _nextRecurringId = 1;
+
+        /// <summary>
+        /// 是否已安装到 PlayerLoop。
+        /// </summary>
         private static bool _isInstalled;
 
+        /// <summary>
+        /// 当前线程是否为 Unity 主线程。
+        /// </summary>
         public static bool IsMainThread => _mainThreadId >= 0 && Thread.CurrentThread.ManagedThreadId == _mainThreadId;
 
+        /// <summary>
+        /// 子系统重载时重置本地静态状态。
+        /// </summary>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetState()
         {
@@ -50,12 +91,18 @@ namespace StellarNet.Lite.Shared.Infrastructure
             _isInstalled = false;
         }
 
+        /// <summary>
+        /// 场景加载前自动安装到 PlayerLoop。
+        /// </summary>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void InstallBeforeSceneLoad()
         {
             EnsureInstalled();
         }
 
+        /// <summary>
+        /// 确保主线程桥接系统已安装到 PlayerLoop。
+        /// </summary>
         public static void EnsureInstalled()
         {
             if (_isInstalled)
@@ -89,6 +136,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             _isInstalled = true;
         }
 
+        /// <summary>
+        /// 主线程直接执行，后台线程则排队到主线程执行。
+        /// </summary>
         public static void ExecuteOrPost(Action action)
         {
             if (action == null)
@@ -106,6 +156,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             PendingActions.Enqueue(action);
         }
 
+        /// <summary>
+        /// 注册一个每轮 PlayerLoop 都执行一次的回调。
+        /// </summary>
         public static int RegisterRecurring(Action callback)
         {
             if (callback == null)
@@ -128,6 +181,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             return id;
         }
 
+        /// <summary>
+        /// 注销一个周期回调。
+        /// </summary>
         public static void UnregisterRecurring(int id)
         {
             if (id <= 0)
@@ -150,12 +206,18 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
         }
 
+        /// <summary>
+        /// PlayerLoop 实际执行入口。
+        /// </summary>
         private static void Run()
         {
             RunRecurringCallbacks();
             DrainPendingActions();
         }
 
+        /// <summary>
+        /// 执行当前所有周期回调。
+        /// </summary>
         private static void RunRecurringCallbacks()
         {
             RecurringCallback[] callbacks;
@@ -185,6 +247,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
         }
 
+        /// <summary>
+        /// 执行所有投递到主线程的动作。
+        /// </summary>
         private static void DrainPendingActions()
         {
             while (PendingActions.TryDequeue(out Action action))
@@ -202,6 +267,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
         }
 
+        /// <summary>
+        /// 检查指定系统是否已存在于当前 PlayerLoop 树中。
+        /// </summary>
         private static bool ContainsSystem(PlayerLoopSystem system, Type targetType)
         {
             if (system.type == targetType)
@@ -226,6 +294,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             return false;
         }
 
+        /// <summary>
+        /// 尝试把桥接系统插入到指定 PlayerLoop 阶段。
+        /// </summary>
         private static bool TryInsertIntoPhase(ref PlayerLoopSystem root, Type phaseType, PlayerLoopSystem systemToInsert)
         {
             PlayerLoopSystem[] subSystems = root.subSystemList;
@@ -260,6 +331,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             return false;
         }
 
+        /// <summary>
+        /// 兜底把桥接系统直接追加到 PlayerLoop 根节点。
+        /// </summary>
         private static void AppendToRoot(ref PlayerLoopSystem root, PlayerLoopSystem systemToInsert)
         {
             PlayerLoopSystem[] subSystems = root.subSystemList ?? Array.Empty<PlayerLoopSystem>();

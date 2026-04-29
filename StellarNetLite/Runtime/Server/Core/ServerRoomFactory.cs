@@ -10,13 +10,20 @@ namespace StellarNet.Lite.Server.Core
     /// </summary>
     public static class ServerRoomFactory
     {
-        // 自动生成的 Handler 绑定器。
+        /// <summary>
+        /// 自动生成的组件消息绑定器。
+        /// </summary>
         public static Action<ServerRoomComponent, RoomDispatcher> ComponentBinder;
 
-        // ComponentId -> 构造函数。
+        /// <summary>
+        /// 组件 Id 到构造函数的注册表。
+        /// </summary>
         private static readonly Dictionary<int, Func<ServerRoomComponent>> Registry =
             new Dictionary<int, Func<ServerRoomComponent>>();
 
+        /// <summary>
+        /// 注册一个服务端房间组件构造器。
+        /// </summary>
         public static void Register(int componentId, Func<ServerRoomComponent> componentBuilder)
         {
             if (componentBuilder == null)
@@ -34,11 +41,17 @@ namespace StellarNet.Lite.Server.Core
             Registry[componentId] = componentBuilder;
         }
 
+        /// <summary>
+        /// 清空组件构造器注册表。
+        /// </summary>
         public static void Clear()
         {
             Registry.Clear();
         }
 
+        /// <summary>
+        /// 按组件 Id 列表装配房间组件。
+        /// </summary>
         public static bool BuildComponents(Room room, int[] componentIds)
         {
             if (room == null)

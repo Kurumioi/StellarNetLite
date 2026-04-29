@@ -13,8 +13,14 @@ public class SocialRoomBubbleItem : MonoBehaviour
     [Tooltip("用于显示聊天内容的文本组件")]
     public TextMeshProUGUI contentText;
 
-    // 剩余显示时间。
+    /// <summary>
+    /// 气泡剩余显示时间。
+    /// </summary>
     private float _remainTime;
+
+    /// <summary>
+    /// 当前气泡是否处于激活状态。
+    /// </summary>
     private bool _isActive;
 
     /// <summary>

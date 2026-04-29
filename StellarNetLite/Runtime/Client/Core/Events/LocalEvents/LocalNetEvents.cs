@@ -5,6 +5,9 @@ namespace StellarNet.Lite.Client.Core.Events
     /// </summary>
     public struct Local_ConnectionSuspended
     {
+        /// <summary>
+        /// 预计剩余的自动重连秒数。
+        /// </summary>
         public float RemainingSeconds;
     }
 
@@ -20,6 +23,9 @@ namespace StellarNet.Lite.Client.Core.Events
     /// </summary>
     public struct Local_SystemPrompt
     {
+        /// <summary>
+        /// 要显示给用户的提示文本。
+        /// </summary>
         public string Message;
     }
 

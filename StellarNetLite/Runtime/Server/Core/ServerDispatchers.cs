@@ -10,7 +10,9 @@ namespace StellarNet.Lite.Server.Core
     /// </summary>
     public sealed class GlobalDispatcher
     {
-        // MsgId -> 全局消息处理器。
+        /// <summary>
+        /// 全局域协议处理器表。
+        /// </summary>
         private readonly Dictionary<int, Action<Session, Packet>> _handlers =
             new Dictionary<int, Action<Session, Packet>>();
 
@@ -68,11 +70,15 @@ namespace StellarNet.Lite.Server.Core
     /// </summary>
     public sealed class RoomDispatcher
     {
-        // MsgId -> 房间消息处理器。
+        /// <summary>
+        /// 房间域协议处理器表。
+        /// </summary>
         private readonly Dictionary<int, Action<Session, Packet>> _handlers =
             new Dictionary<int, Action<Session, Packet>>();
 
-        // 当前分发器归属的房间 Id。
+        /// <summary>
+        /// 当前分发器归属的房间 Id。
+        /// </summary>
         private readonly string _roomId;
 
         /// <summary>

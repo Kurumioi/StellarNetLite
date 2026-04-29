@@ -14,29 +14,86 @@ using UnityEngine.UI;
 /// </summary>
 public class Panel_SetRoomConfig : UIPanelBase
 {
+    /// <summary>
+    /// 房间名输入框。
+    /// </summary>
     [Header("基础配置")] [SerializeField] private TMP_InputField roomNameIpt;
+
+    /// <summary>
+    /// 最大人数滑条。
+    /// </summary>
     [SerializeField] private Slider memberCountSlider;
+
+    /// <summary>
+    /// 最大人数显示文本。
+    /// </summary>
     [SerializeField] private TMP_Text memberCountText;
 
+    /// <summary>
+    /// 指定房间 Id 输入框。
+    /// 留空时走普通建房。
+    /// </summary>
     [Header("高级配置 (可选)")] [SerializeField] private TMP_InputField customRoomIdIpt;
+
+    /// <summary>
+    /// 是否启用录像录制。
+    /// </summary>
     [SerializeField] private Toggle enableReplayRecordingTog;
 
+    /// <summary>
+    /// 房间类型列表父节点。
+    /// </summary>
     [Header("组件模板")] [SerializeField] private Transform roomComContent;
+
+    /// <summary>
+    /// 房间类型列表项预制体。
+    /// </summary>
     [SerializeField] private GameObject roomComPrefab;
 
+    /// <summary>
+    /// 取消按钮。
+    /// </summary>
     [Header("操作按钮")] [SerializeField] private Button cancelBtn;
+
+    /// <summary>
+    /// 创建或加入按钮。
+    /// </summary>
     [SerializeField] private Button createBtn;
 
+    /// <summary>
+    /// 当前可选的房间模板列表。
+    /// </summary>
     private readonly List<RoomTypeTemplateRegistry.RoomTypeTemplate> _roomTypeTemplates =
         new List<RoomTypeTemplateRegistry.RoomTypeTemplate>();
 
+    /// <summary>
+    /// 当前已实例化的房间模板条目。
+    /// </summary>
     private readonly List<Panel_SetRoomConfig_RoomComItem> _roomTypeItems = new List<Panel_SetRoomConfig_RoomComItem>();
 
+    /// <summary>
+    /// 当前选中的模板索引。
+    /// </summary>
     private int _selectedTemplateIndex = -1;
+
+    /// <summary>
+    /// 是否正在等待服务端返回建房或加房结果。
+    /// </summary>
     private bool _isRequesting;
+
+    /// <summary>
+    /// 请求发起时间。
+    /// </summary>
     private float _requestStartTime;
+
+    /// <summary>
+    /// 建房或加房请求超时时间。
+    /// </summary>
     private const float RequestTimeoutSeconds = 5f;
 
+    /// <summary>
+    /// 初始化建房面板事件和模板列表。
+    /// </summary>
     public override void OnInit()
     {
         base.OnInit();
@@ -60,6 +117,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         GenerateRoomTypeItems();
     }
 
+    /// <summary>
+    /// 销毁面板时解除事件和 Toggle 监听。
+    /// </summary>
     private void OnDestroy()
     {
         cancelBtn?.onClick.RemoveAllListeners();
@@ -68,6 +128,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         ClearRoomTypeItemToggleListeners();
     }
 
+    /// <summary>
+    /// 打开面板时恢复默认交互状态。
+    /// </summary>
     public override void OnOpen(object uiData = null)
     {
         base.OnOpen(uiData);
@@ -85,6 +148,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         ApplyDefaultSelectionIfNeeded();
     }
 
+    /// <summary>
+    /// 轮询请求超时并恢复按钮状态。
+    /// </summary>
     private void Update()
     {
         if (_isRequesting)
@@ -99,6 +165,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 根据滑条值刷新人数文案。
+    /// </summary>
     private void OnMemberCountSlider(float value)
     {
         if (memberCountText != null)
@@ -107,6 +176,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 构建建房或指定 Id 加房请求。
+    /// </summary>
     private void OnCreateBtn()
     {
         string roomName = roomNameIpt != null ? roomNameIpt.text : string.Empty;
@@ -154,11 +226,17 @@ public class Panel_SetRoomConfig : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 关闭当前面板。
+    /// </summary>
     private void OnCancelBtn()
     {
         CloseSelf();
     }
 
+    /// <summary>
+    /// 处理普通建房返回结果。
+    /// </summary>
     private void OnS2C_CreateRoomResult(S2C_CreateRoomResult msg)
     {
         _isRequesting = false;
@@ -177,6 +255,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 处理加入已有房间返回结果。
+    /// </summary>
     private void OnS2C_JoinRoomResult(S2C_JoinRoomResult msg)
     {
         _isRequesting = false;
@@ -195,6 +276,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 重新生成房间类型模板列表。
+    /// </summary>
     private void GenerateRoomTypeItems()
     {
         ClearRoomTypeItemToggleListeners();
@@ -225,6 +309,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         ApplyDefaultSelectionIfNeeded();
     }
 
+    /// <summary>
+    /// 实例化单个房间类型条目并挂上单选回调。
+    /// </summary>
     private void GenerateTypeItem(string typeName, int templateIndex)
     {
         GameObject roomTypeItem = Instantiate(roomComPrefab, roomComContent);
@@ -248,6 +335,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 统一维护房间类型的单选状态。
+    /// </summary>
     private void OnRoomTypeToggleChanged(int templateIndex, bool isOn)
     {
         if (!isOn)
@@ -271,6 +361,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 在未选中任何模板时自动选中第一项。
+    /// </summary>
     private void ApplyDefaultSelectionIfNeeded()
     {
         if (_roomTypeItems.Count == 0 ||
@@ -285,6 +378,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 读取当前选中的房间组件 Id 列表。
+    /// </summary>
     private List<int> GetSelectedRoomTypeComponentIds()
     {
         List<int> result = new List<int>();
@@ -305,6 +401,9 @@ public class Panel_SetRoomConfig : UIPanelBase
         return result;
     }
 
+    /// <summary>
+    /// 清理所有模板 Toggle 的事件监听。
+    /// </summary>
     private void ClearRoomTypeItemToggleListeners()
     {
         for (int i = 0; i < _roomTypeItems.Count; i++)

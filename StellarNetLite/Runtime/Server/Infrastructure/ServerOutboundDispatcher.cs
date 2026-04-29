@@ -10,19 +10,50 @@ namespace StellarNet.Lite.Server.Infrastructure
     /// </summary>
     public sealed class ServerOutboundDispatcher
     {
+        /// <summary>
+        /// 单次出站投递封套。
+        /// </summary>
         private sealed class OutboundEnvelope
         {
+            /// <summary>
+            /// 单播目标连接 Id。
+            /// </summary>
             public int ConnectionId;
+
+            /// <summary>
+            /// 批量发送目标连接数组。
+            /// </summary>
             public int[] ConnectionIds;
+
+            /// <summary>
+            /// 批量发送有效连接数。
+            /// </summary>
             public int ConnectionCount;
+
+            /// <summary>
+            /// 待发送的数据包。
+            /// </summary>
             public Packet Packet;
+
+            /// <summary>
+            /// 当前载荷是否来自共享池。
+            /// </summary>
             public bool PayloadFromPool;
         }
 
+        /// <summary>
+        /// 当前待发送出站队列。
+        /// </summary>
         private readonly ConcurrentQueue<OutboundEnvelope> _queue = new ConcurrentQueue<OutboundEnvelope>();
 
+        /// <summary>
+        /// 当前等待发送的封套数量。
+        /// </summary>
         public int PendingCount => _queue.Count;
 
+        /// <summary>
+        /// 入队一条单播消息。
+        /// </summary>
         public void EnqueueSingle(int connectionId, Packet packet, bool payloadFromPool)
         {
             _queue.Enqueue(new OutboundEnvelope
@@ -33,6 +64,9 @@ namespace StellarNet.Lite.Server.Infrastructure
             });
         }
 
+        /// <summary>
+        /// 入队一条批量发送消息。
+        /// </summary>
         public void EnqueueMany(int[] connectionIds, int connectionCount, Packet packet, bool payloadFromPool)
         {
             _queue.Enqueue(new OutboundEnvelope
@@ -44,6 +78,9 @@ namespace StellarNet.Lite.Server.Infrastructure
             });
         }
 
+        /// <summary>
+        /// 把当前队列中的所有出站消息写入传输层。
+        /// </summary>
         public void Drain(INetworkTransport transport)
         {
             if (transport == null)

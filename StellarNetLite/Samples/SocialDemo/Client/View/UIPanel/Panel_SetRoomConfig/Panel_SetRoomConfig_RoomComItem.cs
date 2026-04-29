@@ -7,13 +7,24 @@ using UnityEngine.UI;
 /// </summary>
 public class Panel_SetRoomConfig_RoomComItem : MonoBehaviour
 {
-    // 单个房型条目的 Toggle 和名称文本。
+    /// <summary>
+    /// 房型单选 Toggle。
+    /// </summary>
     [SerializeField] private Toggle chooseTog;
+
+    /// <summary>
+    /// 房型名称文本。
+    /// </summary>
     [SerializeField] private TMP_Text comNameText;
 
-    // 对应模板在列表中的索引。
+    /// <summary>
+    /// 对应模板在列表中的索引。
+    /// </summary>
     public int TemplateIndex { get; private set; } = -1;
 
+    /// <summary>
+    /// 初始化房型名称和模板索引。
+    /// </summary>
     public void Init(string displayName, int templateIndex)
     {
         if (chooseTog == null || comNameText == null)
@@ -29,6 +40,9 @@ public class Panel_SetRoomConfig_RoomComItem : MonoBehaviour
         comNameText.text = string.IsNullOrEmpty(displayName) ? $"房间类型_{templateIndex}" : displayName;
     }
 
+    /// <summary>
+    /// 设置当前条目的选中状态。
+    /// </summary>
     public void SetSelected(bool selected)
     {
         // 由上层面板统一控制单选状态。
@@ -38,11 +52,17 @@ public class Panel_SetRoomConfig_RoomComItem : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 返回当前 Toggle 是否选中。
+    /// </summary>
     public bool IsChoose()
     {
         return chooseTog != null && chooseTog.isOn;
     }
 
+    /// <summary>
+    /// 返回当前条目的 Toggle 组件。
+    /// </summary>
     public Toggle GetToggle()
     {
         return chooseTog;

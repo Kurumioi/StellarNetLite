@@ -13,21 +13,42 @@ namespace StellarNet.Lite.Server.Components
     [RoomComponent(1, "RoomSettings", "基础房间设置")]
     public sealed class ServerRoomSettingsComponent : ServerRoomComponent
     {
+        /// <summary>
+        /// 所属服务端逻辑宿主。
+        /// </summary>
         private readonly ServerApp _app;
+
+        /// <summary>
+        /// 当前成员准备状态表。
+        /// key 为 SessionId。
+        /// </summary>
         private readonly Dictionary<string, bool> _readyStates = new Dictionary<string, bool>();
+
+        /// <summary>
+        /// 当前房主 SessionId。
+        /// </summary>
         private string _ownerSessionId;
 
+        /// <summary>
+        /// 创建服务端房间设置组件。
+        /// </summary>
         public ServerRoomSettingsComponent(ServerApp app)
         {
             _app = app;
         }
 
+        /// <summary>
+        /// 初始化房主与准备状态缓存。
+        /// </summary>
         public override void OnInit()
         {
             _readyStates.Clear();
             _ownerSessionId = string.Empty;
         }
 
+        /// <summary>
+        /// 组装一个成员快照对象。
+        /// </summary>
         private MemberInfo CreateMemberInfo(Session session, bool isReady, bool isOwner)
         {
             return new MemberInfo
@@ -40,6 +61,9 @@ namespace StellarNet.Lite.Server.Components
             };
         }
 
+        /// <summary>
+        /// 成员加入后更新房主和成员快照。
+        /// </summary>
         public override void OnMemberJoined(Session session)
         {
             if (string.IsNullOrEmpty(_ownerSessionId)) _ownerSessionId = session.SessionId;
@@ -49,6 +73,9 @@ namespace StellarNet.Lite.Server.Components
             OnSendSnapshot(session);
         }
 
+        /// <summary>
+        /// 成员离开后刷新成员列表，必要时迁移房主。
+        /// </summary>
         public override void OnMemberLeft(Session session)
         {
             _readyStates.Remove(session.SessionId);
@@ -57,11 +84,18 @@ namespace StellarNet.Lite.Server.Components
             if (_ownerSessionId == session.SessionId) MigrateHost();
         }
 
+        /// <summary>
+        /// 房主离线时尝试迁移房主。
+        /// </summary>
         public override void OnMemberOffline(Session session)
         {
             if (_ownerSessionId == session.SessionId) MigrateHost();
         }
 
+        /// <summary>
+        /// 在现有成员中重新选择房主。
+        /// 优先在线成员，其次任意剩余成员。
+        /// </summary>
         private void MigrateHost()
         {
             _ownerSessionId = string.Empty;
@@ -86,6 +120,9 @@ namespace StellarNet.Lite.Server.Components
             if (!string.IsNullOrEmpty(_ownerSessionId)) BroadcastSnapshotToAll();
         }
 
+        /// <summary>
+        /// 向指定成员补发完整房间快照。
+        /// </summary>
         public override void OnSendSnapshot(Session session)
         {
             var members = new List<MemberInfo>();
@@ -109,6 +146,9 @@ namespace StellarNet.Lite.Server.Components
             }
         }
 
+        /// <summary>
+        /// 向全体成员广播完整房间快照。
+        /// </summary>
         private void BroadcastSnapshotToAll()
         {
             var members = new List<MemberInfo>();
@@ -127,6 +167,9 @@ namespace StellarNet.Lite.Server.Components
             });
         }
 
+        /// <summary>
+        /// 处理成员准备状态切换请求。
+        /// </summary>
         [NetHandler]
         public void OnC2S_SetReady(Session session, C2S_SetReady msg)
         {
@@ -136,6 +179,9 @@ namespace StellarNet.Lite.Server.Components
             Room.BroadcastMessage(new S2C_MemberReadyChanged { SessionId = session.SessionId, IsReady = msg.IsReady });
         }
 
+        /// <summary>
+        /// 处理房主发起的开局请求。
+        /// </summary>
         [NetHandler]
         public void OnC2S_StartGame(Session session, C2S_StartGame msg)
         {
@@ -150,6 +196,9 @@ namespace StellarNet.Lite.Server.Components
             Room.BroadcastMessage(new S2C_GameStarted { StartUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() });
         }
 
+        /// <summary>
+        /// 处理房主发起的强制结束请求。
+        /// </summary>
         [NetHandler]
         public void OnC2S_EndGame(Session session, C2S_EndGame msg)
         {

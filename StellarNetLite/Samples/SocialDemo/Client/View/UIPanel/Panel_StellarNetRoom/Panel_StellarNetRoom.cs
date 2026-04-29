@@ -14,19 +14,51 @@ using UnityEngine.UI;
 /// </summary>
 public class Panel_StellarNetRoom : UIPanelBase
 {
+    /// <summary>
+    /// 当前账号文本。
+    /// </summary>
     [SerializeField] private TMP_Text accountIdText;
 
+    /// <summary>
+    /// 房间名称文本。
+    /// </summary>
     [SerializeField] private TMP_Text roomNameText;
+
+    /// <summary>
+    /// 玩家列表父节点。
+    /// </summary>
     [SerializeField] private Transform playerListContent;
+
+    /// <summary>
+    /// 玩家列表项预制体。
+    /// </summary>
     [SerializeField] private GameObject playerListItemPrefab;
 
+    /// <summary>
+    /// 准备按钮。
+    /// </summary>
     [SerializeField] private Button readyBtn;
+
+    /// <summary>
+    /// 房主开局按钮。
+    /// </summary>
     [SerializeField] private Button startGameBtn;
+
+    /// <summary>
+    /// 离开房间按钮。
+    /// </summary>
     [SerializeField] private Button leaveBtn;
 
+    /// <summary>
+    /// 当前房间成员列表项缓存。
+    /// Key 为 SessionId。
+    /// </summary>
     private Dictionary<string, Panel_StellarNetRoom_MemberInfoItem> _memberInfoDict =
         new Dictionary<string, Panel_StellarNetRoom_MemberInfoItem>();
 
+    /// <summary>
+    /// 初始化准备面板事件。
+    /// </summary>
     public override void OnInit()
     {
         base.OnInit();
@@ -35,6 +67,9 @@ public class Panel_StellarNetRoom : UIPanelBase
         leaveBtn.onClick.AddListener(OnLeaveBtn);
     }
 
+    /// <summary>
+    /// 销毁面板时移除按钮事件。
+    /// </summary>
     private void OnDestroy()
     {
         readyBtn?.onClick.RemoveAllListeners();
@@ -42,6 +77,9 @@ public class Panel_StellarNetRoom : UIPanelBase
         leaveBtn?.onClick.RemoveAllListeners();
     }
 
+    /// <summary>
+    /// 打开面板时绑定房间事件并构建当前成员列表。
+    /// </summary>
     public override void OnOpen(object uiData = null)
     {
         base.OnOpen(uiData);
@@ -85,12 +123,18 @@ public class Panel_StellarNetRoom : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 收到开局消息后关闭准备面板。
+    /// </summary>
     private void OnS2C_GameStarted(S2C_GameStarted msg)
     {
         NetLogger.LogInfo("Panel_StellarNetRoom", "游戏已开始，关闭房间 UI");
         CloseSelf();
     }
 
+    /// <summary>
+    /// 收到完整房间快照时重建成员列表。
+    /// </summary>
     private void OnS2C_RoomSnapshot(S2C_RoomSnapshot msg)
     {
         roomNameText.text = msg.RoomName;
@@ -114,6 +158,9 @@ public class Panel_StellarNetRoom : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 切换自己的准备状态。
+    /// </summary>
     private void OnReadyBtn()
     {
         var settingsComp = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
@@ -129,6 +176,9 @@ public class Panel_StellarNetRoom : UIPanelBase
         NetClient.Send(new C2S_SetReady() { IsReady = !isReady });
     }
 
+    /// <summary>
+    /// 由房主发起开局请求。
+    /// </summary>
     private void OnStartGameBtn()
     {
         var settingsComp = NetClient.CurrentRoom?.GetComponent<ClientRoomSettingsComponent>();
@@ -152,11 +202,17 @@ public class Panel_StellarNetRoom : UIPanelBase
         NetClient.Send(new C2S_StartGame { });
     }
 
+    /// <summary>
+    /// 请求离开当前房间。
+    /// </summary>
     private void OnLeaveBtn()
     {
         NetClient.Send(new C2S_LeaveRoom { });
     }
 
+    /// <summary>
+    /// 移除已离开成员的列表项。
+    /// </summary>
     private void OnS2C_MemberLeft(S2C_MemberLeft msg)
     {
         if (_memberInfoDict.TryGetValue(msg.SessionId, out var item))
@@ -166,6 +222,9 @@ public class Panel_StellarNetRoom : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 刷新单个成员的准备状态。
+    /// </summary>
     private void OnS2C_MemberReadyChanged(S2C_MemberReadyChanged msg)
     {
         if (_memberInfoDict.TryGetValue(msg.SessionId, out var item))
@@ -174,6 +233,9 @@ public class Panel_StellarNetRoom : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 追加新加入成员的列表项。
+    /// </summary>
     private void OnS2C_MemberJoined(S2C_MemberJoined msg)
     {
         if (_memberInfoDict.ContainsKey(msg.Member.SessionId)) return;

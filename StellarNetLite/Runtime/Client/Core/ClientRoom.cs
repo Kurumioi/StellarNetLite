@@ -24,13 +24,24 @@ namespace StellarNet.Lite.Client.Core
         /// </summary>
         public RoomNetEventSystem NetEventSystem { get; }
 
+        /// <summary>
+        /// 当前房间已挂载的组件列表。
+        /// </summary>
         private readonly List<ClientRoomComponent> _components = new List<ClientRoomComponent>();
 
-        // 暴露只读组件列表，供回放系统遍历寻找 Consumer
+        /// <summary>
+        /// 暴露只读组件列表，供回放系统遍历查找组件。
+        /// </summary>
         public IReadOnlyList<ClientRoomComponent> Components => _components;
 
+        /// <summary>
+        /// 当前房间是否已销毁。
+        /// </summary>
         private bool _isDestroyed;
 
+        /// <summary>
+        /// 创建一个客户端房间实例。
+        /// </summary>
         private ClientRoom(string roomId)
         {
             RoomId = roomId;
@@ -38,6 +49,9 @@ namespace StellarNet.Lite.Client.Core
             NetEventSystem = new RoomNetEventSystem(roomId);
         }
 
+        /// <summary>
+        /// 创建一个新的客户端房间对象。
+        /// </summary>
         public static ClientRoom Create(string roomId)
         {
             if (string.IsNullOrEmpty(roomId))
@@ -50,6 +64,9 @@ namespace StellarNet.Lite.Client.Core
             return new ClientRoom(roomId);
         }
 
+        /// <summary>
+        /// 挂载一个客户端房间组件。
+        /// </summary>
         public void AddComponent(ClientRoomComponent component)
         {
             if (_isDestroyed)
@@ -68,6 +85,9 @@ namespace StellarNet.Lite.Client.Core
             _components.Add(component);
         }
 
+        /// <summary>
+        /// 按类型获取当前房间中的组件实例。
+        /// </summary>
         public T GetComponent<T>() where T : ClientRoomComponent
         {
             for (int i = 0; i < _components.Count; i++)
@@ -81,6 +101,9 @@ namespace StellarNet.Lite.Client.Core
             return null;
         }
 
+        /// <summary>
+        /// 依次初始化当前房间的全部组件。
+        /// </summary>
         public void InitializeComponents()
         {
             if (_isDestroyed)
@@ -102,6 +125,9 @@ namespace StellarNet.Lite.Client.Core
             }
         }
 
+        /// <summary>
+        /// 销毁当前房间及其全部组件。
+        /// </summary>
         public void Destroy()
         {
             if (_isDestroyed)

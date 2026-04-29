@@ -13,8 +13,14 @@ namespace StellarNet.Lite.Extensions.NetworkMonitoring.Runtime
     /// </summary>
     public sealed class NetworkMonitoringRuntimeFeature : RuntimeFeatureBridgeBase
     {
+        /// <summary>
+        /// 当前客户端弱网监控器实例。
+        /// </summary>
         private ClientNetworkMonitor _networkMonitor;
 
+        /// <summary>
+        /// 客户端创建完成后挂载并初始化弱网监控器。
+        /// </summary>
         public override void OnClientAppCreated(StellarNetAppManager appManager, ClientApp clientApp)
         {
             if (appManager == null || clientApp == null)
@@ -32,11 +38,17 @@ namespace StellarNet.Lite.Extensions.NetworkMonitoring.Runtime
             _networkMonitor.Init(clientApp, appManager.Transport);
         }
 
+        /// <summary>
+        /// 每次收到客户端网络包时刷新监控器收包时间。
+        /// </summary>
         public override void OnClientPacketReceived(StellarNetAppManager appManager, ClientApp clientApp, Packet packet)
         {
             _networkMonitor?.OnPacketReceived();
         }
 
+        /// <summary>
+        /// 客户端停止后清理监控器引用。
+        /// </summary>
         public override void OnClientStopped(StellarNetAppManager appManager, ClientApp clientApp)
         {
             _networkMonitor = null;

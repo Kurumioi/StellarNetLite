@@ -9,17 +9,18 @@ namespace StellarNet.Lite.Server.Core
     public sealed class RoomConfigModel
     {
         /// <summary>
-        /// 房间展示名称
+        /// 房间展示名称。
         /// </summary>
         public string RoomName { get; set; } = "未命名房间";
 
         /// <summary>
-        /// 房间最大人数限制
+        /// 房间最大人数限制。
         /// </summary>
         public int MaxMembers { get; set; } = 4;
 
         /// <summary>
-        /// 房间密码（为空则表示公开房间）
+        /// 房间密码。
+        /// 为空则表示公开房间。
         /// </summary>
         public string Password { get; set; } = string.Empty;
 
@@ -30,7 +31,7 @@ namespace StellarNet.Lite.Server.Core
         public bool EnableReplayRecording { get; set; } = false;
 
         /// <summary>
-        /// 是否为私密房间
+        /// 是否为私密房间。
         /// </summary>
         public bool IsPrivate => !string.IsNullOrEmpty(Password);
 

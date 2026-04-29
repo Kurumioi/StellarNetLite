@@ -7,7 +7,9 @@ namespace StellarNet.Lite.Client.Core
     /// </summary>
     public static class NetClient
     {
-        // 当前绑定的客户端主状态机。
+        /// <summary>
+        /// 当前绑定的客户端主状态机。
+        /// </summary>
         private static ClientApp _app;
 
         /// <summary>

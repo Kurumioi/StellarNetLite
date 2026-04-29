@@ -27,33 +27,96 @@ public class Panel_StellarNetLobbyData
 /// </summary>
 public class Panel_StellarNetLobby : UIPanelBase
 {
+    /// <summary>
+    /// 当前账号文本。
+    /// </summary>
     [Header("基础信息")] [SerializeField] private TMP_Text accountIdText;
 
+    /// <summary>
+    /// 退出登录按钮。
+    /// </summary>
     [SerializeField] private Button logoutBtn;
 
+    /// <summary>
+    /// 建房按钮。
+    /// </summary>
     [Header("房间列表")] [SerializeField] private Button createRoomBtn;
+
+    /// <summary>
+    /// 刷新房间列表按钮。
+    /// </summary>
     [SerializeField] private Button refreshRoomListBtn;
+
+    /// <summary>
+    /// 房间列表父节点。
+    /// </summary>
     [SerializeField] private Transform roomListContent;
+
+    /// <summary>
+    /// 房间列表项预制体。
+    /// </summary>
     [SerializeField] private GameObject roomItemPrefab;
 
+    /// <summary>
+    /// 刷新录像列表按钮。
+    /// </summary>
     [Header("录像列表")] [SerializeField] private Button refreshReplayBtn;
+
+    /// <summary>
+    /// 录像列表父节点。
+    /// </summary>
     [SerializeField] private Transform replayListContent;
+
+    /// <summary>
+    /// 录像列表项预制体。
+    /// </summary>
     [SerializeField] private GameObject replayItemPrefab;
 
+    /// <summary>
+    /// 在线玩家列表父节点。
+    /// </summary>
     [Header("在线玩家列表 (新增)")] [SerializeField]
     private Transform playerListContent;
 
+    /// <summary>
+    /// 在线玩家列表项预制体。
+    /// </summary>
     [SerializeField] private GameObject playerItemPrefab;
 
+    /// <summary>
+    /// 大厅聊天消息父节点。
+    /// </summary>
     [Header("大厅聊天 (新增)")] [SerializeField] private Transform chatContent;
+
+    /// <summary>
+    /// 大厅聊天项预制体。
+    /// </summary>
     [SerializeField] private GameObject chatItemPrefab;
+
+    /// <summary>
+    /// 大厅聊天输入框。
+    /// </summary>
     [SerializeField] private TMP_InputField chatInput;
+
+    /// <summary>
+    /// 发送大厅聊天按钮。
+    /// </summary>
     [SerializeField] private Button sendChatBtn;
 
+    /// <summary>
+    /// 面板打开时传入的数据模型。
+    /// </summary>
     [SerializeField] private Panel_StellarNetLobbyData dataModel;
 
+    /// <summary>
+    /// 当前在线玩家条目缓存。
+    /// Key 为 SessionId。
+    /// </summary>
     private readonly Dictionary<string, Panel_StellarNetLobby_PlayerItem> _playerItems = new Dictionary<string, Panel_StellarNetLobby_PlayerItem>();
 
+    /// <summary>
+    /// 初始化大厅面板事件。
+    /// </summary>
     public override void OnInit()
     {
         base.OnInit();
@@ -75,6 +138,9 @@ public class Panel_StellarNetLobby : UIPanelBase
         GlobalTypeNetEvent.Register<S2C_GlobalChatSync>(OnS2C_GlobalChatSync).UnRegisterWhenGameObjectDestroyed(gameObject);
     }
 
+    /// <summary>
+    /// 销毁面板时解除事件绑定并清理待加入标记。
+    /// </summary>
     private void OnDestroy()
     {
         Panel_StellarNetLobby_RoomItem.ClearPendingJoinRequest();
@@ -86,6 +152,9 @@ public class Panel_StellarNetLobby : UIPanelBase
         if (chatInput != null) chatInput.onSubmit.RemoveAllListeners();
     }
 
+    /// <summary>
+    /// 打开面板时恢复账号信息并清理待加入状态。
+    /// </summary>
     public override void OnOpen(object uiData = null)
     {
         base.OnOpen(uiData);
@@ -98,21 +167,33 @@ public class Panel_StellarNetLobby : UIPanelBase
         accountIdText.text = dataModel.accountId;
     }
 
+    /// <summary>
+    /// 停止当前客户端连接。
+    /// </summary>
     private void OnLogoutBtn()
     {
         GameLauncher.AppManager.StopClient();
     }
 
+    /// <summary>
+    /// 请求刷新房间列表。
+    /// </summary>
     private void OnRefreshRoomListBtn()
     {
         NetClient.Send(new C2S_GetRoomList());
     }
 
+    /// <summary>
+    /// 打开建房面板。
+    /// </summary>
     private void OnCreateRoomBtn()
     {
         UIKit.OpenPanel<Panel_SetRoomConfig>();
     }
 
+    /// <summary>
+    /// 请求刷新录像列表。
+    /// </summary>
     private void OnRefreshReplayBtn()
     {
         NetClient.Send(new C2S_GetReplayList());
@@ -120,6 +201,9 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     #region 房间与录像列表处理
 
+    /// <summary>
+    /// 刷新大厅房间列表。
+    /// </summary>
     private void OnS2C_RoomListResponse(S2C_RoomListResponse msg)
     {
         if (roomListContent == null || roomItemPrefab == null) return;
@@ -136,6 +220,9 @@ public class Panel_StellarNetLobby : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 将房间状态 Id 转成可读文本。
+    /// </summary>
     private string GetRoomStateByInt(int stateId)
     {
         switch (stateId)
@@ -147,6 +234,9 @@ public class Panel_StellarNetLobby : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 刷新录像列表。
+    /// </summary>
     private void OnS2C_ReplayList(S2C_ReplayList msg)
     {
         if (replayListContent == null || replayItemPrefab == null) return;
@@ -172,6 +262,9 @@ public class Panel_StellarNetLobby : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 处理录像下载失败提示。
+    /// </summary>
     private void OnS2C_DownloadReplayResult(S2C_DownloadReplayResult msg)
     {
         if (!msg.Success)
@@ -181,6 +274,10 @@ public class Panel_StellarNetLobby : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 处理大厅房间加入结果。
+    /// 只有列表项主动发起的加入请求才在这里提示失败。
+    /// </summary>
     private void OnS2C_JoinRoomResult(S2C_JoinRoomResult msg)
     {
         if (msg == null || !Panel_StellarNetLobby_RoomItem.HasPendingJoinRequest)
@@ -202,6 +299,9 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     #region 在线玩家列表处理 (全量与增量)
 
+    /// <summary>
+    /// 收到全量在线玩家同步时重建列表。
+    /// </summary>
     private void OnS2C_OnlinePlayerListSync(S2C_OnlinePlayerListSync msg)
     {
         if (playerListContent == null || playerItemPrefab == null) return;
@@ -217,6 +317,9 @@ public class Panel_StellarNetLobby : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 收到单个玩家状态增量同步时刷新列表项。
+    /// </summary>
     private void OnS2C_GlobalPlayerStateIncrementalSync(S2C_GlobalPlayerStateIncrementalSync msg)
     {
         if (msg.Player == null) return;
@@ -235,6 +338,9 @@ public class Panel_StellarNetLobby : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 创建或更新单个在线玩家条目。
+    /// </summary>
     private void AddOrUpdatePlayerItem(OnlinePlayerInfo player)
     {
         if (playerListContent == null || playerItemPrefab == null) return;
@@ -258,11 +364,17 @@ public class Panel_StellarNetLobby : UIPanelBase
 
     #region 大厅聊天处理
 
+    /// <summary>
+    /// 点击发送按钮后发送大厅聊天。
+    /// </summary>
     private void OnSendChatBtn()
     {
         SendChat();
     }
 
+    /// <summary>
+    /// 输入框回车后发送大厅聊天，并保持焦点。
+    /// </summary>
     private void OnChatInputSubmit(string text)
     {
         SendChat();
@@ -272,6 +384,9 @@ public class Panel_StellarNetLobby : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 发送大厅聊天内容。
+    /// </summary>
     private void SendChat()
     {
         if (chatInput == null) return;
@@ -282,6 +397,9 @@ public class Panel_StellarNetLobby : UIPanelBase
         chatInput.text = string.Empty;
     }
 
+    /// <summary>
+    /// 追加一条大厅聊天消息。
+    /// </summary>
     private void OnS2C_GlobalChatSync(S2C_GlobalChatSync msg)
     {
         if (chatContent == null || chatItemPrefab == null) return;

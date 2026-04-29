@@ -12,15 +12,34 @@ using UnityEngine.UI;
 /// </summary>
 public class Panel_StellarNetLobby_RoomItem : MonoBehaviour
 {
+    /// <summary>
+    /// 是否存在尚未收到回包的加入房间请求。
+    /// </summary>
     public static bool HasPendingJoinRequest { get; private set; }
 
-    // 房间项展示字段。
+    /// <summary>
+    /// 房间名称文本。
+    /// </summary>
     [SerializeField] private TMP_Text roomNameText;
+
+    /// <summary>
+    /// 房间详情文本。
+    /// </summary>
     [SerializeField] private TMP_Text roomInfoText;
+
+    /// <summary>
+    /// 加入房间按钮。
+    /// </summary>
     [SerializeField] private Button joinRoomBtn;
-    // 房间 Id，点击加入时使用。
+
+    /// <summary>
+    /// 当前条目对应的房间 Id。
+    /// </summary>
     [SerializeField] private string roomId;
 
+    /// <summary>
+    /// 初始化房间条目展示和按钮事件。
+    /// </summary>
     public void Init(string roomName, string id, int playerCount, int maxPlayerCount, string roomState)
     {
         roomNameText.text = roomName;
@@ -30,6 +49,9 @@ public class Panel_StellarNetLobby_RoomItem : MonoBehaviour
         joinRoomBtn.onClick.AddListener(OnJoinRoomBtn);
     }
 
+    /// <summary>
+    /// 请求加入当前条目对应的房间。
+    /// </summary>
     private void OnJoinRoomBtn()
     {
         HasPendingJoinRequest = true;
@@ -42,6 +64,9 @@ public class Panel_StellarNetLobby_RoomItem : MonoBehaviour
         NetClient.Send(msg);
     }
 
+    /// <summary>
+    /// 清理全局待加入标记。
+    /// </summary>
     public static void ClearPendingJoinRequest()
     {
         HasPendingJoinRequest = false;

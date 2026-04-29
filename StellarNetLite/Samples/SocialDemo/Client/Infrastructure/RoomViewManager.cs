@@ -17,10 +17,25 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
     /// </summary>
     public class RoomViewManager : MonoSingleton<RoomViewManager>
     {
+        /// <summary>
+        /// 是否已注册全局进房事件。
+        /// </summary>
         private bool _isInitialized;
+
+        /// <summary>
+        /// 当前房间表现层根节点。
+        /// </summary>
         private GameObject _currentRoomViewRoot;
+
+        /// <summary>
+        /// 当前已绑定的房间实例。
+        /// 用于检测回放房间切换。
+        /// </summary>
         private ClientRoom _boundRoom;
 
+        /// <summary>
+        /// 注册房间表现层需要的全局事件。
+        /// </summary>
         public void Init()
         {
             if (_isInitialized) return;
@@ -29,6 +44,9 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             _isInitialized = true;
         }
 
+        /// <summary>
+        /// 监听房间状态，按需创建或销毁表现层根节点。
+        /// </summary>
         private void Update()
         {
             if (_currentRoomViewRoot == null &&
@@ -54,18 +72,27 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             }
         }
 
+        /// <summary>
+        /// 在线房间初始化成功后创建对应表现层。
+        /// </summary>
         private void OnRoomSetupResult(S2C_RoomSetupResult evt)
         {
             if (evt == null || !evt.Success || NetClient.CurrentRoom == null) return;
             BuildRoomView(NetClient.CurrentRoom);
         }
 
+        /// <summary>
+        /// 重连成功后重新装配当前房间表现层。
+        /// </summary>
         private void OnReconnectResult(S2C_ReconnectResult evt)
         {
             if (evt == null || !evt.Success || NetClient.CurrentRoom == null) return;
             BuildRoomView(NetClient.CurrentRoom);
         }
 
+        /// <summary>
+        /// 根据房间已挂载的业务组件动态创建表现层服务与路由。
+        /// </summary>
         private void BuildRoomView(ClientRoom room)
         {
             if (room == null) return;
@@ -121,6 +148,9 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             }
         }
 
+        /// <summary>
+        /// 销毁当前房间表现层，并清理相关房间 UI。
+        /// </summary>
         private void CleanupCurrentRoomView()
         {
             // 销毁所有动态挂载的表现层组件 (Spawner, Routers, InputController)

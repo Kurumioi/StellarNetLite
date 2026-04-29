@@ -8,10 +8,14 @@ namespace StellarNet.Lite.Client.Core.Events
     /// </summary>
     public sealed class RoomNetEventSystem
     {
-        // EventType -> 当前房间的事件委托。
+        /// <summary>
+        /// 当前房间内的类型到委托映射。
+        /// </summary>
         private readonly Dictionary<Type, Delegate> _delegates = new Dictionary<Type, Delegate>();
 
-        // 当前事件系统所属的房间 Id。
+        /// <summary>
+        /// 当前事件系统所属的房间 Id。
+        /// </summary>
         private readonly string _roomId;
 
         /// <summary>

@@ -12,9 +12,24 @@ namespace StellarNet.Lite.Client.Core
     /// </summary>
     public enum ClientAppState
     {
+        /// <summary>
+        /// 当前处于大厅态。
+        /// </summary>
         InLobby,
+
+        /// <summary>
+        /// 当前处于正式在线房间态。
+        /// </summary>
         OnlineRoom,
+
+        /// <summary>
+        /// 当前处于本地沙盒或回放房间态。
+        /// </summary>
         SandboxRoom,
+
+        /// <summary>
+        /// 当前物理连接已断开，正在等待恢复。
+        /// </summary>
         ConnectionSuspended
     }
 
@@ -54,28 +69,62 @@ namespace StellarNet.Lite.Client.Core
         /// </summary>
         public bool IsCurrentRoomConfirmed => _isCurrentRoomConfirmed;
 
+        /// <summary>
+        /// 底层网络传输实例。
+        /// </summary>
         private readonly INetworkTransport _transport;
+
+        /// <summary>
+        /// 协议序列化器。
+        /// </summary>
         private readonly INetSerializer _serializer;
+
+        /// <summary>
+        /// 销毁时要执行的回调列表。
+        /// </summary>
         private readonly List<Action> _disposeCallbacks = new List<Action>();
+
+        /// <summary>
+        /// 发送序号。
+        /// </summary>
         private uint _sendSeq;
+
+        /// <summary>
+        /// 当前 App 是否已销毁。
+        /// </summary>
         private bool _isDisposed;
+
+        /// <summary>
+        /// 当前在线房间是否已收到最终进房确认。
+        /// </summary>
         private bool _isCurrentRoomConfirmed;
 
-        // 使用注册表维护弱网豁免消息，避免在底层写死协议 Id。
+        /// <summary>
+        /// 弱网阻断时仍允许发送的协议 Id 集合。
+        /// </summary>
         private readonly HashSet<int> _weakNetBypassMsgIds = new HashSet<int>();
 
+        /// <summary>
+        /// 创建客户端逻辑宿主。
+        /// </summary>
         public ClientApp(INetworkTransport transport, INetSerializer serializer)
         {
             _transport = transport;
             _serializer = serializer;
         }
 
+        /// <summary>
+        /// 注册一个弱网阻断时仍可发送的协议 Id。
+        /// </summary>
         public void RegisterWeakNetBypassProtocol(int msgId)
         {
             _weakNetBypassMsgIds.Add(msgId);
             NetLogger.LogInfo("ClientApp", $"注册弱网豁免协议成功。MsgId:{msgId}");
         }
 
+        /// <summary>
+        /// 按协议类型注册弱网豁免协议。
+        /// </summary>
         public bool RegisterWeakNetBypassProtocol<T>() where T : class
         {
             if (!NetMessageMapper.TryGetMeta(typeof(T), out NetMessageMeta meta))
@@ -94,6 +143,9 @@ namespace StellarNet.Lite.Client.Core
             return true;
         }
 
+        /// <summary>
+        /// 销毁客户端逻辑宿主并回收全部资源。
+        /// </summary>
         public void Dispose()
         {
             if (_isDisposed) return;
@@ -114,6 +166,9 @@ namespace StellarNet.Lite.Client.Core
             NetLogger.LogInfo("ClientApp", "ClientApp 资源回收完成");
         }
 
+        /// <summary>
+        /// 注册一个随 App 销毁执行的回调。
+        /// </summary>
         public void RegisterDisposeCallback(Action callback)
         {
             if (_isDisposed || callback == null)
@@ -124,6 +179,9 @@ namespace StellarNet.Lite.Client.Core
             _disposeCallbacks.Add(callback);
         }
 
+        /// <summary>
+        /// 标记当前在线房间已经收到最终确认。
+        /// </summary>
         public bool ConfirmCurrentRoom(string roomId)
         {
             if (_isDisposed ||
@@ -139,6 +197,9 @@ namespace StellarNet.Lite.Client.Core
             return true;
         }
 
+        /// <summary>
+        /// 处理收到的网络包并按作用域分发。
+        /// </summary>
         public void OnReceivePacket(Packet packet)
         {
             if (_isDisposed) return;
@@ -157,6 +218,9 @@ namespace StellarNet.Lite.Client.Core
             }
         }
 
+        /// <summary>
+        /// 尝试切换客户端逻辑状态。
+        /// </summary>
         private bool TryChangeState(ClientAppState targetState)
         {
             if (State == targetState) return true;
@@ -189,6 +253,9 @@ namespace StellarNet.Lite.Client.Core
             return true;
         }
 
+        /// <summary>
+        /// 进入正式在线房间态。
+        /// </summary>
         public void EnterOnlineRoom(string roomId)
         {
             if (_isDisposed)
@@ -228,6 +295,9 @@ namespace StellarNet.Lite.Client.Core
             NetLogger.LogInfo("ClientApp", $"已进入在线房间。RoomId:{roomId}");
         }
 
+        /// <summary>
+        /// 进入本地沙盒房间态。
+        /// </summary>
         public void EnterSandboxRoom(string roomId)
         {
             if (_isDisposed)
@@ -294,6 +364,9 @@ namespace StellarNet.Lite.Client.Core
             NetLogger.LogInfo("ClientApp", $"已离开房间。RoomId:{roomId}, Silent:{silent}");
         }
 
+        /// <summary>
+        /// 挂起当前连接，保留会话恢复上下文。
+        /// </summary>
         public void SuspendConnection()
         {
             if (_isDisposed)
@@ -321,6 +394,9 @@ namespace StellarNet.Lite.Client.Core
             NetLogger.LogWarning("ClientApp", $"连接已挂起，等待恢复。RoomId:{Session.CurrentRoomId}");
         }
 
+        /// <summary>
+        /// 中止当前连接并清理全部会话上下文。
+        /// </summary>
         public void AbortConnection()
         {
             if (_isDisposed)
@@ -342,6 +418,9 @@ namespace StellarNet.Lite.Client.Core
             NetLogger.LogWarning("ClientApp", "连接已执行硬中止并回到大厅态");
         }
 
+        /// <summary>
+        /// 发送一条客户端到服务端协议消息。
+        /// </summary>
         public void SendMessage<T>(T msg) where T : class
         {
             if (_isDisposed || msg == null || _serializer == null || _transport == null) return;
@@ -383,6 +462,9 @@ namespace StellarNet.Lite.Client.Core
             }
         }
 
+        /// <summary>
+        /// 依次执行并清空全部销毁回调。
+        /// </summary>
         private void ExecuteDisposeCallbacks()
         {
             for (int i = 0; i < _disposeCallbacks.Count; i++)

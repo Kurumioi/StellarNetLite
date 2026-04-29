@@ -13,10 +13,24 @@ namespace StellarNet.Lite.Editor
     /// </summary>
     public class ServerMonitorWindow : EditorWindow
     {
+        /// <summary>
+        /// 房间列表滚动位置。
+        /// </summary>
         private Vector2 _roomScroll;
+
+        /// <summary>
+        /// 会话列表滚动位置。
+        /// </summary>
         private Vector2 _sessionScroll;
+
+        /// <summary>
+        /// 当前选中的房间 Id。
+        /// </summary>
         private string _selectedRoomId = string.Empty;
 
+        /// <summary>
+        /// 打开服务端运行时监控窗口。
+        /// </summary>
         [MenuItem("StellarNetLite/服务端运行时监控", false, 4)]
         public static void ShowWindow()
         {
@@ -25,6 +39,9 @@ namespace StellarNet.Lite.Editor
             window.Show();
         }
 
+        /// <summary>
+        /// 运行态下周期刷新监控窗口。
+        /// </summary>
         private void OnInspectorUpdate()
         {
             if (Application.isPlaying)
@@ -33,6 +50,9 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 绘制监控窗口主体。
+        /// </summary>
         private void OnGUI()
         {
             if (!Application.isPlaying)
@@ -64,6 +84,9 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 绘制服务端全局概览信息。
+        /// </summary>
         private void DrawOverview(ServerApp serverApp)
         {
             RoomRuntimeSnapshot[] rooms = serverApp.CaptureRoomRuntimeSnapshots();
@@ -75,6 +98,9 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.EndVertical();
         }
 
+        /// <summary>
+        /// 绘制房间列表，并支持切换当前选中房间。
+        /// </summary>
         private void DrawRoomList(ServerApp serverApp)
         {
             RoomRuntimeSnapshot[] rooms = serverApp.CaptureRoomRuntimeSnapshots();
@@ -98,6 +124,9 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.EndVertical();
         }
 
+        /// <summary>
+        /// 绘制当前所有会话信息。
+        /// </summary>
         private void DrawSessionList(ServerApp serverApp)
         {
             EditorGUILayout.BeginVertical("box");
@@ -116,6 +145,9 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.EndVertical();
         }
 
+        /// <summary>
+        /// 绘制当前选中房间的运行时详情。
+        /// </summary>
         private void DrawRoomDetails(ServerApp serverApp)
         {
             RoomDetailedSnapshot room = string.IsNullOrEmpty(_selectedRoomId)

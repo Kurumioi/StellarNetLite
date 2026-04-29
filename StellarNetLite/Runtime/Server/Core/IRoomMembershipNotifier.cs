@@ -6,6 +6,9 @@ namespace StellarNet.Lite.Server.Core
     /// </summary>
     public interface IRoomMembershipNotifier
     {
+        /// <summary>
+        /// 通知指定成员被房间强制移出。
+        /// </summary>
         void NotifyForcedLeave(Room room, Session session);
     }
 }

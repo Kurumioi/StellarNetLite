@@ -19,18 +19,59 @@ namespace StellarNet.Lite.Server.Infrastructure
         private const int MaxWaitMilliseconds = 10;
         private const int NearDeadlineWaitMilliseconds = 1;
 
+        /// <summary>
+        /// 当前服务端主状态机。
+        /// </summary>
         private readonly ServerApp _serverApp;
+
+        /// <summary>
+        /// 可主动驱动的服务端传输层网络泵。
+        /// </summary>
         private readonly IServerTransportPump _serverTransportPump;
+
+        /// <summary>
+        /// 房间分片调度器。
+        /// </summary>
         private readonly ServerRoomScheduler _roomScheduler;
+
+        /// <summary>
+        /// 等待在服务端线程执行的动作队列。
+        /// </summary>
         private readonly ConcurrentQueue<Action> _pendingActions = new ConcurrentQueue<Action>();
+
+        /// <summary>
+        /// 用于唤醒宿主线程的事件。
+        /// </summary>
         private readonly AutoResetEvent _workSignal = new AutoResetEvent(false);
+
+        /// <summary>
+        /// 宿主线程内部计时器。
+        /// </summary>
         private readonly Stopwatch _stopwatch = new Stopwatch();
 
+        /// <summary>
+        /// 宿主线程取消源。
+        /// </summary>
         private CancellationTokenSource _cts;
+
+        /// <summary>
+        /// 当前宿主线程。
+        /// </summary>
         private Thread _thread;
+
+        /// <summary>
+        /// 当前宿主线程 Id。
+        /// </summary>
         private volatile int _serverThreadId = -1;
+
+        /// <summary>
+        /// 当前宿主是否正在运行。
+        /// </summary>
         private bool _isRunning;
 
+        /// <summary>
+        /// 创建服务端独立运行宿主。
+        /// </summary>
         public ServerRuntimeHost(ServerApp serverApp, INetworkTransport transport)
         {
             _serverApp = serverApp;
@@ -39,10 +80,19 @@ namespace StellarNet.Lite.Server.Infrastructure
             _serverApp.AttachRoomScheduler(_roomScheduler);
         }
 
+        /// <summary>
+        /// 当前宿主累计运行秒数。
+        /// </summary>
         public float RealtimeSinceStartup => (float)_stopwatch.Elapsed.TotalSeconds;
 
+        /// <summary>
+        /// 当前线程是否为服务端宿主线程。
+        /// </summary>
         public bool IsCurrentThread => Thread.CurrentThread.ManagedThreadId == _serverThreadId;
 
+        /// <summary>
+        /// 启动服务端宿主线程和房间调度器。
+        /// </summary>
         public void Start()
         {
             if (_isRunning)
@@ -61,6 +111,9 @@ namespace StellarNet.Lite.Server.Infrastructure
             _thread.Start();
         }
 
+        /// <summary>
+        /// 停止服务端宿主线程。
+        /// </summary>
         public void Stop()
         {
             if (!_isRunning)
@@ -85,6 +138,9 @@ namespace StellarNet.Lite.Server.Infrastructure
             _stopwatch.Reset();
         }
 
+        /// <summary>
+        /// 当前线程直接执行，其它线程排队到服务端线程执行。
+        /// </summary>
         public void ExecuteOrEnqueue(Action action)
         {
             if (action == null)
@@ -105,6 +161,9 @@ namespace StellarNet.Lite.Server.Infrastructure
             _workSignal.Set();
         }
 
+        /// <summary>
+        /// 释放宿主和调度器资源。
+        /// </summary>
         public void Dispose()
         {
             Stop();
@@ -112,6 +171,9 @@ namespace StellarNet.Lite.Server.Infrastructure
             _workSignal.Dispose();
         }
 
+        /// <summary>
+        /// 服务端宿主主循环。
+        /// </summary>
         private void RunLoop()
         {
             _serverThreadId = Thread.CurrentThread.ManagedThreadId;
@@ -199,6 +261,9 @@ namespace StellarNet.Lite.Server.Infrastructure
             }
         }
 
+        /// <summary>
+        /// 执行当前所有等待中的服务端线程动作。
+        /// </summary>
         private void DrainPendingActions()
         {
             while (_pendingActions.TryDequeue(out Action action))
@@ -214,6 +279,9 @@ namespace StellarNet.Lite.Server.Infrastructure
             }
         }
 
+        /// <summary>
+        /// 计算距下一个 Tick 的等待毫秒数。
+        /// </summary>
         private static int CalculateWaitMilliseconds(double nextTickAt, double nowSeconds)
         {
             double secondsUntilNextTick = nextTickAt - nowSeconds;

@@ -9,8 +9,19 @@ namespace StellarNet.Lite.Shared.Replay
     /// </summary>
     public enum ReplayFrameKind : byte
     {
+        /// <summary>
+        /// 空帧占位。
+        /// </summary>
         None = 0,
+
+        /// <summary>
+        /// 普通协议消息帧。
+        /// </summary>
         Message = 1,
+
+        /// <summary>
+        /// 对象或组件快照帧。
+        /// </summary>
         ObjectSnapshot = 2
     }
 
@@ -97,6 +108,9 @@ namespace StellarNet.Lite.Shared.Replay
         /// </summary>
         public byte[] Payload;
 
+        /// <summary>
+        /// 序列化单个组件快照块。
+        /// </summary>
         public void Serialize(BinaryWriter writer)
         {
             writer.Write(ComponentId);
@@ -111,6 +125,9 @@ namespace StellarNet.Lite.Shared.Replay
             }
         }
 
+        /// <summary>
+        /// 反序列化单个组件快照块。
+        /// </summary>
         public void Deserialize(BinaryReader reader)
         {
             ComponentId = reader.ReadInt32();
@@ -143,6 +160,9 @@ namespace StellarNet.Lite.Shared.Replay
         /// </summary>
         public ComponentSnapshotData[] ComponentSnapshots = Array.Empty<ComponentSnapshotData>();
 
+        /// <summary>
+        /// 序列化整帧回放快照。
+        /// </summary>
         public void Serialize(BinaryWriter writer)
         {
             if (writer == null)
@@ -160,6 +180,9 @@ namespace StellarNet.Lite.Shared.Replay
             }
         }
 
+        /// <summary>
+        /// 反序列化整帧回放快照。
+        /// </summary>
         public void Deserialize(BinaryReader reader)
         {
             if (reader == null)

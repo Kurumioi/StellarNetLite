@@ -16,11 +16,34 @@ namespace StellarNet.Lite.Client.Components
     /// </summary>
     public struct PredictedTransformData
     {
+        /// <summary>
+        /// 预测后的位置。
+        /// </summary>
         public Vector3 Position;
+
+        /// <summary>
+        /// 预测后的欧拉旋转。
+        /// </summary>
         public Vector3 Rotation;
+
+        /// <summary>
+        /// 当前速度。
+        /// </summary>
         public Vector3 Velocity;
+
+        /// <summary>
+        /// 当前缩放。
+        /// </summary>
         public Vector3 Scale;
+
+        /// <summary>
+        /// 距离上次同步已经过去的本地时间。
+        /// </summary>
         public float TimeSinceLastSync;
+
+        /// <summary>
+        /// 当前播放倍率或预测倍率。
+        /// </summary>
         public float PlaybackSpeed;
     }
 
@@ -29,12 +52,39 @@ namespace StellarNet.Lite.Client.Components
     /// </summary>
     public struct PredictedAnimatorData
     {
+        /// <summary>
+        /// 动画状态 Hash。
+        /// </summary>
         public int AnimStateHash;
+
+        /// <summary>
+        /// 动画归一化时间。
+        /// </summary>
         public float AnimNormalizedTime;
+
+        /// <summary>
+        /// 第一个浮点参数。
+        /// </summary>
         public float FloatParam1;
+
+        /// <summary>
+        /// 第二个浮点参数。
+        /// </summary>
         public float FloatParam2;
+
+        /// <summary>
+        /// 第三个浮点参数。
+        /// </summary>
         public float FloatParam3;
+
+        /// <summary>
+        /// 当前播放倍率。
+        /// </summary>
         public float PlaybackSpeed;
+
+        /// <summary>
+        /// 服务端时间差补偿。
+        /// </summary>
         public float ServerTimeDelta;
     }
 
@@ -45,8 +95,19 @@ namespace StellarNet.Lite.Client.Components
     [RoomComponent(200, "ObjectSync", "空间与动画同步核心服务")]
     public sealed class ClientObjectSyncComponent : ClientRoomComponent, IReplaySnapshotConsumer
     {
+        /// <summary>
+        /// 所属客户端逻辑宿主。
+        /// </summary>
         private readonly ClientApp _app;
+
+        /// <summary>
+        /// 在线房间远端实体默认预测前置时间。
+        /// </summary>
         private const float RemoteOnlinePredictionLeadSeconds = 0.05f;
+
+        /// <summary>
+        /// 在线房间最大预测窗口。
+        /// </summary>
         private const float MaxOnlinePredictionWindow = 0.2f;
 
         /// <summary>
@@ -70,10 +131,29 @@ namespace StellarNet.Lite.Client.Components
             public float ServerTime;
         }
 
+        /// <summary>
+        /// 当前所有同步实体缓存。
+        /// </summary>
         private readonly Dictionary<int, SyncEntityData> _entities = new Dictionary<int, SyncEntityData>();
+
+        /// <summary>
+        /// 当前回放倍率。
+        /// </summary>
         private float _replayTimeScale = 1f;
+
+        /// <summary>
+        /// 回放倍率事件注销句柄。
+        /// </summary>
         private IUnRegister _timeScaleEventToken;
+
+        /// <summary>
+        /// 回放基准本地时间。
+        /// </summary>
         private float _replayBaseLocalTime = -1f;
+
+        /// <summary>
+        /// 回放基准服务端时间。
+        /// </summary>
         private float _replayBaseServerTime = -1f;
 
         /// <summary>
@@ -81,11 +161,17 @@ namespace StellarNet.Lite.Client.Components
         /// </summary>
         public int SnapshotComponentId => 200;
 
+        /// <summary>
+        /// 创建客户端对象同步组件。
+        /// </summary>
         public ClientObjectSyncComponent(ClientApp app)
         {
             _app = app;
         }
 
+        /// <summary>
+        /// 初始化对象缓存和回放倍率监听。
+        /// </summary>
         public override void OnInit()
         {
             _entities.Clear();
@@ -96,6 +182,9 @@ namespace StellarNet.Lite.Client.Components
             _timeScaleEventToken = GlobalTypeNetEvent.Register<Local_ReplayTimeScaleChanged>(OnReplayTimeScaleChanged);
         }
 
+        /// <summary>
+        /// 销毁组件时清理实体缓存和事件监听。
+        /// </summary>
         public override void OnDestroy()
         {
             ClearAllEntities(false);
@@ -103,6 +192,9 @@ namespace StellarNet.Lite.Client.Components
             _timeScaleEventToken = null;
         }
 
+        /// <summary>
+        /// 收到回放倍率变化后修正本地时间基线。
+        /// </summary>
         private void OnReplayTimeScaleChanged(Local_ReplayTimeScaleChanged evt)
         {
             if (_replayBaseLocalTime >= 0f)
@@ -115,6 +207,9 @@ namespace StellarNet.Lite.Client.Components
             _replayTimeScale = evt.TimeScale;
         }
 
+        /// <summary>
+        /// 处理对象生成消息。
+        /// </summary>
         [NetHandler]
         public void OnS2C_ObjectSpawn(S2C_ObjectSpawn msg)
         {
@@ -127,6 +222,9 @@ namespace StellarNet.Lite.Client.Components
             Room?.NetEventSystem.Broadcast(msg);
         }
 
+        /// <summary>
+        /// 处理对象销毁消息。
+        /// </summary>
         [NetHandler]
         public void OnS2C_ObjectDestroy(S2C_ObjectDestroy msg)
         {
@@ -141,6 +239,9 @@ namespace StellarNet.Lite.Client.Components
             }
         }
 
+        /// <summary>
+        /// 处理对象同步消息并更新预测缓存。
+        /// </summary>
         [NetHandler]
         public void OnS2C_ObjectSync(S2C_ObjectSync msg)
         {
@@ -168,7 +269,9 @@ namespace StellarNet.Lite.Client.Components
             }
         }
 
-        // 核心解耦：实现 IReplaySnapshotConsumer，将底层的 byte[] 反序列化为业务数据
+        /// <summary>
+        /// 消费录像系统传来的快照字节流。
+        /// </summary>
         public void ApplySnapshot(byte[] payload)
         {
             if (payload == null || payload.Length == 0)
@@ -192,6 +295,9 @@ namespace StellarNet.Lite.Client.Components
             }
         }
 
+        /// <summary>
+        /// 直接应用一组回放快照状态。
+        /// </summary>
         public void ApplyReplaySnapshot(ObjectSpawnState[] states)
         {
             if (states == null)
@@ -226,6 +332,9 @@ namespace StellarNet.Lite.Client.Components
             }
         }
 
+        /// <summary>
+        /// 清空全部实体缓存。
+        /// </summary>
         public void ClearAllEntities(bool broadcastDestroyEvent)
         {
             if (_entities.Count == 0) return;
@@ -242,6 +351,9 @@ namespace StellarNet.Lite.Client.Components
             _replayBaseServerTime = -1f;
         }
 
+        /// <summary>
+        /// 读取单个实体的完整生成态。
+        /// </summary>
         public bool TryGetSpawnState(int netId, out ObjectSpawnState state)
         {
             if (!_entities.TryGetValue(netId, out SyncEntityData data))
@@ -254,6 +366,9 @@ namespace StellarNet.Lite.Client.Components
             return true;
         }
 
+        /// <summary>
+        /// 读取当前全部实体的完整生成态列表。
+        /// </summary>
         public List<ObjectSpawnState> GetAllSpawnStates()
         {
             var list = new List<ObjectSpawnState>(_entities.Count);
@@ -265,6 +380,9 @@ namespace StellarNet.Lite.Client.Components
             return list;
         }
 
+        /// <summary>
+        /// 直接应用一条实时同步状态。
+        /// </summary>
         public void ApplyLiveState(ObjectSyncState state, float serverTime)
         {
             if (state.NetId <= 0)

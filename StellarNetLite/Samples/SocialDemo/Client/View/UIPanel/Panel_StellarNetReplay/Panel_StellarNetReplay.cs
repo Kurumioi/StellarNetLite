@@ -11,30 +11,86 @@ using UnityEngine.UI;
 /// </summary>
 public class Panel_StellarNetReplay : UIPanelBase
 {
-    // 回放进度与控制按钮。
+    /// <summary>
+    /// 回放进度文本。
+    /// </summary>
     [SerializeField] private TMP_Text progressText;
+
+    /// <summary>
+    /// 回放进度滑条。
+    /// </summary>
     [SerializeField] private Slider progressSlider;
+
+    /// <summary>
+    /// 播放或暂停按钮。
+    /// </summary>
     [SerializeField] private Button playPauseBtn;
+
+    /// <summary>
+    /// 播放或暂停按钮文案。
+    /// </summary>
     [SerializeField] private TMP_Text playPauseBtnText;
+
+    /// <summary>
+    /// 重播按钮。
+    /// </summary>
     [SerializeField] private Button restartBtn;
+
+    /// <summary>
+    /// 退出回放按钮。
+    /// </summary>
     [SerializeField] private Button exitBtn;
 
+    /// <summary>
+    /// 0.5 倍速按钮。
+    /// </summary>
     [Header("预设倍速控制")] [SerializeField] private Button speed05Btn;
+
+    /// <summary>
+    /// 1 倍速按钮。
+    /// </summary>
     [SerializeField] private Button speed10Btn;
+
+    /// <summary>
+    /// 2 倍速按钮。
+    /// </summary>
     [SerializeField] private Button speed20Btn;
+
+    /// <summary>
+    /// 4 倍速按钮。
+    /// </summary>
     [SerializeField] private Button speed40Btn;
+
+    /// <summary>
+    /// 当前倍速显示文本。
+    /// </summary>
     [SerializeField] private TMP_Text currentSpeedText;
 
+    /// <summary>
+    /// 自定义倍速输入框。
+    /// </summary>
     [Header("自定义倍速 (开发者/自由输入)")] [SerializeField]
     private TMP_InputField customSpeedIpt;
 
+    /// <summary>
+    /// 应用自定义倍速按钮。
+    /// </summary>
     [SerializeField] private Button applyCustomSpeedBtn;
 
-    // 当前回放播放器实例。
+    /// <summary>
+    /// 当前回放播放器实例。
+    /// </summary>
     private ClientReplayPlayer _replayPlayer;
-    // 拖动滑条时避免和播放器自动刷新互相打架。
+
+    /// <summary>
+    /// 拖动滑条时的保护标记。
+    /// 避免 Seek 与自动刷新互相覆盖。
+    /// </summary>
     private bool _isDraggingSlider = false;
 
+    /// <summary>
+    /// 初始化回放控制按钮和滑条事件。
+    /// </summary>
     public override void OnInit()
     {
         base.OnInit();
@@ -55,6 +111,9 @@ public class Panel_StellarNetReplay : UIPanelBase
         progressSlider.onValueChanged.AddListener(OnSliderValueChanged);
     }
 
+    /// <summary>
+    /// 销毁时移除全部 UI 事件。
+    /// </summary>
     private void OnDestroy()
     {
         playPauseBtn?.onClick.RemoveAllListeners();
@@ -68,6 +127,9 @@ public class Panel_StellarNetReplay : UIPanelBase
         progressSlider?.onValueChanged.RemoveAllListeners();
     }
 
+    /// <summary>
+    /// 打开回放面板并尝试加载指定回放文件。
+    /// </summary>
     public override void OnOpen(object uiData = null)
     {
         base.OnOpen(uiData);
@@ -99,6 +161,9 @@ public class Panel_StellarNetReplay : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 将回放 tick 转成 mm:ss 文本。
+    /// </summary>
     private string FormatTime(int ticks)
     {
         int tickRate = _replayPlayer != null ? _replayPlayer.GetRecordedTickRate() : 60;
@@ -108,6 +173,9 @@ public class Panel_StellarNetReplay : UIPanelBase
         return $"{minutes:D2}:{seconds:D2}";
     }
 
+    /// <summary>
+    /// 每帧推进回放播放器并刷新进度显示。
+    /// </summary>
     private void Update()
     {
         // 面板每帧驱动播放器并刷新进度文案。
@@ -129,6 +197,9 @@ public class Panel_StellarNetReplay : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 切换播放和暂停状态。
+    /// </summary>
     private void OnPlayPauseBtn()
     {
         if (_replayPlayer == null) return;
@@ -136,6 +207,9 @@ public class Panel_StellarNetReplay : UIPanelBase
         UpdateUIState();
     }
 
+    /// <summary>
+    /// 从头重新播放回放。
+    /// </summary>
     private void OnRestartBtn()
     {
         if (_replayPlayer == null) return;
@@ -144,6 +218,9 @@ public class Panel_StellarNetReplay : UIPanelBase
         UpdateUIState();
     }
 
+    /// <summary>
+    /// 设置回放播放倍速。
+    /// </summary>
     public void SetSpeed(float speed)
     {
         if (_replayPlayer == null) return;
@@ -152,6 +229,9 @@ public class Panel_StellarNetReplay : UIPanelBase
         currentSpeedText.text = $"当前倍速: {speed}x";
     }
 
+    /// <summary>
+    /// 解析并应用自定义倍速输入。
+    /// </summary>
     private void OnApplyCustomSpeedBtn()
     {
         if (customSpeedIpt == null) return;
@@ -167,6 +247,9 @@ public class Panel_StellarNetReplay : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 拖动进度条时让播放器 Seek 到目标 tick。
+    /// </summary>
     private void OnSliderValueChanged(float value)
     {
         if (_replayPlayer == null) return;
@@ -179,6 +262,9 @@ public class Panel_StellarNetReplay : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 退出当前回放房间。
+    /// </summary>
     private void OnExitBtn()
     {
         // 退出回放时销毁本地回放房间。
@@ -193,6 +279,9 @@ public class Panel_StellarNetReplay : UIPanelBase
         }
     }
 
+    /// <summary>
+    /// 刷新播放/暂停按钮文案。
+    /// </summary>
     private void UpdateUIState()
     {
         if (_replayPlayer == null) return;

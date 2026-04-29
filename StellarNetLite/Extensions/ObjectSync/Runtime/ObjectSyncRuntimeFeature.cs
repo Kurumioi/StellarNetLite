@@ -9,6 +9,9 @@ namespace StellarNet.Lite.Extensions.ObjectSync.Runtime
     /// </summary>
     public sealed class ObjectSyncRuntimeFeature : RuntimeFeatureBridgeBase
     {
+        /// <summary>
+        /// Runtime 启动时同步加载 ObjectSync 配置。
+        /// </summary>
         public override void OnRuntimeAwake(StellarNetAppManager appManager)
         {
             ObjectSyncConfigLoader.LoadRuntimeConfigSync();

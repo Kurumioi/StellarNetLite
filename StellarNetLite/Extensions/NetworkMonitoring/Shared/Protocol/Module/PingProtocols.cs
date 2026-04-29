@@ -22,6 +22,7 @@ namespace StellarNet.Lite.Shared.Protocol
     {
         /// <summary>
         /// 原样回传的客户端时间戳。
+        /// 客户端据此估算 RTT。
         /// </summary>
         public float ClientTime;
     }

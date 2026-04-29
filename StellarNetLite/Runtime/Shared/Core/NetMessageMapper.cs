@@ -12,12 +12,24 @@ namespace StellarNet.Lite.Shared.Core
     /// </summary>
     public static class NetMessageMapper
     {
-        // Type -> 元数据，用于发送时查 MsgId/Scope/Dir。
+        /// <summary>
+        /// 协议类型到元数据的缓存。
+        /// </summary>
         private static readonly Dictionary<Type, NetMessageMeta> TypeToMetaCache = new Dictionary<Type, NetMessageMeta>();
-        // MsgId -> Type，用于收包时反查协议类型。
+
+        /// <summary>
+        /// 协议 Id 到协议类型的缓存。
+        /// </summary>
         private static readonly Dictionary<int, Type> MsgIdToTypeCache = new Dictionary<int, Type>();
+
+        /// <summary>
+        /// 是否已完成静态表初始化。
+        /// </summary>
         private static bool _isInitialized;
 
+        /// <summary>
+        /// 从生成注册表导入并校验协议元数据。
+        /// </summary>
         public static void Initialize()
         {
             if (_isInitialized)
@@ -106,6 +118,9 @@ namespace StellarNet.Lite.Shared.Core
             GenerateIntegrityReport();
         }
 
+        /// <summary>
+        /// 输出一份协议注册完整性摘要。
+        /// </summary>
         private static void GenerateIntegrityReport()
         {
             int c2sCount = TypeToMetaCache.Values.Count(m => m.Dir == NetDir.C2S);
@@ -118,6 +133,9 @@ namespace StellarNet.Lite.Shared.Core
                 $"协议静态注册完成: Total:{TypeToMetaCache.Count}, C2S:{c2sCount}, S2C:{s2cCount}, Global:{globalCount}, Room:{roomCount}");
         }
 
+        /// <summary>
+        /// 根据协议类型查询元数据。
+        /// </summary>
         public static bool TryGetMeta(Type msgType, out NetMessageMeta meta)
         {
             if (!_isInitialized)
@@ -144,6 +162,9 @@ namespace StellarNet.Lite.Shared.Core
             return true;
         }
 
+        /// <summary>
+        /// 根据 MsgId 查询协议类型。
+        /// </summary>
         public static bool TryGetMessageType(int msgId, out Type msgType)
         {
             if (!_isInitialized)

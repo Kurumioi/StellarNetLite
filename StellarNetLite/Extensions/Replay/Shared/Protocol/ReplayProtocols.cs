@@ -9,9 +9,24 @@ namespace StellarNet.Lite.Shared.Protocol
     /// </summary>
     public sealed class ReplayBriefInfo
     {
+        /// <summary>
+        /// 录像唯一 Id。
+        /// </summary>
         public string ReplayId;
+
+        /// <summary>
+        /// 录像显示名。
+        /// </summary>
         public string DisplayName;
+
+        /// <summary>
+        /// 录像生成时间戳。
+        /// </summary>
         public long Timestamp;
+
+        /// <summary>
+        /// 录像总 Tick 数。
+        /// </summary>
         public int TotalTicks;
     }
 
@@ -29,6 +44,9 @@ namespace StellarNet.Lite.Shared.Protocol
     [NetMsg(601, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_ReplayList
     {
+        /// <summary>
+        /// 当前可下载的录像列表。
+        /// </summary>
         public ReplayBriefInfo[] Replays;
     }
 
@@ -38,7 +56,14 @@ namespace StellarNet.Lite.Shared.Protocol
     [NetMsg(602, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_DownloadReplay
     {
+        /// <summary>
+        /// 目标录像 Id。
+        /// </summary>
         public string ReplayId;
+
+        /// <summary>
+        /// 断点续传起始偏移。
+        /// </summary>
         public int StartOffset;
     }
 
@@ -48,9 +73,24 @@ namespace StellarNet.Lite.Shared.Protocol
     [NetMsg(603, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_DownloadReplayResult
     {
+        /// <summary>
+        /// 是否下载成功。
+        /// </summary>
         public bool Success;
+
+        /// <summary>
+        /// 当前返回对应的录像 Id。
+        /// </summary>
         public string ReplayId;
+
+        /// <summary>
+        /// 下载完成后的本地文件路径或数据标识。
+        /// </summary>
         public string ReplayFileData;
+
+        /// <summary>
+        /// 失败原因。
+        /// </summary>
         public string Reason;
     }
 
@@ -60,12 +100,34 @@ namespace StellarNet.Lite.Shared.Protocol
     [NetMsg(604, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_DownloadReplayStart : ILiteNetSerializable
     {
+        /// <summary>
+        /// 当前请求是否被服务端接受。
+        /// </summary>
         public bool Success;
+
+        /// <summary>
+        /// 当前下载对应的录像 Id。
+        /// </summary>
         public string ReplayId;
+
+        /// <summary>
+        /// 整个录像文件总字节数。
+        /// </summary>
         public int TotalBytes;
+
+        /// <summary>
+        /// 服务端接受的起始偏移。
+        /// </summary>
         public int AcceptedOffset;
+
+        /// <summary>
+        /// 当前阶段失败原因。
+        /// </summary>
         public string Reason;
 
+        /// <summary>
+        /// 序列化分块开始响应。
+        /// </summary>
         public void Serialize(BinaryWriter writer)
         {
             writer.Write(Success);
@@ -75,6 +137,9 @@ namespace StellarNet.Lite.Shared.Protocol
             writer.Write(Reason ?? string.Empty);
         }
 
+        /// <summary>
+        /// 反序列化分块开始响应。
+        /// </summary>
         public void Deserialize(BinaryReader reader)
         {
             Success = reader.ReadBoolean();
@@ -91,9 +156,19 @@ namespace StellarNet.Lite.Shared.Protocol
     [NetMsg(605, NetScope.Global, NetDir.S2C)]
     public sealed class S2C_DownloadReplayChunk : ILiteNetSerializable
     {
+        /// <summary>
+        /// 当前分块所属录像 Id。
+        /// </summary>
         public string ReplayId;
+
+        /// <summary>
+        /// 当前分块原始数据。
+        /// </summary>
         public byte[] ChunkData;
 
+        /// <summary>
+        /// 序列化下载分块。
+        /// </summary>
         public void Serialize(BinaryWriter writer)
         {
             writer.Write(ReplayId ?? string.Empty);
@@ -108,6 +183,9 @@ namespace StellarNet.Lite.Shared.Protocol
             }
         }
 
+        /// <summary>
+        /// 反序列化下载分块。
+        /// </summary>
         public void Deserialize(BinaryReader reader)
         {
             ReplayId = reader.ReadString();
@@ -122,6 +200,9 @@ namespace StellarNet.Lite.Shared.Protocol
     [NetMsg(606, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_DownloadReplayChunkAck
     {
+        /// <summary>
+        /// 已成功接收的录像 Id。
+        /// </summary>
         public string ReplayId;
     }
 
@@ -131,7 +212,14 @@ namespace StellarNet.Lite.Shared.Protocol
     [NetMsg(607, NetScope.Global, NetDir.C2S)]
     public sealed class C2S_RenameReplay
     {
+        /// <summary>
+        /// 目标录像 Id。
+        /// </summary>
         public string ReplayId;
+
+        /// <summary>
+        /// 新的录像显示名。
+        /// </summary>
         public string NewName;
     }
 }

@@ -14,6 +14,9 @@ namespace StellarNet.Lite.Extensions.DefaultGameFlow.Runtime
     /// </summary>
     public sealed class DefaultGameFlowRuntimeFeature : RuntimeFeatureBridgeBase
     {
+        /// <summary>
+        /// 服务端创建完成后挂入默认房间成员通知器。
+        /// </summary>
         public override void OnServerAppCreated(StellarNetAppManager appManager, ServerApp serverApp)
         {
             if (serverApp == null)
@@ -24,6 +27,9 @@ namespace StellarNet.Lite.Extensions.DefaultGameFlow.Runtime
             serverApp.RoomMembershipNotifier = DefaultRoomMembershipNotifier.Instance;
         }
 
+        /// <summary>
+        /// 服务端会话状态变化后刷新大厅在线玩家列表。
+        /// </summary>
         public override void OnServerSessionStateChanged(StellarNetAppManager appManager, ServerApp serverApp, Session session)
         {
             if (serverApp == null)
@@ -34,6 +40,9 @@ namespace StellarNet.Lite.Extensions.DefaultGameFlow.Runtime
             ServerLobbyModule.BroadcastOnlinePlayerList(serverApp);
         }
 
+        /// <summary>
+        /// 服务端踢人前向客户端发送踢下线通知。
+        /// </summary>
         public override bool TryNotifyServerSessionKick(StellarNetAppManager appManager, ServerApp serverApp, Session session, string reason)
         {
             if (serverApp == null || session == null || !session.IsOnline)
@@ -45,6 +54,9 @@ namespace StellarNet.Lite.Extensions.DefaultGameFlow.Runtime
             return true;
         }
 
+        /// <summary>
+        /// 客户端创建完成后注册默认流程必须放行的弱网豁免协议。
+        /// </summary>
         public override void OnClientAppCreated(StellarNetAppManager appManager, ClientApp clientApp)
         {
             if (clientApp == null)
@@ -57,6 +69,9 @@ namespace StellarNet.Lite.Extensions.DefaultGameFlow.Runtime
             clientApp.RegisterWeakNetBypassProtocol<C2S_ReconnectReady>();
         }
 
+        /// <summary>
+        /// 客户端断线恢复后自动补发登录请求。
+        /// </summary>
         public override void OnClientConnected(StellarNetAppManager appManager, ClientApp clientApp)
         {
             if (clientApp == null || !clientApp.Session.IsReconnecting)

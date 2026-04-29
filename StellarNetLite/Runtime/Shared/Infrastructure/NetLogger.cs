@@ -39,6 +39,7 @@ namespace StellarNet.Lite.Shared.Infrastructure
         /// </summary>
         private static string FormatMessage(string level, string module, string message, string roomId, string sessionId, string extraContext)
         {
+            // 统一把不同级别日志包装成同一格式，方便运行期直接筛选。
             const int FontSize = 14;
             string colorTag = level switch
             {

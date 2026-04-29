@@ -9,9 +9,19 @@ namespace StellarNet.Lite.Runtime
     /// </summary>
     internal static class GeneratedRuntimeAccess
     {
+        /// <summary>
+        /// 运行时特性注册表的完整类型名。
+        /// </summary>
         private const string RuntimeFeatureRegistryTypeName = "StellarNet.Lite.Shared.Binders.AutoRuntimeFeatureRegistry";
+
+        /// <summary>
+        /// 未鉴权协议白名单注册表的完整类型名。
+        /// </summary>
         private const string UnauthenticatedRegistryTypeName = "StellarNet.Lite.Shared.Protocol.AutoUnauthenticatedProtocolRegistry";
 
+        /// <summary>
+        /// 从生成注册表中创建全部 RuntimeFeatureBridge 实例。
+        /// </summary>
         public static IRuntimeFeatureBridge[] CreateRuntimeFeatureBridges()
         {
             Type registryType = ResolveType(RuntimeFeatureRegistryTypeName);
@@ -35,6 +45,9 @@ namespace StellarNet.Lite.Runtime
             return value as IRuntimeFeatureBridge[] ?? Array.Empty<IRuntimeFeatureBridge>();
         }
 
+        /// <summary>
+        /// 读取允许未鉴权访问的 Global C2S 协议 Id 列表。
+        /// </summary>
         public static int[] GetUnauthenticatedGlobalC2SMsgIds()
         {
             Type registryType = ResolveType(UnauthenticatedRegistryTypeName);
@@ -48,6 +61,9 @@ namespace StellarNet.Lite.Runtime
             return value as int[] ?? Array.Empty<int>();
         }
 
+        /// <summary>
+        /// 在当前程序集内解析指定完整类型名。
+        /// </summary>
         private static Type ResolveType(string fullName)
         {
             if (string.IsNullOrEmpty(fullName))

@@ -8,22 +8,44 @@ namespace StellarNet.Lite.Shared.Core
     /// </summary>
     public struct Packet
     {
-        // 会话内自增包序号。
+        /// <summary>
+        /// 会话内自增包序号。
+        /// </summary>
         public uint Seq;
-        // 协议 Id。
+
+        /// <summary>
+        /// 协议 Id。
+        /// </summary>
         public int MsgId;
-        // 消息作用域。
+
+        /// <summary>
+        /// 消息作用域。
+        /// </summary>
         public NetScope Scope;
-        // 房间消息附带的目标 RoomId。
+
+        /// <summary>
+        /// 房间消息附带的目标 RoomId。
+        /// </summary>
         public string RoomId;
-        // 原始载荷数组。
+
+        /// <summary>
+        /// 原始载荷数组。
+        /// </summary>
         public byte[] Payload;
-        // 载荷起始偏移。
+
+        /// <summary>
+        /// 载荷起始偏移。
+        /// </summary>
         public int PayloadOffset;
-        // 载荷有效长度。
+
+        /// <summary>
+        /// 载荷有效长度。
+        /// </summary>
         public int PayloadLength;
 
-        // 完整构造，支持带偏移的 ArraySegment 载荷。
+        /// <summary>
+        /// 完整构造，支持带偏移的 ArraySegment 载荷。
+        /// </summary>
         public Packet(uint seq, int msgId, NetScope scope, string roomId, byte[] payload, int payloadOffset, int payloadLength)
         {
             Seq = seq;
@@ -35,7 +57,9 @@ namespace StellarNet.Lite.Shared.Core
             PayloadLength = payloadLength;
         }
 
-        // 简化构造，默认载荷从 0 偏移开始。
+        /// <summary>
+        /// 简化构造，默认载荷从 0 偏移开始。
+        /// </summary>
         public Packet(uint seq, int msgId, NetScope scope, string roomId, byte[] payload, int payloadLength)
         {
             Seq = seq;

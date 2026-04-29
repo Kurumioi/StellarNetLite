@@ -8,8 +8,14 @@ using StellarNet.Lite.Shared.Protocol;
 /// </summary>
 public class Panel_StellarNetLobby_ChatItem : MonoBehaviour
 {
+    /// <summary>
+    /// 聊天内容文本。
+    /// </summary>
     [SerializeField] private TMP_Text contentText;
 
+    /// <summary>
+    /// 按固定格式刷新聊天展示内容。
+    /// </summary>
     public void Init(S2C_GlobalChatSync msg)
     {
         if (msg == null || contentText == null) return;

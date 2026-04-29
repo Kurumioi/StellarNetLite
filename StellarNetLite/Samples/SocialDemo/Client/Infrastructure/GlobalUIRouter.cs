@@ -13,9 +13,20 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
     /// </summary>
     public class GlobalUIRouter : MonoSingleton<GlobalUIRouter>
     {
+        /// <summary>
+        /// 上一帧记录的客户端状态。
+        /// 用于检测是否从房间态跌回大厅态。
+        /// </summary>
         private ClientAppState _lastClientState = ClientAppState.InLobby;
+
+        /// <summary>
+        /// 是否已经完成一次事件注册。
+        /// </summary>
         private bool _isInitialized;
 
+        /// <summary>
+        /// 注册全局 UI 相关的网络事件。
+        /// </summary>
         public void Init()
         {
             if (_isInitialized)
@@ -35,6 +46,9 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             NetLogger.LogInfo("GlobalUIRouter", "全局 UI 路由初始化完成");
         }
 
+        /// <summary>
+        /// 重置路由器本地状态。
+        /// </summary>
         protected override void OnDestroy()
         {
             base.OnDestroy();
@@ -42,6 +56,9 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             _lastClientState = ClientAppState.InLobby;
         }
 
+        /// <summary>
+        /// 监听客户端状态变化，并在房间退出后回退到正确面板。
+        /// </summary>
         private void Update()
         {
             if (NetClient.App == null)
@@ -80,6 +97,9 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             _lastClientState = currentState;
         }
 
+        /// <summary>
+        /// 处理物理断线后的 UI 回退。
+        /// </summary>
         public void HandlePhysicalDisconnect()
         {
             UIKit.CloseAllPanels();
@@ -87,6 +107,9 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             UIKit.OpenPanel<Panel_StellarNetLogin>();
         }
 
+        /// <summary>
+        /// 登录成功后切入大厅界面。
+        /// </summary>
         private void OnLoginResult(S2C_LoginResult msg)
         {
             if (msg == null)
@@ -112,6 +135,9 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             });
         }
 
+        /// <summary>
+        /// 处理重连确认结果，成功时保持房间流转，失败时回到大厅。
+        /// </summary>
         private void OnReconnectResult(S2C_ReconnectResult msg)
         {
             if (msg == null)
@@ -135,6 +161,9 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             });
         }
 
+        /// <summary>
+        /// 被服务端踢下线后回到登录页。
+        /// </summary>
         private void OnKickOut(S2C_KickOut msg)
         {
             if (msg == null)
@@ -148,6 +177,9 @@ namespace StellarNet.Lite.Game.Client.Infrastructure
             UIKit.OpenPanel<Panel_StellarNetLogin>();
         }
 
+        /// <summary>
+        /// 建房或进房确认成功后关闭大厅侧面板。
+        /// </summary>
         private void OnRoomSetupResult(S2C_RoomSetupResult evt)
         {
             if (evt == null || !evt.Success)

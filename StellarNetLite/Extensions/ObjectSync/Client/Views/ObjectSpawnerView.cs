@@ -17,18 +17,56 @@ namespace StellarNet.Lite.Client.Components.Views
     /// </summary>
     public class ObjectSpawnerView : MonoBehaviour
     {
+        /// <summary>
+        /// 单个已跟踪实体的视图侧缓存。
+        /// </summary>
         private sealed class SpawnedEntityEntry
         {
+            /// <summary>
+            /// 最近一次收到的完整生成态。
+            /// </summary>
             public ObjectSpawnState LatestState;
+
+            /// <summary>
+            /// 当前场景内实例。
+            /// </summary>
             public GameObject Instance;
+
+            /// <summary>
+            /// 异步加载取消源。
+            /// </summary>
             public CancellationTokenSource LoadCts;
+
+            /// <summary>
+            /// 当前资源解析或生成任务。
+            /// </summary>
             public Task LoadTask;
+
+            /// <summary>
+            /// 当前实体加载状态。
+            /// </summary>
             public NetEntityLoadState LoadState;
         }
 
+        /// <summary>
+        /// 当前绑定的客户端房间。
+        /// </summary>
         private ClientRoom _room;
+
+        /// <summary>
+        /// 当前房间的对象同步组件。
+        /// </summary>
         private ClientObjectSyncComponent _syncService;
+
+        /// <summary>
+        /// 已跟踪实体表。
+        /// key 为 NetId。
+        /// </summary>
         private readonly Dictionary<int, SpawnedEntityEntry> _spawnEntries = new Dictionary<int, SpawnedEntityEntry>();
+
+        /// <summary>
+        /// 当前是否已完成初始化。
+        /// </summary>
         private bool _isInitialized;
 
         /// <summary>
@@ -102,6 +140,9 @@ namespace StellarNet.Lite.Client.Components.Views
             NetLogger.LogInfo("ObjectSpawnerView", "清理完成", roomId, extraContext: $"Object:{name}");
         }
 
+        /// <summary>
+        /// 销毁对象时清理房间绑定和已生成实例。
+        /// </summary>
         private void OnDestroy()
         {
             Clear();
@@ -135,6 +176,9 @@ namespace StellarNet.Lite.Client.Components.Views
             return false;
         }
 
+        /// <summary>
+        /// 根据当前同步组件已有状态补建历史实体。
+        /// </summary>
         private void BootstrapExistingEntities()
         {
             if (_syncService == null)
@@ -149,6 +193,9 @@ namespace StellarNet.Lite.Client.Components.Views
             }
         }
 
+        /// <summary>
+        /// 收到生成消息后开始追踪对应实体。
+        /// </summary>
         private void OnObjectSpawned(S2C_ObjectSpawn evt)
         {
             if (evt == null)
@@ -159,6 +206,9 @@ namespace StellarNet.Lite.Client.Components.Views
             TrackOrStartSpawn(evt.State);
         }
 
+        /// <summary>
+        /// 收到销毁消息后清理对应实体视图。
+        /// </summary>
         private void OnObjectDestroyed(S2C_ObjectDestroy evt)
         {
             if (!_isInitialized)
@@ -180,6 +230,9 @@ namespace StellarNet.Lite.Client.Components.Views
             CleanupEntity(evt.NetId, true);
         }
 
+        /// <summary>
+        /// 更新实体缓存并在需要时启动异步生成流程。
+        /// </summary>
         private void TrackOrStartSpawn(ObjectSpawnState state)
         {
             if (!_isInitialized)
@@ -228,6 +281,9 @@ namespace StellarNet.Lite.Client.Components.Views
             StartResolveAndSpawn(state.NetId, entry);
         }
 
+        /// <summary>
+        /// 启动资源解析与实例化任务。
+        /// </summary>
         private void StartResolveAndSpawn(int netId, SpawnedEntityEntry entry)
         {
             entry.LoadCts?.Cancel();
@@ -237,6 +293,9 @@ namespace StellarNet.Lite.Client.Components.Views
             entry.LoadTask = ResolveAndSpawnAsync(netId, entry, entry.LoadCts.Token);
         }
 
+        /// <summary>
+        /// 异步解析预制体并生成场景实体。
+        /// </summary>
         private async Task ResolveAndSpawnAsync(int netId, SpawnedEntityEntry entry, CancellationToken cancellationToken)
         {
             try

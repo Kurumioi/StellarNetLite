@@ -12,8 +12,20 @@ namespace StellarNet.Lite.Shared.Infrastructure
     /// </summary>
     public interface INetSerializer
     {
+        /// <summary>
+        /// 序列化对象并返回新字节数组。
+        /// </summary>
         byte[] Serialize(object obj);
+
+        /// <summary>
+        /// 序列化对象到外部提供的缓冲区。
+        /// 返回实际写入长度。
+        /// </summary>
         int Serialize(object obj, byte[] buffer);
+
+        /// <summary>
+        /// 从指定字节片段反序列化目标对象。
+        /// </summary>
         object Deserialize(byte[] data, int offset, int length, Type type);
     }
 
@@ -23,7 +35,14 @@ namespace StellarNet.Lite.Shared.Infrastructure
     /// </summary>
     public interface ILiteNetSerializable
     {
+        /// <summary>
+        /// 写入自定义二进制内容。
+        /// </summary>
         void Serialize(BinaryWriter writer);
+
+        /// <summary>
+        /// 从二进制内容中恢复对象状态。
+        /// </summary>
         void Deserialize(BinaryReader reader);
     }
 
@@ -33,8 +52,14 @@ namespace StellarNet.Lite.Shared.Infrastructure
     /// </summary>
     public sealed class LiteNetSerializer : INetSerializer
     {
+        /// <summary>
+        /// 不带 BOM 的 UTF8 编码器。
+        /// </summary>
         private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
 
+        /// <summary>
+        /// 序列化对象并返回新的字节数组。
+        /// </summary>
         public byte[] Serialize(object obj)
         {
             if (obj == null)
@@ -73,6 +98,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             return Utf8NoBom.GetBytes(json);
         }
 
+        /// <summary>
+        /// 序列化对象到外部缓冲区，减少发包时的额外分配。
+        /// </summary>
         public int Serialize(object obj, byte[] buffer)
         {
             if (obj == null)
@@ -147,6 +175,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             return Utf8NoBom.GetBytes(json, 0, json.Length, buffer, 0);
         }
 
+        /// <summary>
+        /// 从字节片段中反序列化对象。
+        /// </summary>
         public object Deserialize(byte[] data, int offset, int length, Type type)
         {
             if (data == null)

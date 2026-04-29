@@ -57,13 +57,19 @@ namespace StellarNet.Lite.Client.Components.Views
         /// </summary>
         public bool IsLocalPlayer { get; set; }
 
-        // 当前实体身份组件。
+        /// <summary>
+        /// 当前实体身份组件。
+        /// </summary>
         private NetIdentity _identity;
 
-        // SmoothDamp 使用的速度缓存。
+        /// <summary>
+        /// SmoothDamp 使用的速度缓存。
+        /// </summary>
         private Vector3 _currentVelocity;
 
-        // 当前对象上的 CharacterController。
+        /// <summary>
+        /// 当前对象上的 CharacterController。
+        /// </summary>
         private CharacterController _characterController;
 
         /// <summary>

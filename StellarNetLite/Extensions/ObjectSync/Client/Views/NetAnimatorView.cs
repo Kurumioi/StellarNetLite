@@ -72,38 +72,58 @@ namespace StellarNet.Lite.Client.Components.Views
         /// </summary>
         public bool IsLocalPlayer { get; set; }
 
-        // 当前实体身份组件。
+        /// <summary>
+        /// 当前实体身份组件。
+        /// </summary>
         private NetIdentity _identity;
 
-        // 上一次应用的动画状态 Hash。
+        /// <summary>
+        /// 上一次应用的动画状态 Hash。
+        /// </summary>
         private int _lastAnimStateHash;
 
-        // 防滑冰目标状态 Hash 集合。
+        /// <summary>
+        /// 防滑冰目标状态 Hash 集合。
+        /// </summary>
         private readonly HashSet<int> _antiIceTargetHashes = new HashSet<int>();
 
-        // 防滑冰来源状态 Hash 集合。
+        /// <summary>
+        /// 防滑冰来源状态 Hash 集合。
+        /// </summary>
         private readonly HashSet<int> _antiIceSourceHashes = new HashSet<int>();
 
-        // 服务端逻辑状态 Hash -> Animator 状态 Hash 映射。
+        /// <summary>
+        /// 服务端逻辑状态 Hash 到 Animator 状态 Hash 的映射表。
+        /// </summary>
         private readonly Dictionary<int, int> _serverToAnimatorStateHashes = new Dictionary<int, int>();
 
-        // 已经提示过的未知逻辑状态 Hash。
+        /// <summary>
+        /// 已经提示过的未知逻辑状态 Hash 集合。
+        /// </summary>
         private readonly HashSet<int> _unknownSyncedStateHashes = new HashSet<int>();
 
-        // 映射表和参数 Hash 是否已经完成初始化。
+        /// <summary>
+        /// 映射表和参数 Hash 是否已经完成初始化。
+        /// </summary>
         private bool _isRuntimeInitialized;
 
-        // 三个浮点参数对应的 Animator Hash。
+        /// <summary>
+        /// 三个浮点参数对应的 Animator Hash。
+        /// </summary>
         private int _param1Hash;
         private int _param2Hash;
         private int _param3Hash;
 
-        // 当前本地缓存的浮点参数值。
+        /// <summary>
+        /// 当前本地缓存的浮点参数值。
+        /// </summary>
         private float _currentParam1;
         private float _currentParam2;
         private float _currentParam3;
 
-        // 三个浮点参数的平滑速度缓存。
+        /// <summary>
+        /// 三个浮点参数的平滑速度缓存。
+        /// </summary>
         private float _param1Vel;
         private float _param2Vel;
         private float _param3Vel;

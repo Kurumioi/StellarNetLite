@@ -12,7 +12,14 @@ namespace StellarNet.Lite.Shared.Infrastructure
     /// </summary>
     public enum ConfigRootPath
     {
+        /// <summary>
+        /// 使用 StreamingAssets 作为配置根目录。
+        /// </summary>
         StreamingAssets,
+
+        /// <summary>
+        /// 使用 PersistentDataPath 作为配置根目录。
+        /// </summary>
         PersistentDataPath
     }
 
@@ -85,13 +92,27 @@ namespace StellarNet.Lite.Shared.Infrastructure
     /// </summary>
     public static class NetConfigLoader
     {
+        /// <summary>
+        /// 配置文件目录名。
+        /// </summary>
         public const string ConfigFolderName = "NetConfig";
+
+        /// <summary>
+        /// 主配置文件名。
+        /// </summary>
         public const string ConfigFileName = "netconfig.json";
+
+        /// <summary>
+        /// 运行时根目录引导文件名。
+        /// </summary>
         public const string RuntimeRootFileName = "netconfig_root.json";
 
         [Serializable]
         private sealed class RuntimeRootConfig
         {
+            /// <summary>
+            /// 当前启用的配置根目录。
+            /// </summary>
             public ConfigRootPath ActiveRoot = ConfigRootPath.StreamingAssets;
         }
 
@@ -241,6 +262,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             return DeserializeOrDefault(jsonContent, fullPath, "同步读取");
         }
 
+        /// <summary>
+        /// 根据根目录类型拼出主配置文件完整路径。
+        /// </summary>
         private static string GetFullPath(ConfigRootPath rootPath)
         {
             string basePath = rootPath == ConfigRootPath.StreamingAssets
@@ -255,6 +279,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             return Path.Combine(basePath, ConfigFolderName, ConfigFileName).Replace("\\", "/");
         }
 
+        /// <summary>
+        /// 获取运行时根目录引导文件的完整路径。
+        /// </summary>
         private static string GetRuntimeRootFullPath()
         {
             if (string.IsNullOrEmpty(Application.streamingAssetsPath))
@@ -265,6 +292,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             return Path.Combine(Application.streamingAssetsPath, ConfigFolderName, RuntimeRootFileName).Replace("\\", "/");
         }
 
+        /// <summary>
+        /// 反序列化根目录引导文件，失败时回退默认根目录。
+        /// </summary>
         private static ConfigRootPath DeserializeRuntimeRootOrDefault(string jsonContent, string fullPath, string stage)
         {
             if (string.IsNullOrWhiteSpace(jsonContent))
@@ -289,6 +319,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
         }
 
+        /// <summary>
+        /// 反序列化主配置文件，失败时回退默认配置。
+        /// </summary>
         private static NetConfig DeserializeOrDefault(string jsonContent, string fullPath, string stage)
         {
             if (string.IsNullOrWhiteSpace(jsonContent))
@@ -309,6 +342,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             return config;
         }
 
+        /// <summary>
+        /// 对反序列化后的配置做兜底修正。
+        /// </summary>
         private static void NormalizeConfig(NetConfig config, string fullPath)
         {
             if (config == null)
@@ -387,12 +423,18 @@ namespace StellarNet.Lite.Shared.Infrastructure
             }
         }
 
+        /// <summary>
+        /// 创建默认配置并输出原因日志。
+        /// </summary>
         private static NetConfig CreateDefaultConfigWithLog(string reason)
         {
             NetLogger.LogInfo("NetConfigLoader", $"返回默认配置。Reason:{reason}");
             return new NetConfig();
         }
 
+        /// <summary>
+        /// 通过 UnityWebRequest 读取 Android StreamingAssets 文件。
+        /// </summary>
         private static async Task<string> ReadViaWebRequestAsync(string url)
         {
             if (string.IsNullOrEmpty(url))
@@ -421,6 +463,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
         }
 
 #if UNITY_EDITOR
+        /// <summary>
+        /// 在编辑器下保存当前运行时配置根目录选择。
+        /// </summary>
         public static void SaveRuntimeRootSelection(ConfigRootPath rootPath)
         {
             string bootstrapPath = GetRuntimeRootFullPath();
@@ -451,6 +496,9 @@ namespace StellarNet.Lite.Shared.Infrastructure
             File.WriteAllText(bootstrapPath, json);
         }
 
+        /// <summary>
+        /// 编辑器同步读取入口。
+        /// </summary>
         public static NetConfig LoadEditorSync(ConfigRootPath rootPath)
         {
             return LoadServerConfigSync(rootPath);

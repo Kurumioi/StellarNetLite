@@ -7,9 +7,19 @@ using StellarNet.Lite.Shared.Protocol;
 /// </summary>
 public class Panel_StellarNetLobby_PlayerItem : MonoBehaviour
 {
+    /// <summary>
+    /// 玩家显示名文本。
+    /// </summary>
     [SerializeField] private TMP_Text nameText;
+
+    /// <summary>
+    /// 玩家当前状态文本。
+    /// </summary>
     [SerializeField] private TMP_Text stateText;
 
+    /// <summary>
+    /// 根据在线状态刷新大厅玩家条目。
+    /// </summary>
     public void Init(OnlinePlayerInfo info)
     {
         if (info == null) return;

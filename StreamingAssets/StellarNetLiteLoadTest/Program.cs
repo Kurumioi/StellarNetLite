@@ -3,8 +3,14 @@ using System.Diagnostics;
 
 namespace StellarNetLite.LoadTest;
 
+/// <summary>
+/// 压测工具控制台入口。
+/// </summary>
 internal static class Program
 {
+    /// <summary>
+    /// 解析参数并启动压测主循环。
+    /// </summary>
     public static async Task<int> Main(string[] args)
     {
         LoadTestOptions options;
@@ -51,6 +57,9 @@ internal static class Program
         return 0;
     }
 
+    /// <summary>
+    /// 读取控制台命令并转发给运行中的压测器。
+    /// </summary>
     private static async Task ReadCommandsAsync(LoadTestRunner runner, CancellationToken token)
     {
         Console.WriteLine("鍛戒护: addroom [鏁伴噺] | removeroom [鏁伴噺] | endroom <鎴块棿搴忓彿> | status | help");
@@ -78,8 +87,12 @@ internal static class Program
     }
 }
 
+/// <summary>
+/// 压测工具命令行参数。
+/// </summary>
 internal sealed class LoadTestOptions
 {
+    // 启动参数。
     public string Transport { get; private set; } = "kcp";
     public string Host { get; private set; } = "127.0.0.1";
     public int Port { get; private set; } = 7777;
@@ -94,8 +107,14 @@ internal sealed class LoadTestOptions
     public string ClientVersion { get; private set; } = "0.0.1";
     public int LogIntervalSeconds { get; private set; } = 5;
 
+    /// <summary>
+    /// 总机器人数量。
+    /// </summary>
     public int TotalClients => RoomCount * ClientsPerRoom;
 
+    /// <summary>
+    /// 解析命令行参数。
+    /// </summary>
     public static LoadTestOptions Parse(string[] args)
     {
         var options = new LoadTestOptions();
@@ -197,12 +216,18 @@ internal sealed class LoadTestOptions
         return options;
     }
 
+    /// <summary>
+    /// 输出命令行用法示例。
+    /// </summary>
     public static void PrintUsage()
     {
         Console.WriteLine("用法:");
         Console.WriteLine("  dotnet run -c Release -- --transport kcp --host 127.0.0.1 --port 7777 --rooms 5 --clients-per-room 20 --redundant-clients-per-room 10 --duration 0 --move-rate 30");
     }
 
+    /// <summary>
+    /// 读取某个参数的下一个值。
+    /// </summary>
     private static string RequireValue(string arg, string? value)
     {
         if (string.IsNullOrEmpty(value))
@@ -214,20 +239,31 @@ internal sealed class LoadTestOptions
     }
 }
 
+/// <summary>
+/// 压测总调度器。
+/// 负责房间扩缩容、机器人启动节流、统计输出和命令处理。
+/// </summary>
 internal sealed class LoadTestRunner
 {
     private const int StateLogSampleBotCount = 5;
+
+    // 命令缓冲与运行时状态。
     private readonly ConcurrentQueue<string> _pendingCommands = new();
     private readonly ConcurrentQueue<string> _runtimeCommands = new();
     private readonly LoadTestOptions _options;
     private readonly Stopwatch _stopwatch = new();
     private readonly LoadTestStats _stats = new();
     private readonly List<LoadTestBot> _bots = new();
+
+    // 房间运行态缓存。
     private string[] _roomIds;
     private bool[] _roomActive;
     private long _nextConnectAtMs;
     private long _lastLogAtMs;
 
+    /// <summary>
+    /// 初始化压测调度器。
+    /// </summary>
     public LoadTestRunner(LoadTestOptions options)
     {
         _options = options;
@@ -239,6 +275,9 @@ internal sealed class LoadTestRunner
         }
     }
 
+    /// <summary>
+    /// 为指定区间的房间批量追加机器人实例。
+    /// </summary>
     private void AppendRoomBots(int startRoomIndex, int endRoomIndex)
     {
         int globalBotIndex = _bots.Count;
@@ -262,6 +301,9 @@ internal sealed class LoadTestRunner
         }
     }
 
+    /// <summary>
+    /// 把一条运行时命令加入待处理队列。
+    /// </summary>
     public void EnqueueCommand(string commandLine)
     {
         if (!string.IsNullOrWhiteSpace(commandLine))
@@ -270,6 +312,9 @@ internal sealed class LoadTestRunner
         }
     }
 
+    /// <summary>
+    /// 启动压测主循环。
+    /// </summary>
     public async Task RunAsync(CancellationToken token)
     {
         Console.WriteLine(
@@ -318,6 +363,9 @@ internal sealed class LoadTestRunner
         }
     }
 
+    /// <summary>
+    /// 按建连速率逐个启动尚未启动的机器人。
+    /// </summary>
     private void StartPendingBots(long nowMs)
     {
         if (nowMs < _nextConnectAtMs)
@@ -339,6 +387,9 @@ internal sealed class LoadTestRunner
         }
     }
 
+    /// <summary>
+    /// 处理运行中的控制台命令。
+    /// </summary>
     private void ProcessCommands()
     {
         while (_runtimeCommands.TryDequeue(out string? commandLine))
@@ -386,6 +437,9 @@ internal sealed class LoadTestRunner
         }
     }
 
+    /// <summary>
+    /// 动态增加房间与机器人。
+    /// </summary>
     private void AddRooms(int count)
     {
         if (count <= 0)
@@ -421,6 +475,9 @@ internal sealed class LoadTestRunner
         }
     }
 
+    /// <summary>
+    /// 从尾部开始移除房间并请求对应机器人下线。
+    /// </summary>
     private void RemoveRooms(int count)
     {
         if (count <= 0)
@@ -465,6 +522,9 @@ internal sealed class LoadTestRunner
         }
     }
 
+    /// <summary>
+    /// 请求指定房间的房主机器人结束对局。
+    /// </summary>
     private void EndRoom(int roomNumber)
     {
         int roomIndex = roomNumber - 1;
@@ -502,6 +562,9 @@ internal sealed class LoadTestRunner
         Console.WriteLine($"[命令] 房间 {roomNumber} 未找到可用房主机器人。");
     }
 
+    /// <summary>
+    /// 输出当前总体统计信息。
+    /// </summary>
     private void PrintStats(long nowMs)
     {
         int createdRooms = 0;
@@ -528,11 +591,17 @@ internal sealed class LoadTestRunner
         PrintSampleBots();
     }
 
+    /// <summary>
+    /// 格式化压测持续时间显示。
+    /// </summary>
     private static string FormatDuration(int seconds)
     {
         return seconds > 0 ? $"{seconds}s" : "直到手动停止";
     }
 
+    /// <summary>
+    /// 统计当前所有机器人状态分布。
+    /// </summary>
     private Dictionary<BotState, int> BuildStateCounts()
     {
         var counts = new Dictionary<BotState, int>();
@@ -545,11 +614,17 @@ internal sealed class LoadTestRunner
         return counts;
     }
 
+    /// <summary>
+    /// 读取指定状态的数量。
+    /// </summary>
     private static int GetStateCount(Dictionary<BotState, int> counts, BotState state)
     {
         return counts.TryGetValue(state, out int value) ? value : 0;
     }
 
+    /// <summary>
+    /// 输出一小部分机器人样本状态，便于快速观察。
+    /// </summary>
     private void PrintSampleBots()
     {
         int sampleCount = Math.Min(StateLogSampleBotCount, _bots.Count);
@@ -559,12 +634,18 @@ internal sealed class LoadTestRunner
         }
     }
 
+    /// <summary>
+    /// 判断某个房间槽位当前是否仍处于激活状态。
+    /// </summary>
     private bool IsRoomActive(int roomIndex)
     {
         return roomIndex >= 0 && roomIndex < _roomActive.Length && _roomActive[roomIndex];
     }
 }
 
+/// <summary>
+/// 单个压测机器人状态。
+/// </summary>
 internal enum BotState
 {
     Idle,
@@ -584,6 +665,10 @@ internal enum BotState
     Stopped
 }
 
+/// <summary>
+/// 单个压测机器人。
+/// 负责连接、登录、建房/加房、准备、开局和游戏内行为模拟。
+/// </summary>
 internal sealed class LoadTestBot : IDisposable
 {
     private const long StartGameRetryIntervalMs = 2500;
@@ -594,6 +679,7 @@ internal sealed class LoadTestBot : IDisposable
     private const long RoomSetupTimeoutMs = 5000;
     private const long LeaveRoomTimeoutMs = 4000;
 
+    // 机器人固定身份信息。
     private readonly int _globalBotIndex;
     private readonly int _roomIndex;
     private readonly int _seatIndex;
@@ -607,6 +693,8 @@ internal sealed class LoadTestBot : IDisposable
     private readonly Random _random;
     private readonly double _moveIntervalMs;
     private readonly string _tag;
+
+    // 会话与状态机运行态。
     private uint _seq;
     private BotState _state;
     private long _stateEnterAtMs;
@@ -620,6 +708,8 @@ internal sealed class LoadTestBot : IDisposable
     private bool _shutdownRequested;
     private string _shutdownReason = string.Empty;
     private bool _forceEndRequested;
+
+    // 行为调度相关缓存。
     private long _nextReadyAtMs;
     private long _lastMoveAtMs;
     private long _lastStartGameAttemptAtMs;
@@ -636,14 +726,44 @@ internal sealed class LoadTestBot : IDisposable
     private bool _wasTransportConnected;
     private bool _isStopped;
 
+    /// <summary>
+    /// 是否已启动过。
+    /// </summary>
     public bool HasStarted { get; private set; }
+
+    /// <summary>
+    /// 是否已经彻底停止。
+    /// </summary>
     public bool IsStopped => _isStopped;
+
+    /// <summary>
+    /// 归属房间索引。
+    /// </summary>
     public int RoomIndex => _roomIndex;
+
+    /// <summary>
+    /// 是否为该房间房主机器人。
+    /// </summary>
     public bool IsOwner => _isOwner;
+
+    /// <summary>
+    /// 当前状态枚举。
+    /// </summary>
     public BotState CurrentState => _state;
+
+    /// <summary>
+    /// 用于日志输出的机器人标识。
+    /// </summary>
     public string Tag => _tag;
+
+    /// <summary>
+    /// 当前状态的可读文本。
+    /// </summary>
     public string CurrentStateText => BuildStateText();
 
+    /// <summary>
+    /// 构造一个压测机器人实例。
+    /// </summary>
     public LoadTestBot(
         int globalBotIndex,
         int roomIndex,
@@ -668,6 +788,9 @@ internal sealed class LoadTestBot : IDisposable
         _tag = $"房间{_roomIndex + 1}-席位{_seatIndex + 1}-客户端{_globalBotIndex + 1}";
     }
 
+    /// <summary>
+    /// 启动机器人并开始连接服务端。
+    /// </summary>
     public void Start()
     {
         if (HasStarted || _isStopped)
@@ -691,6 +814,9 @@ internal sealed class LoadTestBot : IDisposable
         }
     }
 
+    /// <summary>
+    /// 推进单个机器人的状态机。
+    /// </summary>
     public void Tick(long nowMs)
     {
         if (!HasStarted || _isStopped)
@@ -782,11 +908,17 @@ internal sealed class LoadTestBot : IDisposable
         CheckStateTimeout(nowMs);
     }
 
+    /// <summary>
+    /// 释放机器人持有的传输资源。
+    /// </summary>
     public void Dispose()
     {
         _transport.Dispose();
     }
 
+    /// <summary>
+    /// 在尚未启动前直接取消该机器人。
+    /// </summary>
     public void CancelBeforeStart(string reason)
     {
         if (HasStarted)
@@ -799,18 +931,27 @@ internal sealed class LoadTestBot : IDisposable
         SetState(BotState.Stopped, 0);
     }
 
+    /// <summary>
+    /// 请求强制结束对局并在之后下线。
+    /// </summary>
     public void RequestForceEndAndShutdown(string reason)
     {
         _forceEndRequested = true;
         RequestShutdown(reason);
     }
 
+    /// <summary>
+    /// 请求由房主机器人结束当前对局。
+    /// </summary>
     public void RequestForceEnd()
     {
         _forceEndRequested = true;
         RequestShutdown("force end room");
     }
 
+    /// <summary>
+    /// 标记进入下线流程。
+    /// </summary>
     public void RequestShutdown(string reason)
     {
         if (_isStopped)
@@ -825,6 +966,10 @@ internal sealed class LoadTestBot : IDisposable
         }
     }
 
+    /// <summary>
+    /// 对外统一的停止入口。
+    /// 已启动时进入优雅下线，未启动时直接终止。
+    /// </summary>
     public void Shutdown(string reason)
     {
         if (_isStopped)
@@ -849,6 +994,9 @@ internal sealed class LoadTestBot : IDisposable
         Console.WriteLine($"[信息][{_tag}] 已停止: {reason}");
     }
 
+    /// <summary>
+    /// 立即停止机器人并释放所有资源。
+    /// </summary>
     private void StopImmediately(string reason)
     {
         if (_isStopped)
@@ -868,6 +1016,10 @@ internal sealed class LoadTestBot : IDisposable
         Console.WriteLine($"[info][{_tag}] stopped: {reason}");
     }
 
+    /// <summary>
+    /// 执行下线流程。
+    /// 包括强制结束对局、离房和超时兜底。
+    /// </summary>
     private void ProcessShutdown(long nowMs)
     {
         if (_isStopped)
@@ -920,6 +1072,9 @@ internal sealed class LoadTestBot : IDisposable
         }
     }
 
+    /// <summary>
+    /// 按 MsgId 分发收到的协议包。
+    /// </summary>
     private void HandlePacket(in PacketData packet)
     {
         switch (packet.MsgId)
@@ -948,6 +1103,9 @@ internal sealed class LoadTestBot : IDisposable
         }
     }
 
+    /// <summary>
+    /// 收到开局通知后初始化游戏内行为状态。
+    /// </summary>
     private void HandleGameStarted(long nowMs)
     {
         SetState(BotState.InGame, nowMs);
@@ -964,6 +1122,9 @@ internal sealed class LoadTestBot : IDisposable
         _lastMoveAtMs = nowMs;
     }
 
+    /// <summary>
+    /// 处理登录返回。
+    /// </summary>
     private void HandleLoginResult(in PacketData packet)
     {
         S2C_LoginResult? msg = LiteJson.Deserialize<S2C_LoginResult>(packet.Payload, packet.PayloadOffset, packet.PayloadLength);
@@ -990,6 +1151,9 @@ internal sealed class LoadTestBot : IDisposable
         }
     }
 
+    /// <summary>
+    /// 处理建房返回。
+    /// </summary>
     private void HandleCreateRoomResult(in PacketData packet)
     {
         S2C_CreateRoomResult? msg = LiteJson.Deserialize<S2C_CreateRoomResult>(packet.Payload, packet.PayloadOffset, packet.PayloadLength);
@@ -1008,6 +1172,9 @@ internal sealed class LoadTestBot : IDisposable
         SendRoomSetupReady();
     }
 
+    /// <summary>
+    /// 处理加入房间返回。
+    /// </summary>
     private void HandleJoinRoomResult(in PacketData packet)
     {
         S2C_JoinRoomResult? msg = LiteJson.Deserialize<S2C_JoinRoomResult>(packet.Payload, packet.PayloadOffset, packet.PayloadLength);
@@ -1025,6 +1192,9 @@ internal sealed class LoadTestBot : IDisposable
         SendRoomSetupReady();
     }
 
+    /// <summary>
+    /// 处理进房确认返回。
+    /// </summary>
     private void HandleRoomSetupResult(in PacketData packet)
     {
         S2C_RoomSetupResult? msg = LiteJson.Deserialize<S2C_RoomSetupResult>(packet.Payload, packet.PayloadOffset, packet.PayloadLength);
@@ -1051,6 +1221,9 @@ internal sealed class LoadTestBot : IDisposable
         }
     }
 
+    /// <summary>
+    /// 发送登录请求。
+    /// </summary>
     private void SendLogin()
     {
         byte[] payload = LiteJson.Serialize(new C2S_Login
@@ -1061,6 +1234,9 @@ internal sealed class LoadTestBot : IDisposable
         SendPacket(MsgIds.C2S_Login, NetScope.Global, string.Empty, payload);
     }
 
+    /// <summary>
+    /// 由房主机器人发起建房请求。
+    /// </summary>
     private void SendCreateRoom()
     {
         if (_createRoomSent)
@@ -1087,6 +1263,9 @@ internal sealed class LoadTestBot : IDisposable
         SendPacket(MsgIds.C2S_CreateRoom, NetScope.Global, string.Empty, payload);
     }
 
+    /// <summary>
+    /// 向指定房间发起加房请求。
+    /// </summary>
     private void SendJoinRoom(string roomId)
     {
         if (_joinRoomSent)
@@ -1103,6 +1282,9 @@ internal sealed class LoadTestBot : IDisposable
         SendPacket(MsgIds.C2S_JoinRoom, NetScope.Global, string.Empty, payload);
     }
 
+    /// <summary>
+    /// 向服务端声明本地已完成进房准备。
+    /// </summary>
     private void SendRoomSetupReady()
     {
         if (_roomSetupSent)
@@ -1119,6 +1301,9 @@ internal sealed class LoadTestBot : IDisposable
         SendPacket(MsgIds.C2S_RoomSetupReady, NetScope.Global, string.Empty, payload);
     }
 
+    /// <summary>
+    /// 发送房间准备请求。
+    /// </summary>
     private void SendReady()
     {
         if (_readySent)
@@ -1134,6 +1319,9 @@ internal sealed class LoadTestBot : IDisposable
         SendPacket(MsgIds.C2S_SetReady, NetScope.Room, _roomId, payload);
     }
 
+    /// <summary>
+    /// 由房主机器人发起开局请求。
+    /// </summary>
     private void SendStartGame()
     {
         byte[] payload = LiteJson.Serialize(new C2S_StartGame());
@@ -1141,6 +1329,9 @@ internal sealed class LoadTestBot : IDisposable
         SendPacket(MsgIds.C2S_StartGame, NetScope.Room, _roomId, payload);
     }
 
+    /// <summary>
+    /// 更新普通机器人在游戏中的移动、动作和气泡行为。
+    /// </summary>
     private void UpdateNormalPlayerBehavior(long nowMs)
     {
         if (nowMs >= _nextBehaviorAtMs)
@@ -1225,6 +1416,9 @@ internal sealed class LoadTestBot : IDisposable
         }
     }
 
+    /// <summary>
+    /// 发送一帧移动同步。
+    /// </summary>
     private void SendMove(float posX, float posZ, float velX, float velZ)
     {
         float rotY = velX == 0f && velZ == 0f ? 0f : (MathF.Atan2(velX, velZ) * 180f / MathF.PI + 360f) % 360f;
@@ -1243,18 +1437,27 @@ internal sealed class LoadTestBot : IDisposable
         SendPacket(MsgIds.C2S_SocialMoveReq, NetScope.Room, _roomId, payload);
     }
 
+    /// <summary>
+    /// 发送一个社交动作请求。
+    /// </summary>
     private void SendAction(int actionId)
     {
         byte[] payload = SocialActionSerializer.Serialize(actionId);
         SendPacket(MsgIds.C2S_SocialActionReq, NetScope.Room, _roomId, payload);
     }
 
+    /// <summary>
+    /// 发送一条聊天气泡消息。
+    /// </summary>
     private void SendBubble(string content)
     {
         byte[] payload = SocialBubbleSerializer.Serialize(content);
         SendPacket(MsgIds.C2S_SocialBubbleReq, NetScope.Room, _roomId, payload);
     }
 
+    /// <summary>
+    /// 编码并发送网络包，同时更新统计信息。
+    /// </summary>
     private void SendPacket(int msgId, NetScope scope, string roomId, byte[] payload)
     {
         PacketData packet = new(++_seq, msgId, scope, roomId, payload, payload.Length);
@@ -1263,6 +1466,9 @@ internal sealed class LoadTestBot : IDisposable
         _stats.MarkSent(length);
     }
 
+    /// <summary>
+    /// 切换当前机器人状态并重置超时标记。
+    /// </summary>
     private void SetState(BotState newState, long nowMs)
     {
         _state = newState;
@@ -1270,6 +1476,9 @@ internal sealed class LoadTestBot : IDisposable
         _hasLoggedStateTimeout = false;
     }
 
+    /// <summary>
+    /// 检查关键状态是否已经超时。
+    /// </summary>
     private void CheckStateTimeout(long nowMs)
     {
         if (_hasLoggedStateTimeout)
@@ -1297,23 +1506,35 @@ internal sealed class LoadTestBot : IDisposable
         Console.WriteLine($"[超时][{_tag}] 卡在状态 {BuildStateText()} 超过 {threshold} ms");
     }
 
+    /// <summary>
+    /// 生成一个闭区间随机整数。
+    /// </summary>
     private int NextRange(int min, int max)
     {
         return _random.Next(min, max + 1);
     }
 
+    /// <summary>
+    /// 随机生成一条 ASCII 聊天气泡。
+    /// </summary>
     private string RandomAsciiBubbleText()
     {
         string[] texts = { "hello", "ok", "moving", "wait here", "someone here", "ready", "nice" };
         return texts[_random.Next(0, texts.Length)];
     }
 
+    /// <summary>
+    /// 随机生成一条中文聊天气泡。
+    /// </summary>
     private string RandomBubbleText()
     {
         string[] texts = { "你好", "收到", "测试", "走起", "这里有人", "ok", "准备好了" };
         return texts[_random.Next(0, texts.Length)];
     }
 
+    /// <summary>
+    /// 把当前状态转换成可读文本。
+    /// </summary>
     private string BuildStateText()
     {
         return _state switch
@@ -1334,8 +1555,12 @@ internal sealed class LoadTestBot : IDisposable
     }
 }
 
+/// <summary>
+/// 压测总体统计器。
+/// </summary>
 internal sealed class LoadTestStats
 {
+    // 各类累计统计计数。
     private long _startedClients;
     private long _connectedClients;
     private long _loginSuccess;
@@ -1347,26 +1572,57 @@ internal sealed class LoadTestStats
     private long _receivedBytes;
     private long _errors;
 
+    /// <summary>
+    /// 标记一个机器人已开始连接。
+    /// </summary>
     public void MarkStarted() => Interlocked.Increment(ref _startedClients);
+
+    /// <summary>
+    /// 标记一个机器人已建立连接。
+    /// </summary>
     public void MarkConnected() => Interlocked.Increment(ref _connectedClients);
+
+    /// <summary>
+    /// 标记一次登录成功。
+    /// </summary>
     public void MarkLoginSuccess() => Interlocked.Increment(ref _loginSuccess);
+
+    /// <summary>
+    /// 标记一次进房确认成功。
+    /// </summary>
     public void MarkRoomSetupSuccess() => Interlocked.Increment(ref _roomSetupSuccess);
+
+    /// <summary>
+    /// 标记一个机器人进入游戏中状态。
+    /// </summary>
     public void MarkGameStarted() => Interlocked.Increment(ref _gameStartedClients);
 
+    /// <summary>
+    /// 记录一次发包及其字节数。
+    /// </summary>
     public void MarkSent(int bytes)
     {
         Interlocked.Increment(ref _sentPackets);
         Interlocked.Add(ref _sentBytes, bytes);
     }
 
+    /// <summary>
+    /// 记录一次收包及其字节数。
+    /// </summary>
     public void MarkReceived(int bytes)
     {
         Interlocked.Increment(ref _receivedPackets);
         Interlocked.Add(ref _receivedBytes, bytes);
     }
 
+    /// <summary>
+    /// 记录一次错误。
+    /// </summary>
     public void MarkError() => Interlocked.Increment(ref _errors);
 
+    /// <summary>
+    /// 生成一份当前统计快照。
+    /// </summary>
     public Snapshot Capture(double elapsedSeconds)
     {
         return new Snapshot
@@ -1385,6 +1641,9 @@ internal sealed class LoadTestStats
         };
     }
 
+    /// <summary>
+    /// 统计数据的不可变读取模型。
+    /// </summary>
     internal sealed class Snapshot
     {
         public double ElapsedSeconds;

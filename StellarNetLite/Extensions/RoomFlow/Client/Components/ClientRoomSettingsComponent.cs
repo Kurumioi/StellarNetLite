@@ -13,6 +13,9 @@ namespace StellarNet.Lite.Client.Components
     [RoomComponent(1, "RoomSettings", "基础房间设置")]
     public sealed class ClientRoomSettingsComponent : ClientRoomComponent
     {
+        /// <summary>
+        /// 所属客户端逻辑宿主。
+        /// </summary>
         private readonly ClientApp _app;
 
         /// <summary>
@@ -42,11 +45,17 @@ namespace StellarNet.Lite.Client.Components
         /// </summary>
         public bool IsPrivate { get; private set; }
 
+        /// <summary>
+        /// 创建客户端房间设置组件。
+        /// </summary>
         public ClientRoomSettingsComponent(ClientApp app)
         {
             _app = app;
         }
 
+        /// <summary>
+        /// 初始化房间基础状态缓存。
+        /// </summary>
         public override void OnInit()
         {
             if (Room == null) return;
@@ -57,11 +66,17 @@ namespace StellarNet.Lite.Client.Components
             IsPrivate = false;
         }
 
+        /// <summary>
+        /// 销毁组件时清理成员缓存。
+        /// </summary>
         public override void OnDestroy()
         {
             Members.Clear();
         }
 
+        /// <summary>
+        /// 处理完整房间快照。
+        /// </summary>
         [NetHandler]
         public void OnS2C_RoomSnapshot(S2C_RoomSnapshot msg)
         {
@@ -82,6 +97,9 @@ namespace StellarNet.Lite.Client.Components
             Room.NetEventSystem.Broadcast(msg);
         }
 
+        /// <summary>
+        /// 处理成员加入事件。
+        /// </summary>
         [NetHandler]
         public void OnS2C_MemberJoined(S2C_MemberJoined msg)
         {
@@ -90,6 +108,9 @@ namespace StellarNet.Lite.Client.Components
             Room.NetEventSystem.Broadcast(msg);
         }
 
+        /// <summary>
+        /// 处理成员离开事件。
+        /// </summary>
         [NetHandler]
         public void OnS2C_MemberLeft(S2C_MemberLeft msg)
         {
@@ -98,6 +119,9 @@ namespace StellarNet.Lite.Client.Components
             Room.NetEventSystem.Broadcast(msg);
         }
 
+        /// <summary>
+        /// 处理成员准备状态变化事件。
+        /// </summary>
         [NetHandler]
         public void OnS2C_MemberReadyChanged(S2C_MemberReadyChanged msg)
         {
@@ -110,6 +134,9 @@ namespace StellarNet.Lite.Client.Components
             Room.NetEventSystem.Broadcast(msg);
         }
 
+        /// <summary>
+        /// 处理开局事件。
+        /// </summary>
         [NetHandler]
         public void OnS2C_GameStarted(S2C_GameStarted msg)
         {
@@ -118,6 +145,9 @@ namespace StellarNet.Lite.Client.Components
             Room.NetEventSystem.Broadcast(msg);
         }
 
+        /// <summary>
+        /// 处理对局结束事件，并重置本地准备状态。
+        /// </summary>
         [NetHandler]
         public void OnS2C_GameEnded(S2C_GameEnded msg)
         {

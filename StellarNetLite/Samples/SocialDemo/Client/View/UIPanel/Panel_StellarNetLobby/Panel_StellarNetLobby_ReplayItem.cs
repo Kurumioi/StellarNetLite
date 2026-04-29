@@ -11,19 +11,39 @@ using UnityEngine.UI;
 /// </summary>
 public class Panel_StellarNetLobby_ReplayItem : MonoBehaviour
 {
-    // 录像基础展示。
+    /// <summary>
+    /// 录像信息文本。
+    /// </summary>
     [SerializeField] private TMP_Text infoText;
-    // 下载/播放入口按钮。
+
+    /// <summary>
+    /// 下载或播放按钮。
+    /// </summary>
     [SerializeField] private Button actionBtn;
+
+    /// <summary>
+    /// 按钮文案文本。
+    /// </summary>
     [SerializeField] private TMP_Text btnText;
-    // 下载进度条。
+
+    /// <summary>
+    /// 下载进度填充图。
+    /// </summary>
     [SerializeField] private Image progressSlider;
 
-    // 当前列表项绑定的录像 Id。
+    /// <summary>
+    /// 当前条目对应的录像 Id。
+    /// </summary>
     private string _replayId;
-    // 当前录像展示名。
+
+    /// <summary>
+    /// 当前录像显示名。
+    /// </summary>
     private string _displayName;
-    // 是否正处于下载中。
+
+    /// <summary>
+    /// 是否正在下载当前录像。
+    /// </summary>
     private bool _isDownloading;
 
     /// <summary>

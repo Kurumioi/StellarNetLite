@@ -30,7 +30,9 @@ namespace StellarNet.Lite.Client.Core.Events
     /// </summary>
     public class CustomUnRegister : IUnRegister
     {
-        // 当前注销回调。
+        /// <summary>
+        /// 当前注销回调。
+        /// </summary>
         private Action _onUnRegister;
 
         /// <summary>
@@ -99,7 +101,9 @@ namespace StellarNet.Lite.Client.Core.Events
     [DisallowMultipleComponent]
     public class EventUnregisterTrigger : MonoBehaviour
     {
-        // 当前触发器管理的注销令牌集合。
+        /// <summary>
+        /// 当前触发器管理的注销令牌集合。
+        /// </summary>
         private readonly HashSet<IUnRegister> _unRegisters = new HashSet<IUnRegister>();
 
         /// <summary>
@@ -135,7 +139,9 @@ namespace StellarNet.Lite.Client.Core.Events
     [DisallowMultipleComponent]
     public class EventUnregisterDisableTrigger : MonoBehaviour
     {
-        // 当前触发器管理的注销令牌集合。
+        /// <summary>
+        /// 当前触发器管理的注销令牌集合。
+        /// </summary>
         private readonly HashSet<IUnRegister> _unRegisters = new HashSet<IUnRegister>();
 
         /// <summary>

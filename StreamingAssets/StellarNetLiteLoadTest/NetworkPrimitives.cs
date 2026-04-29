@@ -4,22 +4,58 @@ using System.Text.Json;
 
 namespace StellarNetLite.LoadTest;
 
+/// <summary>
+/// 压测工具使用的网络作用域。
+/// </summary>
 internal enum NetScope : byte
 {
     Global = 0,
     Room = 1
 }
 
+/// <summary>
+/// 压测工具内部使用的轻量网络包结构。
+/// </summary>
 internal readonly struct PacketData
 {
+    /// <summary>
+    /// 包序号。
+    /// </summary>
     public readonly uint Seq;
+
+    /// <summary>
+    /// 协议 Id。
+    /// </summary>
     public readonly int MsgId;
+
+    /// <summary>
+    /// 协议作用域。
+    /// </summary>
     public readonly NetScope Scope;
+
+    /// <summary>
+    /// 房间协议对应的 RoomId。
+    /// </summary>
     public readonly string RoomId;
+
+    /// <summary>
+    /// 原始载荷数据。
+    /// </summary>
     public readonly byte[] Payload;
+
+    /// <summary>
+    /// 载荷起始偏移。
+    /// </summary>
     public readonly int PayloadOffset;
+
+    /// <summary>
+    /// 载荷长度。
+    /// </summary>
     public readonly int PayloadLength;
 
+    /// <summary>
+    /// 使用完整偏移信息构造一个网络包。
+    /// </summary>
     public PacketData(uint seq, int msgId, NetScope scope, string roomId, byte[] payload, int payloadOffset, int payloadLength)
     {
         Seq = seq;
@@ -31,16 +67,28 @@ internal readonly struct PacketData
         PayloadLength = payloadLength;
     }
 
+    /// <summary>
+    /// 使用默认偏移 0 构造一个网络包。
+    /// </summary>
     public PacketData(uint seq, int msgId, NetScope scope, string roomId, byte[] payload, int payloadLength)
         : this(seq, msgId, scope, roomId, payload, 0, payloadLength)
     {
     }
 }
 
+/// <summary>
+/// 压测工具使用的轻量协议编解码器。
+/// </summary>
 internal static class LitePacketCodec
 {
+    /// <summary>
+    /// 不带 BOM 的 UTF8 编码器。
+    /// </summary>
     private static readonly UTF8Encoding Utf8NoBom = new(false);
 
+    /// <summary>
+    /// 把 PacketData 编码到目标缓冲区。
+    /// </summary>
     public static int Serialize(in PacketData packet, byte[] buffer, int startOffset = 0)
     {
         int offset = startOffset;
@@ -79,6 +127,9 @@ internal static class LitePacketCodec
         return offset - startOffset;
     }
 
+    /// <summary>
+    /// 尝试把二进制数据解码成 PacketData。
+    /// </summary>
     public static bool TryDeserialize(byte[] data, int startOffset, int length, out PacketData packet)
     {
         packet = default;
@@ -116,24 +167,39 @@ internal static class LitePacketCodec
     }
 }
 
+/// <summary>
+/// 压测工具专用 JSON 序列化封装。
+/// </summary>
 internal static class LiteJson
 {
+    /// <summary>
+    /// 启用字段序列化的 JSON 配置。
+    /// </summary>
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         IncludeFields = true
     };
 
+    /// <summary>
+    /// 序列化协议对象。
+    /// </summary>
     public static byte[] Serialize<T>(T value)
     {
         return JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
     }
 
+    /// <summary>
+    /// 从指定缓冲区片段反序列化协议对象。
+    /// </summary>
     public static T? Deserialize<T>(byte[] buffer, int offset, int length)
     {
         return JsonSerializer.Deserialize<T>(buffer.AsSpan(offset, length), JsonOptions);
     }
 }
 
+/// <summary>
+/// 压测工具使用到的协议 Id 常量。
+/// </summary>
 internal static class MsgIds
 {
     public const int C2S_Login = 100;
@@ -156,6 +222,9 @@ internal static class MsgIds
     public const int C2S_SocialBubbleReq = 1303;
 }
 
+/// <summary>
+/// 压测工具使用到的房间组件 Id 常量。
+/// </summary>
 internal static class ComponentIds
 {
     public const int RoomSettings = 1;
@@ -163,12 +232,18 @@ internal static class ComponentIds
     public const int ObjectSync = 200;
 }
 
+/// <summary>
+/// 登录请求。
+/// </summary>
 internal sealed class C2S_Login
 {
     public string AccountId = string.Empty;
     public string ClientVersion = string.Empty;
 }
 
+/// <summary>
+/// 登录返回。
+/// </summary>
 internal sealed class S2C_LoginResult
 {
     public bool Success = false;
@@ -177,6 +252,9 @@ internal sealed class S2C_LoginResult
     public string Reason = string.Empty;
 }
 
+/// <summary>
+/// 建房使用的房间配置对象。
+/// </summary>
 internal sealed class RoomDTO
 {
     public string RoomName = string.Empty;
@@ -187,11 +265,17 @@ internal sealed class RoomDTO
     public Dictionary<string, string> CustomProperties = new();
 }
 
+/// <summary>
+/// 建房请求。
+/// </summary>
 internal sealed class C2S_CreateRoom
 {
     public RoomDTO RoomConfig = new();
 }
 
+/// <summary>
+/// 建房返回。
+/// </summary>
 internal sealed class S2C_CreateRoomResult
 {
     public bool Success = false;
@@ -200,12 +284,18 @@ internal sealed class S2C_CreateRoomResult
     public string Reason = string.Empty;
 }
 
+/// <summary>
+/// 加入房间请求。
+/// </summary>
 internal sealed class C2S_JoinRoom
 {
     public string RoomId = string.Empty;
     public string Password = string.Empty;
 }
 
+/// <summary>
+/// 加入房间返回。
+/// </summary>
 internal sealed class S2C_JoinRoomResult
 {
     public bool Success = false;
@@ -214,20 +304,32 @@ internal sealed class S2C_JoinRoomResult
     public string Reason = string.Empty;
 }
 
+/// <summary>
+/// 进房准备完成确认。
+/// </summary>
 internal sealed class C2S_RoomSetupReady
 {
     public string RoomId = string.Empty;
 }
 
+/// <summary>
+/// 离开房间请求。
+/// </summary>
 internal sealed class C2S_LeaveRoom
 {
 }
 
+/// <summary>
+/// 离开房间返回。
+/// </summary>
 internal sealed class S2C_LeaveRoomResult
 {
     public bool Success = false;
 }
 
+/// <summary>
+/// 进房确认返回。
+/// </summary>
 internal sealed class S2C_RoomSetupResult
 {
     public bool Success = false;
@@ -235,30 +337,48 @@ internal sealed class S2C_RoomSetupResult
     public string Reason = string.Empty;
 }
 
+/// <summary>
+/// 准备状态设置请求。
+/// </summary>
 internal sealed class C2S_SetReady
 {
     public bool IsReady;
 }
 
+/// <summary>
+/// 开局请求。
+/// </summary>
 internal sealed class C2S_StartGame
 {
 }
 
+/// <summary>
+/// 开局通知。
+/// </summary>
 internal sealed class S2C_GameStarted
 {
     public long StartUnixTime = 0;
 }
 
+/// <summary>
+/// 结束对局请求。
+/// </summary>
 internal sealed class C2S_EndGame
 {
 }
 
+/// <summary>
+/// 对局结束通知。
+/// </summary>
 internal sealed class S2C_GameEnded
 {
     public string WinnerSessionId = string.Empty;
     public string ReplayId = string.Empty;
 }
 
+/// <summary>
+/// 社交房间移动同步载荷。
+/// </summary>
 internal sealed class SocialMovePayload
 {
     public float PosX;
@@ -270,8 +390,14 @@ internal sealed class SocialMovePayload
     public float RotY;
 }
 
+/// <summary>
+/// 社交房间移动载荷序列化器。
+/// </summary>
 internal static class SocialMoveSerializer
 {
+    /// <summary>
+    /// 把移动载荷编码成定长二进制。
+    /// </summary>
     public static byte[] Serialize(SocialMovePayload payload)
     {
         byte[] buffer = new byte[sizeof(float) * 7];
@@ -293,8 +419,14 @@ internal static class SocialMoveSerializer
     }
 }
 
+/// <summary>
+/// 社交动作请求序列化器。
+/// </summary>
 internal static class SocialActionSerializer
 {
+    /// <summary>
+    /// 把动作 Id 编码成 4 字节整型。
+    /// </summary>
     public static byte[] Serialize(int actionId)
     {
         byte[] buffer = new byte[sizeof(int)];
@@ -303,10 +435,19 @@ internal static class SocialActionSerializer
     }
 }
 
+/// <summary>
+/// 聊天气泡请求序列化器。
+/// </summary>
 internal static class SocialBubbleSerializer
 {
+    /// <summary>
+    /// 不带 BOM 的 UTF8 编码器。
+    /// </summary>
     private static readonly UTF8Encoding Utf8NoBom = new(false);
 
+    /// <summary>
+    /// 把聊天文本编码成二进制载荷。
+    /// </summary>
     public static byte[] Serialize(string content)
     {
         using var ms = new MemoryStream(64);

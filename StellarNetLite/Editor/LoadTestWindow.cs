@@ -16,7 +16,14 @@ namespace StellarNet.Lite.Editor
     /// </summary>
     public sealed class LoadTestWindow : EditorWindow
     {
+        /// <summary>
+        /// EditorPrefs 键名前缀。
+        /// </summary>
         private const string EditorPrefsPrefix = "StellarNetLite.LoadTest.";
+
+        /// <summary>
+        /// 记录当前运行中压测进程 Id 的键名。
+        /// </summary>
         private const string RunningPidPrefsKey = EditorPrefsPrefix + "runningPid";
         private const string DefaultHost = "127.0.0.1";
         private const int DefaultPort = 7777;
@@ -31,12 +38,16 @@ namespace StellarNet.Lite.Editor
         private const string DefaultAccountPrefix = "bot";
         private const string DefaultClientVersion = "0.0.1";
 
+        /// <summary>
+        /// 编辑器窗口可选的压测传输层。
+        /// </summary>
         private enum LoadTestTransport
         {
             Kcp = 0,
             Tcp = 1
         }
 
+        // 当前窗口保存的压测参数。
         private LoadTestTransport _transport = LoadTestTransport.Kcp;
         private string _host = DefaultHost;
         private int _port = DefaultPort;
@@ -52,19 +63,27 @@ namespace StellarNet.Lite.Editor
         private string _roomName = DefaultRoomName;
         private string _accountPrefix = DefaultAccountPrefix;
         private string _clientVersion = DefaultClientVersion;
+
+        // 运行中命令区的输入状态。
         private string _runtimeCommandText = "status";
         private int _runtimeRoomDelta = 1;
         private int _runtimeRoomNumber = 1;
+
+        // 输出区域滚动状态。
         private Vector2 _scrollPos;
         private bool _autoScroll = true;
         private bool _scrollToBottomRequested;
         private readonly StringBuilder _outputBuilder = new StringBuilder(8192);
         private readonly ConcurrentQueue<string> _pendingOutputLines = new ConcurrentQueue<string>();
 
+        // 当前正在跟踪的压测进程和输出样式。
         private Process _runningProcess;
         private GUIStyle _outputStyle;
         private bool _stylesInitialized;
 
+        /// <summary>
+        /// 打开压测工具窗口。
+        /// </summary>
         [MenuItem("StellarNetLite/压测工具", false, 5)]
         public static void Open()
         {
@@ -73,6 +92,9 @@ namespace StellarNet.Lite.Editor
             window.Show();
         }
 
+        /// <summary>
+        /// 初始化窗口状态并恢复上次参数。
+        /// </summary>
         private void OnEnable()
         {
             LoadPrefs();
@@ -81,6 +103,9 @@ namespace StellarNet.Lite.Editor
             RestoreTrackedProcess();
         }
 
+        /// <summary>
+        /// 关闭窗口时保存参数并移除编辑器回调。
+        /// </summary>
         private void OnDisable()
         {
             SavePrefs();
@@ -88,11 +113,17 @@ namespace StellarNet.Lite.Editor
             EditorApplication.quitting -= OnEditorQuitting;
         }
 
+        /// <summary>
+        /// 销毁窗口时尝试停止压测进程。
+        /// </summary>
         private void OnDestroy()
         {
             TryStopProcess();
         }
 
+        /// <summary>
+        /// 绘制压测工具窗口主体。
+        /// </summary>
         private void OnGUI()
         {
             InitializeStyles();
@@ -112,6 +143,9 @@ namespace StellarNet.Lite.Editor
             DrawOutput();
         }
 
+        /// <summary>
+        /// 延迟初始化输出区域样式。
+        /// </summary>
         private void InitializeStyles()
         {
             if (_stylesInitialized)
@@ -129,6 +163,9 @@ namespace StellarNet.Lite.Editor
             _stylesInitialized = true;
         }
 
+        /// <summary>
+        /// 绘制压测配置输入区。
+        /// </summary>
         private void DrawConfigFields()
         {
             EditorGUILayout.BeginVertical("box");
@@ -152,6 +189,9 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.EndVertical();
         }
 
+        /// <summary>
+        /// 绘制启动、停止和清空等操作按钮。
+        /// </summary>
         private void DrawActionButtons()
         {
             EditorGUILayout.BeginHorizontal();
@@ -182,6 +222,9 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.EndHorizontal();
         }
 
+        /// <summary>
+        /// 绘制当前脚本路径与进程状态。
+        /// </summary>
         private void DrawRuntimeInfo()
         {
             EditorGUILayout.BeginVertical("box");
@@ -204,6 +247,9 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.EndVertical();
         }
 
+        /// <summary>
+        /// 绘制运行态命令输入区域。
+        /// </summary>
         private void DrawRuntimeCommands()
         {
             EditorGUILayout.BeginVertical("box");
@@ -252,6 +298,9 @@ namespace StellarNet.Lite.Editor
             EditorGUILayout.EndVertical();
         }
 
+        /// <summary>
+        /// 绘制日志输出区域。
+        /// </summary>
         private void DrawOutput()
         {
             EditorGUILayout.BeginHorizontal();
@@ -275,6 +324,9 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 启动独立压测脚本并开始跟踪进程输出。
+        /// </summary>
         private void StartLoadTest()
         {
             if (TryGetTrackedProcess(out Process existingProcess))
@@ -361,6 +413,9 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 停止当前压测进程。
+        /// </summary>
         private void TryStopProcess()
         {
             if (!TryGetTrackedProcess(out Process process))
@@ -386,6 +441,9 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 兼容不同运行时的进程树终止方式。
+        /// </summary>
         private static void KillProcessCompat(Process process)
         {
             if (process == null || process.HasExited)
@@ -446,6 +504,9 @@ namespace StellarNet.Lite.Editor
             process.WaitForExit(5000);
         }
 
+        /// <summary>
+        /// 处理标准输出回调。
+        /// </summary>
         private void OnProcessOutput(object sender, DataReceivedEventArgs e)
         {
             if (!string.IsNullOrEmpty(e.Data))
@@ -454,6 +515,9 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 处理标准错误输出回调。
+        /// </summary>
         private void OnProcessError(object sender, DataReceivedEventArgs e)
         {
             if (!string.IsNullOrEmpty(e.Data))
@@ -462,12 +526,18 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 处理进程退出事件。
+        /// </summary>
         private void OnProcessExited(object sender, EventArgs e)
         {
             AppendOutput("[Editor] 压测进程已退出。");
             ClearTrackedProcessId();
         }
 
+        /// <summary>
+        /// 向运行中的压测进程发送控制台命令。
+        /// </summary>
         private void SendRuntimeCommand(string command)
         {
             if (_runningProcess == null || _runningProcess.HasExited || string.IsNullOrWhiteSpace(command))
@@ -487,6 +557,9 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 刷新输出缓冲并检测进程退出。
+        /// </summary>
         private void OnEditorUpdate()
         {
             FlushPendingOutput();
@@ -498,6 +571,9 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 解除当前进程绑定并清理跟踪状态。
+        /// </summary>
         private void CleanupProcess()
         {
             if (_runningProcess == null)
@@ -514,11 +590,17 @@ namespace StellarNet.Lite.Editor
             ClearTrackedProcessId();
         }
 
+        /// <summary>
+        /// Unity 退出时一并停止压测进程。
+        /// </summary>
         private void OnEditorQuitting()
         {
             TryStopProcess();
         }
 
+        /// <summary>
+        /// 将一行输出加入待刷新队列。
+        /// </summary>
         private void AppendOutput(string line)
         {
             if (string.IsNullOrEmpty(line))
@@ -529,6 +611,9 @@ namespace StellarNet.Lite.Editor
             _pendingOutputLines.Enqueue(line);
         }
 
+        /// <summary>
+        /// 把待输出日志刷新到可视文本区。
+        /// </summary>
         private void FlushPendingOutput()
         {
             bool changed = false;
@@ -557,6 +642,9 @@ namespace StellarNet.Lite.Editor
             Repaint();
         }
 
+        /// <summary>
+        /// 校验启动参数是否有效。
+        /// </summary>
         private bool ValidateInputs()
         {
             if (string.IsNullOrWhiteSpace(_host))
@@ -576,6 +664,9 @@ namespace StellarNet.Lite.Editor
             return true;
         }
 
+        /// <summary>
+        /// 在文件管理器中打开压测工具目录。
+        /// </summary>
         private void OpenToolFolder()
         {
             string path = GetLoadTestDirectory();
@@ -588,16 +679,25 @@ namespace StellarNet.Lite.Editor
             EditorUtility.RevealInFinder(path);
         }
 
+        /// <summary>
+        /// 返回压测工具目录绝对路径。
+        /// </summary>
         private static string GetLoadTestDirectory()
         {
             return Path.GetFullPath(Path.Combine(Application.dataPath, "StreamingAssets/StellarNetLiteLoadTest"));
         }
 
+        /// <summary>
+        /// 返回压测启动脚本绝对路径。
+        /// </summary>
         private static string GetLoadTestScriptPath()
         {
             return Path.GetFullPath(Path.Combine(Application.dataPath, "StreamingAssets/StellarNetLiteLoadTest/run-loadtest.ps1"));
         }
 
+        /// <summary>
+        /// 解析本机可用的 PowerShell 可执行文件。
+        /// </summary>
         private static string ResolvePowerShellExecutable()
         {
             string systemPowerShell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0",
@@ -610,11 +710,17 @@ namespace StellarNet.Lite.Editor
             return "powershell.exe";
         }
 
+        /// <summary>
+        /// 转义命令行参数中的引号。
+        /// </summary>
         private static string EscapeArgument(string value)
         {
             return string.IsNullOrEmpty(value) ? string.Empty : value.Replace("\"", "\\\"");
         }
 
+        /// <summary>
+        /// 从 EditorPrefs 恢复上一次配置。
+        /// </summary>
         private void LoadPrefs()
         {
             _transport = (LoadTestTransport)EditorPrefs.GetInt(EditorPrefsPrefix + "transport", (int)LoadTestTransport.Kcp);
@@ -634,6 +740,9 @@ namespace StellarNet.Lite.Editor
             _clientVersion = EditorPrefs.GetString(EditorPrefsPrefix + "clientVersion", DefaultClientVersion);
         }
 
+        /// <summary>
+        /// 把当前配置写回 EditorPrefs。
+        /// </summary>
         private void SavePrefs()
         {
             EditorPrefs.SetInt(EditorPrefsPrefix + "transport", (int)_transport);
@@ -653,6 +762,9 @@ namespace StellarNet.Lite.Editor
             EditorPrefs.SetString(EditorPrefsPrefix + "clientVersion", _clientVersion ?? DefaultClientVersion);
         }
 
+        /// <summary>
+        /// 尝试根据上次记录的进程 Id 恢复进程跟踪。
+        /// </summary>
         private void RestoreTrackedProcess()
         {
             if (_runningProcess != null)
@@ -687,6 +799,9 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 获取当前应当跟踪的压测进程。
+        /// </summary>
         private bool TryGetTrackedProcess(out Process process)
         {
             process = null;
@@ -731,16 +846,25 @@ namespace StellarNet.Lite.Editor
             }
         }
 
+        /// <summary>
+        /// 读取已记录的压测进程 Id。
+        /// </summary>
         private static int GetTrackedProcessId()
         {
             return EditorPrefs.GetInt(RunningPidPrefsKey, 0);
         }
 
+        /// <summary>
+        /// 保存当前压测进程 Id。
+        /// </summary>
         private static void SetTrackedProcessId(int pid)
         {
             EditorPrefs.SetInt(RunningPidPrefsKey, Mathf.Max(0, pid));
         }
 
+        /// <summary>
+        /// 清空当前压测进程 Id 记录。
+        /// </summary>
         private static void ClearTrackedProcessId()
         {
             EditorPrefs.DeleteKey(RunningPidPrefsKey);
