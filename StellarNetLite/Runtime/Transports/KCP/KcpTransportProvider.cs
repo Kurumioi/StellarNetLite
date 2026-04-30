@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Buffers;
 using System.Net;
 using kcp2k;
 using StellarNet.Lite.Shared.Core;
@@ -54,6 +53,10 @@ namespace StellarNet.Lite.Transports.KCP
 
         private bool _isServerActive;
         private bool _isClientActive;
+        private long _serverKcpTotalPackets;
+        private long _serverKcpDeserializeFailures;
+        private long _clientKcpTotalPackets;
+        private long _clientKcpDeserializeFailures;
 
         // 独立追踪物理层的真实连接状态，避免强依赖底层库内部属性，确保状态机流转清晰。
         private bool _isPhysicalConnected;
@@ -135,9 +138,17 @@ namespace StellarNet.Lite.Transports.KCP
 
         private void OnServerDataReceived(int connectionId, ArraySegment<byte> message, KcpChannel channel)
         {
+            _serverKcpTotalPackets++;
             if (LitePacketFormatter.TryDeserialize(message.Array, message.Offset, message.Count, out Packet packet))
             {
+                // 服务端 KCP 泵运行在 ServerRuntimeHost 线程内，这里立即同步进入 ServerApp，
+                // 房间包在跨到 RoomWorker 前会再次深拷贝，因此当前回调内直接消费是安全的。
                 OnServerReceivePacketEvent?.Invoke(connectionId, packet);
+            }
+            else
+            {
+                _serverKcpDeserializeFailures++;
+                NetLogger.LogWarning("KcpTransportProvider", $"KCP 服务端解包失败，长度={message.Count}，偏移={message.Offset}，连接={connectionId}");
             }
         }
 
@@ -218,6 +229,7 @@ namespace StellarNet.Lite.Transports.KCP
 
         private void OnClientDataReceived(ArraySegment<byte> message, KcpChannel channel)
         {
+            _clientKcpTotalPackets++;
             if (LitePacketFormatter.TryDeserialize(message.Array, message.Offset, message.Count, out Packet packet))
             {
                 // KCP 底层缓冲区可能会被后续 Tick 复用，这里先复制成安全载荷再跨阶段投递。
@@ -225,6 +237,11 @@ namespace StellarNet.Lite.Transports.KCP
                 Buffer.BlockCopy(packet.Payload, packet.PayloadOffset, safePayload, 0, packet.PayloadLength);
                 Packet safePacket = new Packet(packet.Seq, packet.MsgId, packet.Scope, packet.RoomId, safePayload, packet.PayloadLength);
                 UnityPlayerLoopDispatcher.ExecuteOrPost(() => OnClientReceivePacketEvent?.Invoke(safePacket));
+            }
+            else
+            {
+                _clientKcpDeserializeFailures++;
+                NetLogger.LogWarning("KcpTransportProvider", $"KCP 客户端解包失败，长度={message.Count}，偏移={message.Offset}");
             }
         }
 
@@ -246,32 +263,36 @@ namespace StellarNet.Lite.Transports.KCP
         public void SendToServer(Packet packet)
         {
             if (!_isClientActive || _client == null) return;
-
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(131072);
             try
             {
-                int length = LitePacketFormatter.Serialize(packet, buffer, 0);
-                _client.Send(new ArraySegment<byte>(buffer, 0, length), KcpChannel.Reliable);
+                // 这里不用 ArrayPool 回收发送缓冲区。
+                // 如果 kcp2k 内部对调用方传入的 ArraySegment 采取延后发送或暂存引用，
+                // 过早归还池化数组会让高负载下出现载荷被复用污染的问题。
+                int length = LitePacketFormatter.GetSerializedLength(packet);
+                byte[] buffer = new byte[length];
+                int serializedLength = LitePacketFormatter.Serialize(packet, buffer, 0);
+                _client.Send(new ArraySegment<byte>(buffer, 0, serializedLength), KcpChannel.Reliable);
             }
-            finally
+            catch (Exception ex)
             {
-                ArrayPool<byte>.Shared.Return(buffer);
+                NetLogger.LogError("KcpTransportProvider", $"KCP 客户端发送异常: {ex.Message}");
             }
         }
 
         public void SendToClient(int connectionId, Packet packet)
         {
             if (!_isServerActive || _server == null) return;
-
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(131072);
             try
             {
-                int length = LitePacketFormatter.Serialize(packet, buffer, 0);
-                _server.Send(connectionId, new ArraySegment<byte>(buffer, 0, length), KcpChannel.Reliable);
+                // 同上，KCP 发送侧优先保证载荷生命周期独立，不把可靠发送建立在外部池化数组立即回收的假设上。
+                int length = LitePacketFormatter.GetSerializedLength(packet);
+                byte[] buffer = new byte[length];
+                int serializedLength = LitePacketFormatter.Serialize(packet, buffer, 0);
+                _server.Send(connectionId, new ArraySegment<byte>(buffer, 0, serializedLength), KcpChannel.Reliable);
             }
-            finally
+            catch (Exception ex)
             {
-                ArrayPool<byte>.Shared.Return(buffer);
+                NetLogger.LogError("KcpTransportProvider", $"KCP 服务端发送异常: {ex.Message}", "-", $"ConnId:{connectionId}");
             }
         }
 

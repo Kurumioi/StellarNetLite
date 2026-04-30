@@ -12,6 +12,23 @@ namespace StellarNet.Lite.Transports.Common
     {
         private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
 
+        public static int GetSerializedLength(Packet packet)
+        {
+            int roomIdByteLength = 0;
+            if (!string.IsNullOrEmpty(packet.RoomId))
+            {
+                roomIdByteLength = Utf8NoBom.GetByteCount(packet.RoomId);
+                if (roomIdByteLength > 255)
+                {
+                    NetLogger.LogError("LitePacketFormatter", $"序列化失败: RoomId 字节长度超过 255 限制。Length:{roomIdByteLength}");
+                    throw new ArgumentOutOfRangeException(nameof(packet.RoomId), "RoomId byte length cannot exceed 255.");
+                }
+            }
+
+            // Seq(4) + MsgId(4) + Scope(1) + RoomIdLength(1) + RoomId + Payload
+            return 10 + roomIdByteLength + Math.Max(0, packet.PayloadLength);
+        }
+
         public static int Serialize(Packet packet, byte[] buffer, int startOffset = 0)
         {
             int offset = startOffset;

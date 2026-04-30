@@ -31,6 +31,10 @@ namespace StellarNet.Lite.Transports.TCP
         public event Action<Packet> OnClientReceivePacketEvent;
 
         private NetConfig _appConfig;
+        private long _serverTcpTotalPackets;
+        private long _serverTcpDeserializeFailures;
+        private long _clientTcpTotalPackets;
+        private long _clientTcpDeserializeFailures;
         private TcpListener _serverListener;
         private CancellationTokenSource _serverCts;
         private int _connectionIdCounter = 0;
@@ -42,7 +46,27 @@ namespace StellarNet.Lite.Transports.TCP
         {
             public int Id;
             public TcpClient Client;
+            public TcpSendQueue SendQueue;
+        }
+
+        /// <summary>
+        /// 单条 TCP 连接的发送上下文。
+        /// 通过单发送循环串行写流，避免高负载下为每个包都创建独立异步任务。
+        /// </summary>
+        private sealed class TcpSendQueue
+        {
             public NetworkStream Stream;
+            public readonly ConcurrentQueue<PendingSendFrame> PendingFrames = new ConcurrentQueue<PendingSendFrame>();
+            public int SendLoopRunning;
+        }
+
+        /// <summary>
+        /// 已完成序列化、等待写入底层流的独立帧。
+        /// </summary>
+        private sealed class PendingSendFrame
+        {
+            public byte[] Buffer;
+            public int Length;
         }
 
         private readonly ConcurrentDictionary<int, TcpConnection> _serverConnections = new ConcurrentDictionary<int, TcpConnection>();
@@ -50,6 +74,7 @@ namespace StellarNet.Lite.Transports.TCP
         private TcpClient _client;
         private NetworkStream _clientStream;
         private CancellationTokenSource _clientCts;
+        private TcpSendQueue _clientSendQueue;
 
         private bool _isServerActive;
         private bool _isClientActive;
@@ -107,7 +132,7 @@ namespace StellarNet.Lite.Transports.TCP
 
             foreach (var kvp in _serverConnections)
             {
-                kvp.Value.Client?.Close();
+                DisposeServerConnection(kvp.Value);
             }
 
             _serverConnections.Clear();
@@ -126,12 +151,18 @@ namespace StellarNet.Lite.Transports.TCP
                     client.NoDelay = true;
 
                     int connId = Interlocked.Increment(ref _connectionIdCounter);
-                    var connection = new TcpConnection { Id = connId, Client = client, Stream = client.GetStream() };
+                    NetworkStream stream = client.GetStream();
+                    var connection = new TcpConnection
+                    {
+                        Id = connId,
+                        Client = client,
+                        SendQueue = new TcpSendQueue { Stream = stream }
+                    };
                     _serverConnections.TryAdd(connId, connection);
 
                     OnServerClientConnectedEvent?.Invoke(connId);
 
-                    _ = ReceiveDataAsync(connection, token);
+                    _ = ReceiveDataAsync(connection, stream, token);
                 }
             }
             catch (ObjectDisposedException)
@@ -143,14 +174,14 @@ namespace StellarNet.Lite.Transports.TCP
             }
         }
 
-        private async Task ReceiveDataAsync(TcpConnection connection, CancellationToken token)
+        private async Task ReceiveDataAsync(TcpConnection connection, NetworkStream stream, CancellationToken token)
         {
             byte[] headerBuffer = new byte[4];
             try
             {
                 while (!token.IsCancellationRequested)
                 {
-                    if (!await ReadExactAsync(connection.Stream, headerBuffer, 4, token)) break;
+                    if (!await ReadExactAsync(stream, headerBuffer, 4, token)) break;
                     int length = BitConverter.ToInt32(headerBuffer, 0);
 
                     if (length <= 0 || length > 1024 * 1024 * 10) break;
@@ -158,8 +189,9 @@ namespace StellarNet.Lite.Transports.TCP
                     byte[] payloadBuffer = ArrayPool<byte>.Shared.Rent(length);
                     try
                     {
-                        if (!await ReadExactAsync(connection.Stream, payloadBuffer, length, token)) break;
+                        if (!await ReadExactAsync(stream, payloadBuffer, length, token)) break;
 
+                        _serverTcpTotalPackets++;
                         if (LitePacketFormatter.TryDeserialize(payloadBuffer, 0, length, out Packet packet))
                         {
                             byte[] safePayload = new byte[packet.PayloadLength];
@@ -167,6 +199,11 @@ namespace StellarNet.Lite.Transports.TCP
                             Packet safePacket = new Packet(packet.Seq, packet.MsgId, packet.Scope, packet.RoomId, safePayload, packet.PayloadLength);
 
                             OnServerReceivePacketEvent?.Invoke(connection.Id, safePacket);
+                        }
+                        else
+                        {
+                            _serverTcpDeserializeFailures++;
+                            NetLogger.LogWarning("TcpTransportProvider", $"TCP 服务端解包失败，长度={length}，连接={connection.Id}");
                         }
                     }
                     finally
@@ -208,12 +245,14 @@ namespace StellarNet.Lite.Transports.TCP
 
             try
             {
-                _client = new TcpClient();
-                _client.NoDelay = true;
-                _client.Connect(_appConfig.Ip, _appConfig.Port);
-                _clientStream = _client.GetStream();
-                _clientCts = new CancellationTokenSource();
-                _isPhysicalConnected = true;
+                    _client = new TcpClient();
+                    _client.NoDelay = true;
+                    _client.Connect(_appConfig.Ip, _appConfig.Port);
+                    NetworkStream clientStream = _client.GetStream();
+                    _clientStream = clientStream;
+                    _clientSendQueue = new TcpSendQueue { Stream = clientStream };
+                    _clientCts = new CancellationTokenSource();
+                    _isPhysicalConnected = true;
 
                 NetLogger.LogInfo("TcpTransportProvider", $"TCP 客户端已连接到 {_appConfig.Ip}:{_appConfig.Port}");
 
@@ -229,7 +268,7 @@ namespace StellarNet.Lite.Transports.TCP
                     OnClientConnectedEvent?.Invoke();
                 });
 
-                _ = ReceiveClientDataAsync(_clientCts.Token);
+                    _ = ReceiveClientDataAsync(clientStream, _clientCts.Token);
             }
             catch (Exception ex)
             {
@@ -243,6 +282,14 @@ namespace StellarNet.Lite.Transports.TCP
             if (!_isClientActive) return;
             _isClientActive = false;
             _isPhysicalConnected = false;
+
+            TcpSendQueue sendQueue = _clientSendQueue;
+            _clientSendQueue = null;
+            if (sendQueue != null)
+            {
+                sendQueue.Stream = null;
+                DrainPendingFrames(sendQueue);
+            }
 
             _clientCts?.Cancel();
             _clientStream?.Close();
@@ -264,6 +311,14 @@ namespace StellarNet.Lite.Transports.TCP
             if (!_isPhysicalConnected && _client == null) return;
             _isPhysicalConnected = false;
 
+            TcpSendQueue sendQueue = _clientSendQueue;
+            _clientSendQueue = null;
+            if (sendQueue != null)
+            {
+                sendQueue.Stream = null;
+                DrainPendingFrames(sendQueue);
+            }
+
             _clientCts?.Cancel();
             _clientStream?.Close();
             _client?.Close();
@@ -274,14 +329,14 @@ namespace StellarNet.Lite.Transports.TCP
             UnityPlayerLoopDispatcher.ExecuteOrPost(() => { OnClientDisconnectedEvent?.Invoke(); });
         }
 
-        private async Task ReceiveClientDataAsync(CancellationToken token)
+        private async Task ReceiveClientDataAsync(NetworkStream stream, CancellationToken token)
         {
             byte[] headerBuffer = new byte[4];
             try
             {
                 while (!token.IsCancellationRequested)
                 {
-                    if (!await ReadExactAsync(_clientStream, headerBuffer, 4, token)) break;
+                    if (!await ReadExactAsync(stream, headerBuffer, 4, token)) break;
                     int length = BitConverter.ToInt32(headerBuffer, 0);
 
                     if (length <= 0 || length > 1024 * 1024 * 10) break;
@@ -289,8 +344,9 @@ namespace StellarNet.Lite.Transports.TCP
                     byte[] payloadBuffer = ArrayPool<byte>.Shared.Rent(length);
                     try
                     {
-                        if (!await ReadExactAsync(_clientStream, payloadBuffer, length, token)) break;
+                        if (!await ReadExactAsync(stream, payloadBuffer, length, token)) break;
 
+                        _clientTcpTotalPackets++;
                         if (LitePacketFormatter.TryDeserialize(payloadBuffer, 0, length, out Packet packet))
                         {
                             byte[] safePayload = new byte[packet.PayloadLength];
@@ -299,6 +355,11 @@ namespace StellarNet.Lite.Transports.TCP
 
                             // 后台线程只负责解包，真正进入客户端逻辑仍通过统一调度器回主线程。
                             UnityPlayerLoopDispatcher.ExecuteOrPost(() => OnClientReceivePacketEvent?.Invoke(safePacket));
+                        }
+                        else
+                        {
+                            _clientTcpDeserializeFailures++;
+                            NetLogger.LogWarning("TcpTransportProvider", $"TCP 客户端解包失败，长度={length}");
                         }
                     }
                     finally
@@ -312,7 +373,9 @@ namespace StellarNet.Lite.Transports.TCP
             }
             finally
             {
-                if (_isClientActive)
+                // 只有当前仍然挂在客户端字段上的那条物理连接，才允许触发真实断线清理。
+                // 这样旧连接在重连过程中退出时，不会误把新建好的连接一起断掉。
+                if (_isClientActive && ReferenceEquals(_clientStream, stream))
                 {
                     HandlePhysicalDisconnect();
                 }
@@ -331,36 +394,137 @@ namespace StellarNet.Lite.Transports.TCP
 
         public void SendToServer(Packet packet)
         {
-            if (!_isPhysicalConnected || _clientStream == null) return;
-            SendToStreamAsync(_clientStream, packet);
+            if (!_isPhysicalConnected || _clientSendQueue == null) return;
+            QueueSerializedSend(_clientSendQueue, packet);
         }
 
         public void SendToClient(int connectionId, Packet packet)
         {
-            if (_serverConnections.TryGetValue(connectionId, out TcpConnection conn))
+            if (_serverConnections.TryGetValue(connectionId, out TcpConnection conn) && conn.SendQueue != null)
             {
-                SendToStreamAsync(conn.Stream, packet);
+                QueueSerializedSend(conn.SendQueue, packet);
             }
         }
 
-        private async void SendToStreamAsync(NetworkStream stream, Packet packet)
+        private void QueueSerializedSend(TcpSendQueue sendQueue, Packet packet)
         {
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(131072);
+            if (sendQueue == null || sendQueue.Stream == null)
+            {
+                return;
+            }
+
+            byte[] frameBuffer = null;
+            int frameLength = 0;
             try
             {
-                int length = LitePacketFormatter.Serialize(packet, buffer, 4);
-                byte[] lengthBytes = BitConverter.GetBytes(length);
-                Buffer.BlockCopy(lengthBytes, 0, buffer, 0, 4);
-
-                await stream.WriteAsync(buffer, 0, length + 4);
+                // 先在调用线程把 Packet 序列化成独立帧，确保上层即使立即归还 Payload 池化缓冲区，
+                // TCP 后台发送任务也不会再读到被复用的旧载荷。
+                int packetLength = LitePacketFormatter.GetSerializedLength(packet);
+                frameLength = packetLength + 4;
+                frameBuffer = ArrayPool<byte>.Shared.Rent(frameLength);
+                int serializedLength = LitePacketFormatter.Serialize(packet, frameBuffer, 4);
+                byte[] lengthBytes = BitConverter.GetBytes(serializedLength);
+                Buffer.BlockCopy(lengthBytes, 0, frameBuffer, 0, 4);
             }
             catch (Exception ex)
             {
-                NetLogger.LogError("TcpTransportProvider", $"发送数据异常: {ex.Message}");
+                if (frameBuffer != null)
+                {
+                    ArrayPool<byte>.Shared.Return(frameBuffer);
+                }
+
+                NetLogger.LogError("TcpTransportProvider", $"序列化待发送帧异常: {ex.Message}");
+                return;
+            }
+
+            sendQueue.PendingFrames.Enqueue(new PendingSendFrame
+            {
+                Buffer = frameBuffer,
+                Length = frameLength
+            });
+
+            // 每条连接同一时间只允许一个发送循环在跑，避免高负载下为每个包堆积一个等待锁的异步任务。
+            if (Interlocked.CompareExchange(ref sendQueue.SendLoopRunning, 1, 0) == 0)
+            {
+                _ = SendQueuedFramesAsync(sendQueue);
+            }
+        }
+
+        private async Task SendQueuedFramesAsync(TcpSendQueue sendQueue)
+        {
+            if (sendQueue == null)
+            {
+                return;
+            }
+
+            bool abortLoop = false;
+            try
+            {
+                while (true)
+                {
+                    while (sendQueue.PendingFrames.TryDequeue(out PendingSendFrame frame))
+                    {
+                        try
+                        {
+                            if (sendQueue.Stream == null)
+                            {
+                                abortLoop = true;
+                                break;
+                            }
+
+                            await sendQueue.Stream.WriteAsync(frame.Buffer, 0, frame.Length);
+                        }
+                        catch (Exception ex)
+                        {
+                            abortLoop = true;
+                            NetLogger.LogError("TcpTransportProvider", $"发送数据异常: {ex.Message}");
+                            break;
+                        }
+                        finally
+                        {
+                            if (frame.Buffer != null)
+                            {
+                                ArrayPool<byte>.Shared.Return(frame.Buffer);
+                            }
+                        }
+                    }
+
+                    if (abortLoop)
+                    {
+                        break;
+                    }
+
+                    Interlocked.Exchange(ref sendQueue.SendLoopRunning, 0);
+                    if (sendQueue.PendingFrames.IsEmpty ||
+                        Interlocked.CompareExchange(ref sendQueue.SendLoopRunning, 1, 0) != 0)
+                    {
+                        break;
+                    }
+                }
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(buffer);
+                if (abortLoop)
+                {
+                    Interlocked.Exchange(ref sendQueue.SendLoopRunning, 0);
+                    DrainPendingFrames(sendQueue);
+                }
+            }
+        }
+
+        private static void DrainPendingFrames(TcpSendQueue sendQueue)
+        {
+            if (sendQueue == null)
+            {
+                return;
+            }
+
+            while (sendQueue.PendingFrames.TryDequeue(out PendingSendFrame frame))
+            {
+                if (frame?.Buffer != null)
+                {
+                    ArrayPool<byte>.Shared.Return(frame.Buffer);
+                }
             }
         }
 
@@ -368,9 +532,27 @@ namespace StellarNet.Lite.Transports.TCP
         {
             if (_serverConnections.TryRemove(connectionId, out TcpConnection conn))
             {
-                conn.Client?.Close();
+                DisposeServerConnection(conn);
                 OnServerClientDisconnectedEvent?.Invoke(connectionId);
             }
+        }
+
+        private static void DisposeServerConnection(TcpConnection connection)
+        {
+            if (connection == null)
+            {
+                return;
+            }
+
+            NetworkStream stream = connection.SendQueue != null ? connection.SendQueue.Stream : null;
+            if (connection.SendQueue != null)
+            {
+                connection.SendQueue.Stream = null;
+            }
+
+            DrainPendingFrames(connection.SendQueue);
+            stream?.Close();
+            connection.Client?.Close();
         }
 
         public float GetRTT() => 0.05f; // 占位符，真实 RTT 需在业务层通过 PingPong 计算
