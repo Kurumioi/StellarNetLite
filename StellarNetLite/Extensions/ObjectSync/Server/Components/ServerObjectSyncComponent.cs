@@ -26,9 +26,103 @@ namespace StellarNet.Lite.Server.Components
         public Vector3 Scale = Vector3.one;
         public int AnimStateHash;
         public float AnimNormalizedTime;
-        public float FloatParam1;
-        public float FloatParam2;
-        public float FloatParam3;
+        public AnimatorParamValue[] AnimParams = Array.Empty<AnimatorParamValue>();
+        public int AnimParamCount;
+
+        /// <summary>
+        /// 用逻辑状态名设置动画状态。
+        /// </summary>
+        public void SetAnimState(string logicStateName, float normalizedTime = 0f)
+        {
+            AnimStateHash = ObjectSyncAnimHashUtility.GetStableStringHash(logicStateName);
+            AnimNormalizedTime = normalizedTime;
+        }
+
+        /// <summary>
+        /// 用逻辑参数名设置动画参数。
+        /// </summary>
+        public void SetAnimParam(string logicParamName, float value)
+        {
+            SetAnimParam(ObjectSyncAnimHashUtility.GetStableStringHash(logicParamName), value);
+        }
+
+        /// <summary>
+        /// 用逻辑参数哈希设置动画参数。
+        /// </summary>
+        public void SetAnimParam(int logicParamHash, float value)
+        {
+            if (logicParamHash == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < AnimParamCount; i++)
+            {
+                int currentHash = AnimParams[i].ParamHash;
+                if (currentHash == logicParamHash)
+                {
+                    AnimParams[i].Value = value;
+                    return;
+                }
+
+                if (currentHash > logicParamHash)
+                {
+                    InsertAnimParamAt(i, logicParamHash, value);
+                    return;
+                }
+            }
+
+            InsertAnimParamAt(AnimParamCount, logicParamHash, value);
+        }
+
+        /// <summary>
+        /// 清空全部动画参数。
+        /// </summary>
+        public void ClearAnimParams()
+        {
+            AnimParamCount = 0;
+        }
+
+        private void EnsureAnimParamCapacity(int requiredCount)
+        {
+            if (requiredCount <= 0)
+            {
+                return;
+            }
+
+            if (AnimParams == null || AnimParams.Length == 0)
+            {
+                AnimParams = new AnimatorParamValue[Mathf.NextPowerOfTwo(requiredCount)];
+                return;
+            }
+
+            if (AnimParams.Length >= requiredCount)
+            {
+                return;
+            }
+
+            int nextSize = Mathf.NextPowerOfTwo(requiredCount);
+            var newArray = new AnimatorParamValue[nextSize];
+            Array.Copy(AnimParams, newArray, AnimParamCount);
+            AnimParams = newArray;
+        }
+
+        private void InsertAnimParamAt(int index, int logicParamHash, float value)
+        {
+            EnsureAnimParamCapacity(AnimParamCount + 1);
+
+            if (index < AnimParamCount)
+            {
+                Array.Copy(AnimParams, index, AnimParams, index + 1, AnimParamCount - index);
+            }
+
+            AnimParams[index] = new AnimatorParamValue
+            {
+                ParamHash = logicParamHash,
+                Value = value
+            };
+            AnimParamCount++;
+        }
     }
 
     /// <summary>
@@ -46,9 +140,8 @@ namespace StellarNet.Lite.Server.Components
             public Vector3 Scale;
             public int AnimStateHash;
             public float AnimNormalizedTime;
-            public float FloatParam1;
-            public float FloatParam2;
-            public float FloatParam3;
+            public AnimatorParamValue[] AnimParams;
+            public int AnimParamCount;
             public byte Mask;
         }
 
@@ -163,9 +256,8 @@ namespace StellarNet.Lite.Server.Components
                     ScaleZ = entity.Scale.z,
                     AnimStateHash = entity.AnimStateHash,
                     AnimNormalizedTime = entity.AnimNormalizedTime,
-                    FloatParam1 = entity.FloatParam1,
-                    FloatParam2 = entity.FloatParam2,
-                    FloatParam3 = entity.FloatParam3
+                    AnimParamCount = entity.AnimParamCount,
+                    AnimParams = CloneAnimParams(entity.AnimParams, entity.AnimParamCount)
                 };
 
                 _lastSentSnapshots[entity.NetId] = CaptureSnapshot(entity);
@@ -307,7 +399,8 @@ namespace StellarNet.Lite.Server.Components
                 ScaleZ = Mathf.Approximately(entity.Scale.z, 0f) ? 1f : entity.Scale.z,
                 AnimStateHash = entity.AnimStateHash,
                 AnimNormalizedTime = entity.AnimNormalizedTime,
-                FloatParam1 = entity.FloatParam1, FloatParam2 = entity.FloatParam2, FloatParam3 = entity.FloatParam3,
+                AnimParamCount = entity.AnimParamCount,
+                AnimParams = CloneAnimParams(entity.AnimParams, entity.AnimParamCount),
                 OwnerSessionId = entity.OwnerSessionId ?? string.Empty
             };
         }
@@ -322,9 +415,8 @@ namespace StellarNet.Lite.Server.Components
                 Scale = entity.Scale,
                 AnimStateHash = entity.AnimStateHash,
                 AnimNormalizedTime = entity.AnimNormalizedTime,
-                FloatParam1 = entity.FloatParam1,
-                FloatParam2 = entity.FloatParam2,
-                FloatParam3 = entity.FloatParam3,
+                AnimParamCount = entity.AnimParamCount,
+                AnimParams = CloneAnimParams(entity.AnimParams, entity.AnimParamCount),
                 Mask = entity.Mask
             };
         }
@@ -373,9 +465,7 @@ namespace StellarNet.Lite.Server.Components
                 return true;
             }
 
-            if (Mathf.Abs(entity.FloatParam1 - snapshot.FloatParam1) > FloatParamDirtyThreshold ||
-                Mathf.Abs(entity.FloatParam2 - snapshot.FloatParam2) > FloatParamDirtyThreshold ||
-                Mathf.Abs(entity.FloatParam3 - snapshot.FloatParam3) > FloatParamDirtyThreshold)
+            if (HasAnimParamMeaningfulChange(entity.AnimParams, entity.AnimParamCount, snapshot.AnimParams, snapshot.AnimParamCount))
             {
                 return true;
             }
@@ -428,23 +518,54 @@ namespace StellarNet.Lite.Server.Components
                     dirtyMask |= ObjectSyncDirtyMask.AnimNormalizedTime;
                 }
 
-                if (Mathf.Abs(entity.FloatParam1 - snapshot.FloatParam1) > FloatParamDirtyThreshold)
+                if (HasAnimParamMeaningfulChange(entity.AnimParams, entity.AnimParamCount, snapshot.AnimParams, snapshot.AnimParamCount))
                 {
-                    dirtyMask |= ObjectSyncDirtyMask.FloatParam1;
-                }
-
-                if (Mathf.Abs(entity.FloatParam2 - snapshot.FloatParam2) > FloatParamDirtyThreshold)
-                {
-                    dirtyMask |= ObjectSyncDirtyMask.FloatParam2;
-                }
-
-                if (Mathf.Abs(entity.FloatParam3 - snapshot.FloatParam3) > FloatParamDirtyThreshold)
-                {
-                    dirtyMask |= ObjectSyncDirtyMask.FloatParam3;
+                    dirtyMask |= ObjectSyncDirtyMask.AnimParams;
                 }
             }
 
             return (ushort)dirtyMask;
+        }
+
+        private static bool HasAnimParamMeaningfulChange(
+            AnimatorParamValue[] currentParams,
+            int currentCount,
+            AnimatorParamValue[] snapshotParams,
+            int snapshotCount)
+        {
+            if (currentCount != snapshotCount)
+            {
+                return true;
+            }
+
+            for (int i = 0; i < currentCount; i++)
+            {
+                AnimatorParamValue current = currentParams[i];
+                AnimatorParamValue snapshot = snapshotParams[i];
+                if (current.ParamHash != snapshot.ParamHash)
+                {
+                    return true;
+                }
+
+                if (Mathf.Abs(current.Value - snapshot.Value) > FloatParamDirtyThreshold)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static AnimatorParamValue[] CloneAnimParams(AnimatorParamValue[] source, int count)
+        {
+            if (count <= 0 || source == null || source.Length <= 0)
+            {
+                return Array.Empty<AnimatorParamValue>();
+            }
+
+            var cloned = new AnimatorParamValue[count];
+            Array.Copy(source, cloned, count);
+            return cloned;
         }
 
         private static ushort BuildFullDirtyMask(byte entityMask)

@@ -94,19 +94,14 @@ namespace StellarNet.Lite.Shared.ObjectSync
         public float AnimNormalizedTime;
 
         /// <summary>
-        /// 第一个动画浮点参数。
+        /// 当前动画参数数量。
         /// </summary>
-        public float FloatParam1;
+        public int AnimParamCount;
 
         /// <summary>
-        /// 第二个动画浮点参数。
+        /// 当前动画参数列表。
         /// </summary>
-        public float FloatParam2;
-
-        /// <summary>
-        /// 第三个动画浮点参数。
-        /// </summary>
-        public float FloatParam3;
+        public AnimatorParamValue[] AnimParams;
 
         /// <summary>
         /// 当前实体拥有者 SessionId。
@@ -146,9 +141,23 @@ namespace StellarNet.Lite.Shared.ObjectSync
 
             writer.Write(AnimStateHash);
             writer.Write(AnimNormalizedTime);
-            writer.Write(FloatParam1);
-            writer.Write(FloatParam2);
-            writer.Write(FloatParam3);
+            writer.Write(AnimParamCount);
+
+            if (AnimParamCount > 0)
+            {
+                if (AnimParams == null || AnimParams.Length < AnimParamCount)
+                {
+                    NetLogger.LogError(
+                        "ObjectSpawnState",
+                        $"序列化失败: AnimParams 非法, Count:{AnimParamCount}, Length:{(AnimParams == null ? 0 : AnimParams.Length)}");
+                    return;
+                }
+
+                for (int i = 0; i < AnimParamCount; i++)
+                {
+                    AnimParams[i].Serialize(writer);
+                }
+            }
 
             writer.Write(OwnerSessionId ?? string.Empty);
         }
@@ -186,9 +195,25 @@ namespace StellarNet.Lite.Shared.ObjectSync
 
             AnimStateHash = reader.ReadInt32();
             AnimNormalizedTime = reader.ReadSingle();
-            FloatParam1 = reader.ReadSingle();
-            FloatParam2 = reader.ReadSingle();
-            FloatParam3 = reader.ReadSingle();
+            AnimParamCount = reader.ReadInt32();
+            if (AnimParamCount < 0)
+            {
+                NetLogger.LogError("ObjectSpawnState", $"反序列化失败: AnimParamCount 非法, Count:{AnimParamCount}");
+                AnimParamCount = 0;
+                AnimParams = System.Array.Empty<AnimatorParamValue>();
+            }
+            else
+            {
+                if (AnimParams == null || AnimParams.Length < AnimParamCount)
+                {
+                    AnimParams = new AnimatorParamValue[AnimParamCount];
+                }
+
+                for (int i = 0; i < AnimParamCount; i++)
+                {
+                    AnimParams[i].Deserialize(reader);
+                }
+            }
 
             OwnerSessionId = reader.ReadString();
         }
@@ -203,6 +228,7 @@ namespace StellarNet.Lite.Shared.ObjectSync
                 ScaleX = 1f,
                 ScaleY = 1f,
                 ScaleZ = 1f,
+                AnimParams = System.Array.Empty<AnimatorParamValue>(),
                 OwnerSessionId = string.Empty
             };
         }

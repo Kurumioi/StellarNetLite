@@ -5,6 +5,7 @@ using StellarNet.Lite.Server.Components;
 using StellarNet.Lite.Server.Core;
 using StellarNet.Lite.Shared.Core;
 using StellarNet.Lite.Shared.Infrastructure;
+using StellarNet.Lite.Shared.ObjectSync;
 using StellarNet.Lite.Shared.Protocol;
 using UnityEngine;
 using Random = System.Random;
@@ -29,10 +30,10 @@ namespace StellarNet.Lite.Game.Server.Components
         private readonly Random _random = new Random(Guid.NewGuid().GetHashCode());
 
         private const int PlayerPrefabHash = NetPrefabConsts.NetPrefabs_SocialPlayer;
-        private static readonly int AnimHash_Idle = GetStableStringHash("Idle");
-        private static readonly int AnimHash_Walk = GetStableStringHash("Walk");
-        private static readonly int AnimHash_Wave = GetStableStringHash("Wave");
-        private static readonly int AnimHash_Dance = GetStableStringHash("Dance");
+        private static readonly int AnimHash_Idle = ObjectSyncAnimHashUtility.GetStableStringHash("Idle");
+        private static readonly int AnimHash_Walk = ObjectSyncAnimHashUtility.GetStableStringHash("Walk");
+        private static readonly int AnimHash_Wave = ObjectSyncAnimHashUtility.GetStableStringHash("Wave");
+        private static readonly int AnimHash_Dance = ObjectSyncAnimHashUtility.GetStableStringHash("Dance");
 
         private const float PlayerMoveSpeed = 4.0f;
         private const float WaveDurationSeconds = 2.5f;
@@ -136,8 +137,7 @@ namespace StellarNet.Lite.Game.Server.Components
                 return;
             }
 
-            syncEntity.AnimStateHash = AnimHash_Idle;
-            syncEntity.AnimNormalizedTime = 0f;
+            syncEntity.SetAnimState("Idle");
             _sessionToNetId.Add(session.SessionId, syncEntity.NetId);
         }
 
@@ -148,25 +148,6 @@ namespace StellarNet.Lite.Game.Server.Components
             float x = (float)(Math.Cos(angle) * distance);
             float z = (float)(Math.Sin(angle) * distance);
             return new Vector3(x, 0f, z);
-        }
-
-        private static int GetStableStringHash(string value)
-        {
-            if (string.IsNullOrEmpty(value))
-            {
-                return 0;
-            }
-
-            unchecked
-            {
-                int hash = 23;
-                for (int i = 0; i < value.Length; i++)
-                {
-                    hash = hash * 31 + value[i];
-                }
-
-                return hash;
-            }
         }
 
         public void OnTick()
@@ -196,8 +177,7 @@ namespace StellarNet.Lite.Game.Server.Components
                          currentTime > endTime)
                 {
                     _actionEndTimes.Remove(playerSync.NetId);
-                    playerSync.AnimStateHash = AnimHash_Idle;
-                    playerSync.AnimNormalizedTime = 0f;
+                    playerSync.SetAnimState("Idle");
                     BroadcastLiveState(playerSync);
                 }
             }
@@ -242,14 +222,12 @@ namespace StellarNet.Lite.Game.Server.Components
                 _actionEndTimes.Remove(netId);
                 if (playerSync.AnimStateHash != AnimHash_Walk)
                 {
-                    playerSync.AnimStateHash = AnimHash_Walk;
-                    playerSync.AnimNormalizedTime = 0f;
+                    playerSync.SetAnimState("Walk");
                 }
             }
             else if (playerSync.AnimStateHash == AnimHash_Walk)
             {
-                playerSync.AnimStateHash = AnimHash_Idle;
-                playerSync.AnimNormalizedTime = 0f;
+                playerSync.SetAnimState("Idle");
             }
 
             BroadcastLiveState(playerSync);
@@ -278,15 +256,13 @@ namespace StellarNet.Lite.Game.Server.Components
 
             if (msg.ActionId == 1)
             {
-                playerSync.AnimStateHash = AnimHash_Wave;
-                playerSync.AnimNormalizedTime = 0f;
+                playerSync.SetAnimState("Wave");
                 _actionEndTimes[netId] = Room.CurrentRealtimeSinceStartup + WaveDurationSeconds;
                 BroadcastLiveState(playerSync);
             }
             else if (msg.ActionId == 2)
             {
-                playerSync.AnimStateHash = AnimHash_Dance;
-                playerSync.AnimNormalizedTime = 0f;
+                playerSync.SetAnimState("Dance");
                 _actionEndTimes[netId] = Room.CurrentRealtimeSinceStartup + DanceDurationSeconds;
                 BroadcastLiveState(playerSync);
             }
@@ -344,9 +320,8 @@ namespace StellarNet.Lite.Game.Server.Components
                 ScaleZ = Mathf.Approximately(entity.Scale.z, 0f) ? 1f : entity.Scale.z,
                 AnimStateHash = entity.AnimStateHash,
                 AnimNormalizedTime = entity.AnimNormalizedTime,
-                FloatParam1 = entity.FloatParam1,
-                FloatParam2 = entity.FloatParam2,
-                FloatParam3 = entity.FloatParam3
+                AnimParamCount = entity.AnimParamCount,
+                AnimParams = entity.AnimParamCount > 0 ? CloneAnimParams(entity.AnimParams, entity.AnimParamCount) : Array.Empty<AnimatorParamValue>()
             };
         }
 
@@ -364,6 +339,18 @@ namespace StellarNet.Lite.Game.Server.Components
             }
 
             return (ushort)dirtyMask;
+        }
+
+        private static AnimatorParamValue[] CloneAnimParams(AnimatorParamValue[] source, int count)
+        {
+            if (count <= 0 || source == null || source.Length <= 0)
+            {
+                return Array.Empty<AnimatorParamValue>();
+            }
+
+            AnimatorParamValue[] cloned = new AnimatorParamValue[count];
+            Array.Copy(source, cloned, count);
+            return cloned;
         }
     }
 }

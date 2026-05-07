@@ -32,11 +32,9 @@ namespace StellarNet.Lite.Shared.Protocol
         Scale = 1 << 3,
         AnimState = 1 << 4,
         AnimNormalizedTime = 1 << 5,
-        FloatParam1 = 1 << 6,
-        FloatParam2 = 1 << 7,
-        FloatParam3 = 1 << 8,
+        AnimParams = 1 << 6,
         AllTransform = Position | Rotation | Velocity | Scale,
-        AllAnimator = AnimState | AnimNormalizedTime | FloatParam1 | FloatParam2 | FloatParam3
+        AllAnimator = AnimState | AnimNormalizedTime | AnimParams
     }
 
     /// <summary>
@@ -130,19 +128,14 @@ namespace StellarNet.Lite.Shared.Protocol
         public float AnimNormalizedTime;
 
         /// <summary>
-        /// 第一个动画浮点参数。
+        /// 当前动画参数数量。
         /// </summary>
-        public float FloatParam1;
+        public int AnimParamCount;
 
         /// <summary>
-        /// 第二个动画浮点参数。
+        /// 当前动画参数列表。
         /// </summary>
-        public float FloatParam2;
-
-        /// <summary>
-        /// 第三个动画浮点参数。
-        /// </summary>
-        public float FloatParam3;
+        public AnimatorParamValue[] AnimParams;
 
         /// <summary>
         /// 序列化增量同步态。
@@ -197,19 +190,24 @@ namespace StellarNet.Lite.Shared.Protocol
                 writer.Write(AnimNormalizedTime);
             }
 
-            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam1) != 0)
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.AnimParams) != 0)
             {
-                writer.Write(FloatParam1);
-            }
+                writer.Write(AnimParamCount);
+                if (AnimParamCount > 0)
+                {
+                    if (AnimParams == null || AnimParams.Length < AnimParamCount)
+                    {
+                        NetLogger.LogError(
+                            "ObjectSyncState",
+                            $"序列化失败: AnimParams 非法, Count:{AnimParamCount}, Length:{(AnimParams == null ? 0 : AnimParams.Length)}");
+                        return;
+                    }
 
-            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam2) != 0)
-            {
-                writer.Write(FloatParam2);
-            }
-
-            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam3) != 0)
-            {
-                writer.Write(FloatParam3);
+                    for (int i = 0; i < AnimParamCount; i++)
+                    {
+                        AnimParams[i].Serialize(writer);
+                    }
+                }
             }
         }
 
@@ -266,19 +264,26 @@ namespace StellarNet.Lite.Shared.Protocol
                 AnimNormalizedTime = reader.ReadSingle();
             }
 
-            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam1) != 0)
+            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.AnimParams) != 0)
             {
-                FloatParam1 = reader.ReadSingle();
-            }
+                AnimParamCount = reader.ReadInt32();
+                if (AnimParamCount < 0)
+                {
+                    NetLogger.LogError("ObjectSyncState", $"反序列化失败: AnimParamCount 非法, Count:{AnimParamCount}");
+                    AnimParamCount = 0;
+                    AnimParams = Array.Empty<AnimatorParamValue>();
+                    return;
+                }
 
-            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam2) != 0)
-            {
-                FloatParam2 = reader.ReadSingle();
-            }
+                if (AnimParams == null || AnimParams.Length < AnimParamCount)
+                {
+                    AnimParams = new AnimatorParamValue[AnimParamCount];
+                }
 
-            if ((DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam3) != 0)
-            {
-                FloatParam3 = reader.ReadSingle();
+                for (int i = 0; i < AnimParamCount; i++)
+                {
+                    AnimParams[i].Deserialize(reader);
+                }
             }
         }
     }
@@ -378,21 +383,6 @@ namespace StellarNet.Lite.Shared.Protocol
         /// 当前动画归一化时间。
         /// </summary>
         public float AnimNormalizedTime => State.AnimNormalizedTime;
-
-        /// <summary>
-        /// 第一个动画浮点参数。
-        /// </summary>
-        public float FloatParam1 => State.FloatParam1;
-
-        /// <summary>
-        /// 第二个动画浮点参数。
-        /// </summary>
-        public float FloatParam2 => State.FloatParam2;
-
-        /// <summary>
-        /// 第三个动画浮点参数。
-        /// </summary>
-        public float FloatParam3 => State.FloatParam3;
 
         /// <summary>
         /// 当前拥有者 SessionId。

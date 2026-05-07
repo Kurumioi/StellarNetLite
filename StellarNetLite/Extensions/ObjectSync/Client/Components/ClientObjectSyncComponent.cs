@@ -50,8 +50,8 @@ namespace StellarNet.Lite.Client.Components
     /// <summary>
     /// 客户端预测后的动画数据。
     /// </summary>
-    public struct PredictedAnimatorData
-    {
+        public struct PredictedAnimatorData
+        {
         /// <summary>
         /// 动画状态 Hash。
         /// </summary>
@@ -62,20 +62,15 @@ namespace StellarNet.Lite.Client.Components
         /// </summary>
         public float AnimNormalizedTime;
 
-        /// <summary>
-        /// 第一个浮点参数。
-        /// </summary>
-        public float FloatParam1;
+            /// <summary>
+            /// 当前动画参数数量。
+            /// </summary>
+            public int AnimParamCount;
 
-        /// <summary>
-        /// 第二个浮点参数。
-        /// </summary>
-        public float FloatParam2;
-
-        /// <summary>
-        /// 第三个浮点参数。
-        /// </summary>
-        public float FloatParam3;
+            /// <summary>
+            /// 当前动画参数列表。
+            /// </summary>
+            public AnimatorParamValue[] AnimParams;
 
         /// <summary>
         /// 当前播放倍率。
@@ -124,9 +119,8 @@ namespace StellarNet.Lite.Client.Components
             public Vector3 RawScale;
             public int AnimStateHash;
             public float AnimNormalizedTime;
-            public float FloatParam1;
-            public float FloatParam2;
-            public float FloatParam3;
+            public int AnimParamCount;
+            public AnimatorParamValue[] AnimParams;
             public float LocalReceiveTime;
             public float ServerTime;
         }
@@ -496,9 +490,8 @@ namespace StellarNet.Lite.Client.Components
                 {
                     AnimStateHash = data.AnimStateHash,
                     AnimNormalizedTime = data.AnimNormalizedTime,
-                    FloatParam1 = data.FloatParam1,
-                    FloatParam2 = data.FloatParam2,
-                    FloatParam3 = data.FloatParam3,
+                    AnimParamCount = data.AnimParamCount,
+                    AnimParams = data.AnimParams,
                     PlaybackSpeed = _replayTimeScale,
                     ServerTimeDelta = replayDelta
                 };
@@ -521,9 +514,8 @@ namespace StellarNet.Lite.Client.Components
             {
                 AnimStateHash = data.AnimStateHash,
                 AnimNormalizedTime = data.AnimNormalizedTime,
-                FloatParam1 = data.FloatParam1,
-                FloatParam2 = data.FloatParam2,
-                FloatParam3 = data.FloatParam3,
+                AnimParamCount = data.AnimParamCount,
+                AnimParams = data.AnimParams,
                 PlaybackSpeed = 1f,
                 ServerTimeDelta = timeSinceLastPacket
             };
@@ -550,9 +542,7 @@ namespace StellarNet.Lite.Client.Components
                 Mathf.Approximately(state.ScaleY, 0f) ? 1f : state.ScaleY, Mathf.Approximately(state.ScaleZ, 0f) ? 1f : state.ScaleZ);
             data.AnimStateHash = state.AnimStateHash;
             data.AnimNormalizedTime = state.AnimNormalizedTime;
-            data.FloatParam1 = state.FloatParam1;
-            data.FloatParam2 = state.FloatParam2;
-            data.FloatParam3 = state.FloatParam3;
+            CopyAnimParams(state.AnimParams, state.AnimParamCount, ref data.AnimParams, out data.AnimParamCount);
             data.LocalReceiveTime = Time.realtimeSinceStartup;
             data.ServerTime = 0f;
         }
@@ -597,19 +587,9 @@ namespace StellarNet.Lite.Client.Components
                 data.AnimNormalizedTime = state.AnimNormalizedTime;
             }
 
-            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam1) != 0)
+            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.AnimParams) != 0)
             {
-                data.FloatParam1 = state.FloatParam1;
-            }
-
-            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam2) != 0)
-            {
-                data.FloatParam2 = state.FloatParam2;
-            }
-
-            if ((state.DirtyMask & (ushort)ObjectSyncDirtyMask.FloatParam3) != 0)
-            {
-                data.FloatParam3 = state.FloatParam3;
+                CopyAnimParams(state.AnimParams, state.AnimParamCount, ref data.AnimParams, out data.AnimParamCount);
             }
         }
 
@@ -634,11 +614,44 @@ namespace StellarNet.Lite.Client.Components
                 ScaleZ = data.RawScale.z,
                 AnimStateHash = data.AnimStateHash,
                 AnimNormalizedTime = data.AnimNormalizedTime,
-                FloatParam1 = data.FloatParam1,
-                FloatParam2 = data.FloatParam2,
-                FloatParam3 = data.FloatParam3,
+                AnimParamCount = data.AnimParamCount,
+                AnimParams = CloneAnimParams(data.AnimParams, data.AnimParamCount),
                 OwnerSessionId = data.OwnerSessionId
             };
+        }
+
+        private static void CopyAnimParams(
+            AnimatorParamValue[] source,
+            int sourceCount,
+            ref AnimatorParamValue[] target,
+            out int targetCount)
+        {
+            if (sourceCount <= 0 || source == null || source.Length <= 0)
+            {
+                target = Array.Empty<AnimatorParamValue>();
+                targetCount = 0;
+                return;
+            }
+
+            if (target == null || target.Length < sourceCount)
+            {
+                target = new AnimatorParamValue[sourceCount];
+            }
+
+            Array.Copy(source, target, sourceCount);
+            targetCount = sourceCount;
+        }
+
+        private static AnimatorParamValue[] CloneAnimParams(AnimatorParamValue[] source, int count)
+        {
+            if (count <= 0 || source == null || source.Length <= 0)
+            {
+                return Array.Empty<AnimatorParamValue>();
+            }
+
+            var cloned = new AnimatorParamValue[count];
+            Array.Copy(source, cloned, count);
+            return cloned;
         }
     }
 }

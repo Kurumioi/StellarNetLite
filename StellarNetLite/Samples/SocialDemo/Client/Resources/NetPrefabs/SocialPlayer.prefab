@@ -2441,6 +2441,9 @@ MonoBehaviour:
   SnapThreshold: 3
   CatchUpThreshold: 1.5
   StopThreshold: 0.05
+  LocalSnapThreshold: 2
+  LocalSoftCorrectionSpeed: 5
+  LocalIgnoreThreshold: 0.05
 --- !u!114 &7863286462564655372
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2454,6 +2457,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   TargetAnimator: {fileID: 3238250712986701221}
+  SourceAnimatorController: {fileID: 9100000, guid: 0eb8867470bb9324b8b5540356634e4b, type: 2}
   ParamSmoothTime: 0.03
   AnimCrossFadeTime: 0.1
   EnableAntiIceSkating: 1
@@ -2461,9 +2465,24 @@ MonoBehaviour:
   - Idle
   AntiIceSourceStates:
   - Walk
-  FloatParam1Name: 
-  FloatParam2Name: 
-  FloatParam3Name: 
+  SyncedStates:
+  - Enabled: 1
+    LogicStateName: Idle
+    AnimatorStateName: Idle
+  - Enabled: 1
+    LogicStateName: Walk
+    AnimatorStateName: Walk
+  - Enabled: 1
+    LogicStateName: Wave
+    AnimatorStateName: Wave
+  - Enabled: 1
+    LogicStateName: Dance
+    AnimatorStateName: Dance
+  SyncedFloatParams: []
+  _legacySyncedStateNames: []
+  _legacyFloatParam1Name: 
+  _legacyFloatParam2Name: 
+  _legacyFloatParam3Name: 
 --- !u!1 &3134243690379836504
 GameObject:
   m_ObjectHideFlags: 0

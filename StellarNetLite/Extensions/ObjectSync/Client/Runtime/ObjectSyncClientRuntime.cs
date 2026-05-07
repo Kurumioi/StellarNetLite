@@ -270,9 +270,8 @@ namespace StellarNet.Lite.Client.Components.Runtime
                 animView.HardSetInitialState(
                     state.AnimStateHash,
                     state.AnimNormalizedTime,
-                    state.FloatParam1,
-                    state.FloatParam2,
-                    state.FloatParam3);
+                    state.AnimParams,
+                    state.AnimParamCount);
                 animView.IsLocalPlayer = NetClient.Session != null && state.OwnerSessionId == NetClient.Session.SessionId;
             }
         }
