@@ -8,7 +8,7 @@
     "net8.0": []
   },
   "packageFolders": {
-    "C:\\GitProjects\\StellarNetLite\\.dotnet-cli-home\\.nuget\\packages\\": {}
+    "C:\\Users\\Administrator\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
@@ -16,7 +16,7 @@
       "projectUniqueName": "C:\\GitProjects\\StellarNetLite\\StreamingAssets\\StellarNetLiteLoadTest\\StellarNetLiteLoadTest.csproj",
       "projectName": "StellarNetLiteLoadTest",
       "projectPath": "C:\\GitProjects\\StellarNetLite\\StreamingAssets\\StellarNetLiteLoadTest\\StellarNetLiteLoadTest.csproj",
-      "packagesPath": "C:\\GitProjects\\StellarNetLite\\.dotnet-cli-home\\.nuget\\packages\\",
+      "packagesPath": "C:\\Users\\Administrator\\.nuget\\packages\\",
       "outputPath": "C:\\GitProjects\\StellarNetLite\\StreamingAssets\\StellarNetLiteLoadTest\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
